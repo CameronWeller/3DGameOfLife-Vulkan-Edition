@@ -13,6 +13,12 @@
 // Forward declarations
 class MemoryPool;
 
+struct SwapChainSupportDetails {
+    VkSurfaceCapabilitiesKHR capabilities;
+    std::vector<VkSurfaceFormatKHR> formats;
+    std::vector<VkPresentModeKHR> presentModes;
+};
+
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
     std::optional<uint32_t> presentFamily;
@@ -63,6 +69,7 @@ class VulkanEngine {
 public:
     static constexpr int WIDTH = 800;
     static constexpr int HEIGHT = 600;
+    static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
     static constexpr const char* WINDOW_TITLE = "Vulkan HIP Engine";
 
     VulkanEngine();
@@ -86,7 +93,6 @@ public:
     // Static accessors for device and memory management
     static VkDevice getDevice() { return instance ? instance->device : VK_NULL_HANDLE; }
     static uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
-    // Add accessor for physicalDevice
     static VkPhysicalDevice getPhysicalDevice() { return instance ? instance->physicalDevice : VK_NULL_HANDLE; }
 
 private:
@@ -129,13 +135,55 @@ private:
     std::vector<VkFence> computeFences;
 
     // Device features and extensions
-    VkPhysicalDeviceFeatures deviceInfo{};
+    struct {
+        VkPhysicalDeviceProperties properties{};
+        VkPhysicalDeviceMemoryProperties memoryProperties{};
+    } deviceInfo;
+    VkPhysicalDeviceFeatures enabledFeatures{};
     const std::vector<const char*> deviceExtensions = {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+        VK_KHR_MAINTENANCE1_EXTENSION_NAME,  // For better performance
+        VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,  // For better resource management
+        VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME  // For better memory access
     };
-    const std::vector<const char*> validationLayers = {
+    std::vector<const char*> validationLayers = {
         "VK_LAYER_KHRONOS_validation"
     };
+
+    // Swap chain
+    VkSwapchainKHR swapChain;
+    std::vector<VkImage> swapChainImages;
+    VkFormat swapChainImageFormat;
+    VkExtent2D swapChainExtent;
+    std::vector<VkImageView> swapChainImageViews;
+    std::vector<VkFramebuffer> swapChainFramebuffers;
+
+    // Render pass
+    VkRenderPass renderPass;
+
+    // Command buffers and synchronization
+    std::vector<VkCommandBuffer> commandBuffers;
+    std::vector<VkSemaphore> imageAvailableSemaphores;
+    std::vector<VkSemaphore> renderFinishedSemaphores;
+    std::vector<VkFence> inFlightFences;
+    std::vector<VkFence> imagesInFlight;
+    size_t currentFrame = 0;
+    bool framebufferResized = false;
+
+    // Vertex buffer
+    VkBuffer vertexBuffer;
+    VkDeviceMemory vertexBufferMemory;
+
+    // Depth buffer
+    VkImage depthImage;
+    VkDeviceMemory depthImageMemory;
+    VkImageView depthImageView;
+
+    // MSAA
+    VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkImage colorImage;
+    VkDeviceMemory colorImageMemory;
+    VkImageView colorImageView;
 
     // Initialization methods
     void initWindow();
@@ -171,7 +219,6 @@ private:
     void waitForComputeCompletion();
 
     // Memory management methods
-    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
     VkBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
     void destroyBuffer(VkBuffer buffer, VkDeviceMemory memory);
 
@@ -194,4 +241,35 @@ private:
         VkDebugUtilsMessageTypeFlagsEXT messageType,
         const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
         void* pUserData);
+
+    // New private methods
+    void createSwapChain();
+    void createImageViews();
+    void createRenderPass();
+    void createFramebuffers();
+    void createVertexBuffer();
+    void createDepthResources();
+    void createColorResources();
+    void createSyncObjects();
+    void recreateSwapChain();
+    void cleanupSwapChain();
+    void updateUniformBuffer(uint32_t currentImage);
+    void drawFrame();
+    void createCommandBuffers();
+    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
+    VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
+    VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
+    VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
+    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
+    VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
+    VkFormat findDepthFormat();
+    bool hasStencilComponent(VkFormat format);
+    VkSampleCountFlagBits getMaxUsableSampleCount();
+    void createImage(uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits numSamples,
+                    VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
+                    VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
+    void createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels, VkImageView& imageView);
+    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels);
+    void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+    void generateMipmaps(VkImage image, VkFormat imageFormat, int32_t texWidth, int32_t texHeight, uint32_t mipLevels);
 }; 
