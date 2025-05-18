@@ -108,6 +108,12 @@ private:
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 };
 
+/**
+ * @brief Main engine class for Vulkan-based rendering
+ * 
+ * This class manages the Vulkan instance, device, swap chain, and rendering pipeline.
+ * It provides a high-level interface for creating and managing Vulkan resources.
+ */
 class VulkanEngine {
 public:
     static constexpr int WIDTH = 800;
@@ -116,13 +122,24 @@ public:
     static constexpr const char* WINDOW_TITLE = "Vulkan HIP Engine";
     static constexpr bool enableValidationLayers = true;
 
+    /**
+     * @brief Construct a new Vulkan Engine object
+     */
     VulkanEngine();
+
+    /**
+     * @brief Destroy the Vulkan Engine object and clean up resources
+     */
     ~VulkanEngine();
 
     // Delete copy constructor and assignment operator
     VulkanEngine(const VulkanEngine&) = delete;
     VulkanEngine& operator=(const VulkanEngine&) = delete;
 
+    /**
+     * @brief Initialize the Vulkan instance and device
+     * @throws std::runtime_error if initialization fails
+     */
     void init();
     void run();
 
@@ -138,6 +155,37 @@ public:
     static VkDevice getDevice() { return instance ? instance->device : VK_NULL_HANDLE; }
     static uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
     static VkPhysicalDevice getPhysicalDevice() { return instance ? instance->physicalDevice : VK_NULL_HANDLE; }
+
+    /**
+     * @brief Create a buffer with the specified parameters
+     * 
+     * @param size Size of the buffer in bytes
+     * @param usage Buffer usage flags
+     * @param properties Memory property flags
+     * @param buffer Output parameter for the created buffer
+     * @param bufferMemory Output parameter for the buffer memory
+     * @throws std::runtime_error if buffer creation fails
+     */
+    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, 
+                     VkMemoryPropertyFlags properties, VkBuffer& buffer, 
+                     VkDeviceMemory& bufferMemory);
+
+    /**
+     * @brief Create a shader module from SPIR-V code
+     * 
+     * @param code Vector containing the SPIR-V code
+     * @param shaderModule Output parameter for the created shader module
+     * @throws std::runtime_error if shader module creation fails
+     */
+    void createShaderModule(const std::vector<uint32_t>& code, 
+                           VkShaderModule& shaderModule);
+
+    /**
+     * @brief Get the current Vulkan instance
+     * 
+     * @return VkInstance The current Vulkan instance
+     */
+    VkInstance getVkInstance() const { return vkInstance; }
 
 private:
     // Static instance pointer
@@ -253,9 +301,9 @@ private:
     // Helper methods
     bool checkValidationLayerSupport();
     std::vector<const char*> getRequiredExtensions();
-    bool isDeviceSuitable(VkPhysicalDevice device);
-    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
-    bool checkDeviceExtensionSupport(VkPhysicalDevice device);
+    bool isDeviceSuitable(VkPhysicalDevice device) const;
+    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) const;
+    bool checkDeviceExtensionSupport(VkPhysicalDevice device) const;
     void enableDeviceFeatures();
 
     // Shader methods
@@ -321,10 +369,10 @@ private:
     void createUniformBuffers();
     void createDescriptorPool();
     void createDescriptorSets();
-    VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
-    VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
-    VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
-    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
+    VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) const;
+    VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) const;
+    VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) const;
+    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) const;
     VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
     VkFormat findDepthFormat();
     bool hasStencilComponent(VkFormat format);

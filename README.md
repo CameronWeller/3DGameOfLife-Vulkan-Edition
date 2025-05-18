@@ -118,4 +118,35 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - The engine version is tracked in `version.txt` (to be created).
 
 ## CI/CD
-- Recommended: Set up GitHub Actions or similar to run `docker-compose build` and basic tests on every push/PR. 
+- Recommended: Set up GitHub Actions or similar to run `docker-compose build` and basic tests on every push/PR.
+
+## Code Quality & Static Analysis
+
+This project uses the following tools for code quality:
+
+- **clang-format**: Enforces code style. Run locally with:
+  ```
+  clang-format -i src/**/*.cpp src/**/*.h
+  ```
+  Or check formatting only:
+  ```
+  clang-format --dry-run --Werror src/**/*.cpp src/**/*.h
+  ```
+- **clang-tidy**: Advanced static analysis. Run locally with:
+  ```
+  mkdir -p build && cd build
+  cmake ..
+  cd ..
+  clang-tidy -p build src/**/*.cpp -- -std=c++17
+  ```
+- **cppcheck**: General static analysis. Run locally with:
+  ```
+  cppcheck --enable=all --suppress=missingIncludeSystem --std=c++17 src/
+  ```
+
+### In CI
+All of these checks are run automatically on every push and pull request. If any check fails, the CI will report the failure and you should fix the issues before merging.
+
+Suppressions for known false positives are in `cppcheck.suppress`.
+
+Configuration for these tools is in `.clang-format`, `.clang-tidy`, and `cppcheck.suppress` at the project root. 

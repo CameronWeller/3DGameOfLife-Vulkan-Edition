@@ -297,6 +297,39 @@ Notes:
 - Plan to add performance monitoring and profiling tools
 
 ### Session 9
+- Date: [2024-03-19]
+- Agent: Level the Laborer
+- Action: Attempted Vulkan SDK installation and verification
+- Purpose: Set up Vulkan development environment for Windows
+- Details:
+  * Found existing Vulkan SDK at C:\VulkanSDK\1.4.313.0
+  * Attempted to verify installation with vulkaninfo
+  * Discovered incomplete/corrupted installation
+  * Initiated reinstallation process
+  * Downloaded fresh Vulkan SDK installer
+  * Provided instructions for clean installation
+  * Successfully reinstalled Vulkan SDK
+- Status: Completed
+- Next Steps:
+  1. Set up X11 server (VcXsrv)
+  2. Configure Docker GPU support
+  3. Run Vulkan engine with proper GPU passthrough
+
+### Session 19
+- Date: [2024-03-19]
+- Agent: Level the Laborer
+- Action: Verified Vulkan SDK installation
+- Purpose: Confirm successful Vulkan SDK installation
+- Details:
+  * Vulkan SDK successfully reinstalled
+  * Ready to proceed with X11 and Docker GPU setup
+- Status: Completed
+- Next Steps:
+  1. Install and configure VcXsrv for X11 forwarding
+  2. Set up Docker GPU passthrough
+  3. Test Vulkan engine with GPU support
+
+### Session 10
 - Date: [Current Date]
 - Agent: Archy the Sleuth
 - Action: Made HIP optional in build system
@@ -308,7 +341,7 @@ Notes:
   * Updated build configuration for better flexibility
 - Status: Completed
 
-### Session 10
+### Session 11
 - Date: [Current Date]
 - Agent: Archy the Sleuth
 - Action: Added X11 development packages
@@ -321,7 +354,7 @@ Notes:
   * Added libxi-dev for X11 input extension
 - Status: Completed
 
-### Session 11
+### Session 12
 - Date: [Current Date]
 - Agent: Archy the Sleuth
 - Action: Added GLM library dependency
@@ -333,7 +366,7 @@ Notes:
   * Enabled mathematical operations needed for 3D Game of Life
 - Status: Completed
 
-### Session 12
+### Session 13
 - Date: [Current Date]
 - Agent: Anthrax the Bug Destroyer
 - Action: Fixed dependency and include issues
@@ -346,7 +379,7 @@ Notes:
   * Removed redundant Vulkan packages in favor of official SDK
 - Status: Completed
 
-### Session 13
+### Session 14
 - Date: [Current Date]
 - Agent: Archy the Sleuth
 - Action: Added basic shaders for testing
@@ -358,7 +391,7 @@ Notes:
   * Prepared for basic triangle rendering test
 - Status: Completed
 
-### Session 14
+### Session 15
 - Date: [Current Date]
 - Agent: Archy the Sleuth
 - Action: Added OpenGL development packages
@@ -370,7 +403,7 @@ Notes:
   * Ensured proper OpenGL development environment
 - Status: Completed
 
-### Session 15
+### Session 16
 - Date: [Current Date]
 - Agent: Anthrax the Bug Destroyer
 - Action: Fixed critical bugs in VulkanEngine
@@ -384,7 +417,7 @@ Notes:
   * Added proper cleanup for all Vulkan resources
 - Status: Completed
 
-### Session 16
+### Session 17
 - Date: [Current Date]
 - Agent: Archy the Sleuth
 - Action: Fixed VulkanEngine static access issues
@@ -397,7 +430,7 @@ Notes:
   * Improved error handling in static methods
 - Status: Completed
 
-### Session 17
+### Session 18
 - Date: [Current Date]
 - Agent: Archy the Sleuth
 - Action: Verified Docker build and configuration
@@ -409,6 +442,106 @@ Notes:
   * Confirmed shaders and executable are built in the correct location
   * Validated build process and container startup
 - Status: Completed
+
+### Session 20
+- Date: [2024-03-19]
+- Agent: Level the Laborer
+- Action: Verified Docker GPU passthrough for AMD Radeon RX 6700 XT
+- Purpose: Ensure Docker can access the AMD GPU
+- Details:
+  * Attempted to run ROCm container for GPU verification
+  * Discovered missing /dev/kfd device
+  * Checked Docker Desktop GPU configuration
+  * Found that Docker Desktop on Windows primarily supports NVIDIA GPUs through WSL2
+  * Decided on hybrid approach for optimal development and performance
+- Status: In Progress
+- Next Steps:
+  1. Development Environment (Docker):
+     - Keep Docker for building and development
+     - Maintain containerized build system
+     - Use for CI/CD and team consistency
+  2. Testing/Running Environment (Native Windows):
+     - Build and run game directly on Windows
+     - Use Windows AMD drivers for optimal performance
+     - Direct hardware access for testing
+  3. Implementation Plan:
+     a. Keep Docker build system as is
+     b. Add Windows-specific build target
+     c. Create Windows build script
+     d. Set up development workflow:
+        - Build in Docker
+        - Copy artifacts to Windows
+        - Run and test natively
+  4. Required Setup:
+     - Verify Windows AMD drivers
+     - Install Visual Studio Build Tools
+     - Set up CMake for Windows
+     - Create Windows build configuration
+
+### Session 21
+- Date: [2024-03-19]
+- Agent: Level the Laborer
+- Action: Implementing hybrid development approach
+- Purpose: Set up optimal development and testing environment
+- Details:
+  * Confirmed hybrid approach:
+    - Docker for building/development
+    - Native Windows for running/testing
+  * Verified current state:
+    - Docker build system is working
+    - Need to set up Windows build target
+    - Need to verify Windows Vulkan setup
+- Status: In Progress
+- Next Steps:
+  1. Windows Environment Setup:
+     a. Verify AMD drivers are installed
+     b. Install Vulkan SDK for Windows
+     c. Test Vulkan support
+  2. Build System Updates:
+     a. Add Windows-specific CMake configuration
+     b. Create Windows build script
+     c. Set up artifact copying from Docker to Windows
+  3. Development Workflow:
+     a. Build in Docker
+     b. Copy executables to Windows
+     c. Run and test natively
+  4. Documentation:
+     a. Update build instructions
+     b. Document Windows setup
+     c. Add testing workflow guide
+
+### Session 22
+- Date: [2024-03-19]
+- Agent: Level the Laborer
+- Action: Created Windows build configuration
+- Purpose: Set up Windows build system for native testing
+- Details:
+  * Created Windows build script (scripts/build_windows.bat):
+    - Checks for Visual Studio installation
+    - Verifies Vulkan SDK setup
+    - Configures CMake for Windows
+    - Builds project with Visual Studio
+    - Copies shaders to output directory
+  * Created Docker-to-Windows copy script (scripts/copy_to_windows.bat):
+    - Copies Docker build artifacts to Windows
+    - Sets up proper directory structure
+    - Handles shader files
+- Status: Completed
+- Next Steps:
+  1. Test Windows build script
+  2. Verify Docker-to-Windows copy process
+  3. Test native Windows execution
+  4. Update documentation with new workflow
+
+### Session: VulkanEngine.h Header Repair
+- Date: [2024-03-19]
+- Action: Reviewed and repaired VulkanEngine.h
+- Details:
+  * Removed non-static overloads of findMemoryType and getDevice, keeping only static versions.
+  * Ensured all members are declared only once and cleaned up any duplicate or misplaced declarations.
+  * Synchronized header with implementation to resolve overload, redefinition, and build errors.
+- Next Steps:
+  * Rebuild the project to verify that errors are resolved.
 
 ## Level the Laborer's Recent Work
 - Created IOlog.txt and established agent/project tracking

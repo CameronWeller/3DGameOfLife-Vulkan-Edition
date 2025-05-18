@@ -1,18 +1,23 @@
-#include "VulkanEngine.h"
+// Standard library includes
 #include <iostream>
 #include <set>
 #include <fstream>
-#include <glm/glm.hpp>
 #include <algorithm>
 #include <cstring>
-#include <vulkan/vulkan.h>
-#include <GLFW/glfw3.h>
 #include <vector>
 #include <string>
 #include <stdexcept>
 #include <optional>
 #include <array>
 #include <chrono>
+
+// Third-party includes
+#include <vulkan/vulkan.h>
+#include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+
+// Project includes
+#include "VulkanEngine.h"
 
 // Initialize static member
 VulkanEngine* VulkanEngine::instance = nullptr;
@@ -43,8 +48,18 @@ VulkanEngine::~VulkanEngine() {
 }
 
 void VulkanEngine::init() {
-    initWindow();
-    initVulkan();
+    try {
+        std::cout << "Initializing Vulkan Engine..." << std::endl;
+        initWindow();
+        std::cout << "Window initialized successfully." << std::endl;
+        initVulkan();
+        std::cout << "Vulkan initialized successfully." << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Error during initialization: " << e.what() << std::endl;
+        std::cout << "Press Enter to exit..." << std::endl;
+        std::cin.get();
+        throw;
+    }
 }
 
 void VulkanEngine::run() {
@@ -114,20 +129,29 @@ void VulkanEngine::cleanupSwapChain() {
 }
 
 void VulkanEngine::initWindow() {
-    glfwInit();
+    if (!glfwInit()) {
+        throw std::runtime_error("Failed to initialize GLFW!");
+    }
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
     window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan HIP Engine", nullptr, nullptr);
+    if (window == nullptr) {
+        glfwTerminate();
+        throw std::runtime_error("Failed to create GLFW window!");
+    }
+    
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 }
 
 void VulkanEngine::createSurface() {
+    std::cout << "Creating window surface..." << std::endl;
     if (glfwCreateWindowSurface(vkInstance, window, nullptr, &surface) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create window surface!");
     }
+    std::cout << "Window surface created successfully." << std::endl;
 }
 
 void VulkanEngine::cleanupSurface() {
@@ -170,16 +194,15 @@ void VulkanEngine::initVulkan() {
 }
 
 void VulkanEngine::createInstance() {
-    if (!checkValidationLayerSupport()) {
-        std::cout << "Validation layers requested but not available!" << std::endl;
-        validationLayers.clear(); // Clear validation layers if not supported
+    if (enableValidationLayers && !checkValidationLayerSupport()) {
+        throw std::runtime_error("Validation layers requested, but not available!");
     }
 
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    appInfo.pApplicationName = "Vulkan HIP Engine";
+    appInfo.pApplicationName = "Vulkan Engine";
     appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.pEngineName = "CustomEngine";
+    appInfo.pEngineName = "No Engine";
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.apiVersion = VK_API_VERSION_1_0;
 
@@ -191,31 +214,32 @@ void VulkanEngine::createInstance() {
     createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
     createInfo.ppEnabledExtensionNames = extensions.data();
 
-    if (!validationLayers.empty()) {
+    VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
+    if (enableValidationLayers) {
         createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
         createInfo.ppEnabledLayerNames = validationLayers.data();
+
+        populateDebugMessengerCreateInfo(debugCreateInfo);
+        createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debugCreateInfo;
     } else {
         createInfo.enabledLayerCount = 0;
+        createInfo.pNext = nullptr;
     }
 
-    std::cout << "Enabled Vulkan extensions:" << std::endl;
-    for (const auto& ext : extensions) {
-        std::cout << "  " << ext << std::endl;
-    }
-    if (!validationLayers.empty()) {
-        std::cout << "Enabled validation layers:" << std::endl;
-        for (const auto& layer : validationLayers) {
-            std::cout << "  " << layer << std::endl;
-        }
-    }
-
+    std::cout << "Creating Vulkan instance..." << std::endl;
     if (vkCreateInstance(&createInfo, nullptr, &vkInstance) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create Vulkan instance!");
     }
+    std::cout << "Vulkan instance created successfully." << std::endl;
 
-    // Setup debug messenger if validation layers are enabled
-    if (!validationLayers.empty()) {
-        setupDebugMessenger();
+    // Print available extensions
+    uint32_t extensionCount = 0;
+    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
+    std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, availableExtensions.data());
+    std::cout << "Available extensions:" << std::endl;
+    for (const auto& extension : availableExtensions) {
+        std::cout << "\t" << extension.extensionName << std::endl;
     }
 }
 
@@ -234,12 +258,16 @@ void VulkanEngine::pickPhysicalDevice() {
     std::cout << "Found " << deviceCount << " Vulkan-capable device(s)." << std::endl;
 
     for (const auto& device : devices) {
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(device, &props);
+        std::cout << "Checking device: " << props.deviceName << std::endl;
+        
         if (isDeviceSuitable(device)) {
             physicalDevice = device;
-            VkPhysicalDeviceProperties props;
-            vkGetPhysicalDeviceProperties(device, &props);
             std::cout << "Selected device: " << props.deviceName << std::endl;
             break;
+        } else {
+            std::cout << "Device " << props.deviceName << " is not suitable." << std::endl;
         }
     }
 
@@ -249,7 +277,7 @@ void VulkanEngine::pickPhysicalDevice() {
     }
 }
 
-QueueFamilyIndices VulkanEngine::findQueueFamilies(VkPhysicalDevice device) {
+QueueFamilyIndices VulkanEngine::findQueueFamilies(VkPhysicalDevice device) const {
     QueueFamilyIndices indices;
 
     uint32_t queueFamilyCount = 0;
@@ -258,14 +286,22 @@ QueueFamilyIndices VulkanEngine::findQueueFamilies(VkPhysicalDevice device) {
     std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
 
+    std::cout << "Found " << queueFamilyCount << " queue families." << std::endl;
+
     int i = 0;
     for (const auto& queueFamily : queueFamilies) {
+        std::cout << "Queue family " << i << ":" << std::endl;
+        std::cout << "\tQueue count: " << queueFamily.queueCount << std::endl;
+        std::cout << "\tQueue flags: " << queueFamily.queueFlags << std::endl;
+
         if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
             indices.graphicsFamily = i;
+            std::cout << "\tSupports graphics" << std::endl;
         }
 
         if (queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT) {
             indices.computeFamily = i;
+            std::cout << "\tSupports compute" << std::endl;
         }
 
         VkBool32 presentSupport = false;
@@ -273,6 +309,7 @@ QueueFamilyIndices VulkanEngine::findQueueFamilies(VkPhysicalDevice device) {
 
         if (presentSupport) {
             indices.presentFamily = i;
+            std::cout << "\tSupports presentation" << std::endl;
         }
 
         if (indices.isComplete()) {
@@ -280,6 +317,12 @@ QueueFamilyIndices VulkanEngine::findQueueFamilies(VkPhysicalDevice device) {
         }
 
         i++;
+    }
+
+    if (!indices.isComplete()) {
+        std::cout << "Missing required queue families:" << std::endl;
+        if (!indices.graphicsFamily.has_value()) std::cout << "- Graphics queue family" << std::endl;
+        if (!indices.presentFamily.has_value()) std::cout << "- Present queue family" << std::endl;
     }
 
     return indices;
@@ -511,17 +554,22 @@ std::vector<char> VulkanEngine::readFile(const std::string& filename) {
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
     if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file!");
+        throw std::runtime_error("Failed to open file: " + filename);
     }
 
     size_t fileSize = (size_t)file.tellg();
+    if (fileSize == 0) {
+        throw std::runtime_error("File is empty: " + filename);
+    }
+
     std::vector<char> buffer(fileSize);
 
     file.seekg(0);
-    file.read(buffer.data(), fileSize);
+    if (!file.read(buffer.data(), fileSize)) {
+        throw std::runtime_error("Failed to read file: " + filename);
+    }
 
     file.close();
-
     return buffer;
 }
 
@@ -564,23 +612,38 @@ std::vector<const char*> VulkanEngine::getRequiredExtensions() {
     return extensions;
 }
 
-bool VulkanEngine::isDeviceSuitable(VkPhysicalDevice device) {
-    QueueFamilyIndices indices = findQueueFamilies(device);
-    bool extensionsSupported = checkDeviceExtensionSupport(device);
+bool VulkanEngine::isDeviceSuitable(VkPhysicalDevice device) const {
+    try {
+        QueueFamilyIndices indices = findQueueFamilies(device);
+        bool extensionsSupported = checkDeviceExtensionSupport(device);
 
-    bool swapChainAdequate = false;
-    if (extensionsSupported) {
-        SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
-        swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
+        bool swapChainAdequate = false;
+        if (extensionsSupported) {
+            SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
+            swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
+        }
+
+        VkPhysicalDeviceFeatures supportedFeatures;
+        vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
+
+        bool suitable = indices.isComplete() && extensionsSupported && swapChainAdequate && supportedFeatures.samplerAnisotropy;
+        
+        if (!suitable) {
+            std::cout << "Device not suitable because:" << std::endl;
+            if (!indices.isComplete()) std::cout << "- Missing required queue families" << std::endl;
+            if (!extensionsSupported) std::cout << "- Missing required extensions" << std::endl;
+            if (!swapChainAdequate) std::cout << "- Swap chain not adequate" << std::endl;
+            if (!supportedFeatures.samplerAnisotropy) std::cout << "- Anisotropic filtering not supported" << std::endl;
+        }
+
+        return suitable;
+    } catch (const std::exception& e) {
+        std::cerr << "Error checking device suitability: " << e.what() << std::endl;
+        return false;
     }
-
-    VkPhysicalDeviceFeatures supportedFeatures;
-    vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
-
-    return indices.isComplete() && extensionsSupported && swapChainAdequate && supportedFeatures.samplerAnisotropy;
 }
 
-bool VulkanEngine::checkDeviceExtensionSupport(VkPhysicalDevice device) {
+bool VulkanEngine::checkDeviceExtensionSupport(VkPhysicalDevice device) const {
     uint32_t extensionCount;
     vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
 
@@ -996,7 +1059,7 @@ void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkM
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create buffer!");
+        throw std::runtime_error("Failed to create buffer of size " + std::to_string(size));
     }
 
     VkMemoryRequirements memRequirements;
@@ -1008,10 +1071,15 @@ void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkM
     allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
 
     if (vkAllocateMemory(device, &allocInfo, nullptr, &bufferMemory) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate buffer memory!");
+        vkDestroyBuffer(device, buffer, nullptr);
+        throw std::runtime_error("Failed to allocate buffer memory of size " + std::to_string(memRequirements.size));
     }
 
-    vkBindBufferMemory(device, buffer, bufferMemory, 0);
+    if (vkBindBufferMemory(device, buffer, bufferMemory, 0) != VK_SUCCESS) {
+        vkDestroyBuffer(device, buffer, nullptr);
+        vkFreeMemory(device, bufferMemory, nullptr);
+        throw std::runtime_error("Failed to bind buffer memory");
+    }
 }
 
 void VulkanEngine::recreateSwapChain() {
@@ -1155,7 +1223,13 @@ void VulkanEngine::drawFrame() {
     currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
-void VulkanEngine::createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory) {
+void VulkanEngine::createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, 
+                             VkImageUsageFlags usage, VkMemoryPropertyFlags properties, 
+                             VkImage& image, VkDeviceMemory& imageMemory) {
+    if (width == 0 || height == 0) {
+        throw std::runtime_error("Invalid image dimensions: " + std::to_string(width) + "x" + std::to_string(height));
+    }
+
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -1172,7 +1246,7 @@ void VulkanEngine::createImage(uint32_t width, uint32_t height, VkFormat format,
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     if (vkCreateImage(device, &imageInfo, nullptr, &image) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create image!");
+        throw std::runtime_error("Failed to create image of size " + std::to_string(width) + "x" + std::to_string(height));
     }
 
     VkMemoryRequirements memRequirements;
@@ -1184,13 +1258,22 @@ void VulkanEngine::createImage(uint32_t width, uint32_t height, VkFormat format,
     allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
 
     if (vkAllocateMemory(device, &allocInfo, nullptr, &imageMemory) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate image memory!");
+        vkDestroyImage(device, image, nullptr);
+        throw std::runtime_error("Failed to allocate image memory of size " + std::to_string(memRequirements.size));
     }
 
-    vkBindImageMemory(device, image, imageMemory, 0);
+    if (vkBindImageMemory(device, image, imageMemory, 0) != VK_SUCCESS) {
+        vkDestroyImage(device, image, nullptr);
+        vkFreeMemory(device, imageMemory, nullptr);
+        throw std::runtime_error("Failed to bind image memory");
+    }
 }
 
 void VulkanEngine::createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, VkImageView& imageView) {
+    if (image == VK_NULL_HANDLE) {
+        throw std::runtime_error("Cannot create image view for null image");
+    }
+
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = image;
@@ -1203,7 +1286,7 @@ void VulkanEngine::createImageView(VkImage image, VkFormat format, VkImageAspect
     viewInfo.subresourceRange.layerCount = 1;
 
     if (vkCreateImageView(device, &viewInfo, nullptr, &imageView) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create texture image view!");
+        throw std::runtime_error("Failed to create image view");
     }
 }
 
@@ -1334,17 +1417,21 @@ void VulkanEngine::createImageViews() {
     }
 }
 
-SwapChainSupportDetails VulkanEngine::querySwapChainSupport(VkPhysicalDevice device) {
+SwapChainSupportDetails VulkanEngine::querySwapChainSupport(VkPhysicalDevice device) const {
     SwapChainSupportDetails details;
 
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
+    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to query surface capabilities for device");
+    }
 
     uint32_t formatCount;
     vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
 
     if (formatCount != 0) {
         details.formats.resize(formatCount);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
+        if (vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data()) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to query surface formats for device");
+        }
     }
 
     uint32_t presentModeCount;
@@ -1352,15 +1439,22 @@ SwapChainSupportDetails VulkanEngine::querySwapChainSupport(VkPhysicalDevice dev
 
     if (presentModeCount != 0) {
         details.presentModes.resize(presentModeCount);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
+        if (vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data()) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to query surface present modes for device");
+        }
     }
 
     return details;
 }
 
-VkSurfaceFormatKHR VulkanEngine::chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) {
+VkSurfaceFormatKHR VulkanEngine::chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) const {
+    if (availableFormats.empty()) {
+        throw std::runtime_error("No available surface formats found");
+    }
+
     for (const auto& availableFormat : availableFormats) {
-        if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+        if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && 
+            availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
             return availableFormat;
         }
     }
@@ -1368,7 +1462,11 @@ VkSurfaceFormatKHR VulkanEngine::chooseSwapSurfaceFormat(const std::vector<VkSur
     return availableFormats[0];
 }
 
-VkPresentModeKHR VulkanEngine::chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) {
+VkPresentModeKHR VulkanEngine::chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) const {
+    if (availablePresentModes.empty()) {
+        throw std::runtime_error("No available present modes found");
+    }
+
     for (const auto& availablePresentMode : availablePresentModes) {
         if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
             return availablePresentMode;
@@ -1378,23 +1476,30 @@ VkPresentModeKHR VulkanEngine::chooseSwapPresentMode(const std::vector<VkPresent
     return VK_PRESENT_MODE_FIFO_KHR;
 }
 
-VkExtent2D VulkanEngine::chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) {
+VkExtent2D VulkanEngine::chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) const {
     if (capabilities.currentExtent.width != UINT32_MAX) {
         return capabilities.currentExtent;
-    } else {
-        int width, height;
-        glfwGetFramebufferSize(window, &width, &height);
-
-        VkExtent2D actualExtent = {
-            static_cast<uint32_t>(width),
-            static_cast<uint32_t>(height)
-        };
-
-        actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
-        actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
-
-        return actualExtent;
     }
+
+    int width, height;
+    glfwGetFramebufferSize(window, &width, &height);
+    if (width <= 0 || height <= 0) {
+        throw std::runtime_error("Invalid window dimensions");
+    }
+
+    VkExtent2D actualExtent = {
+        static_cast<uint32_t>(width),
+        static_cast<uint32_t>(height)
+    };
+
+    actualExtent.width = std::clamp(actualExtent.width, 
+        capabilities.minImageExtent.width, 
+        capabilities.maxImageExtent.width);
+    actualExtent.height = std::clamp(actualExtent.height, 
+        capabilities.minImageExtent.height, 
+        capabilities.maxImageExtent.height);
+
+    return actualExtent;
 }
 
 void VulkanEngine::destroyDebugMessenger() {

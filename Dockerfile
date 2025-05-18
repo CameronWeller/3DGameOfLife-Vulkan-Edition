@@ -30,8 +30,7 @@ RUN apt-get update && \
 RUN wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | apt-key add - && \
     wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list http://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list && \
     apt-get update && \
-    apt-get install -y vulkan-sdk=1.3.239.0-1 vulkan-validationlayers && \
-    # Pin other critical packages as needed (e.g., cmake, gcc, etc.) \
+    apt-get install -y vulkan-sdk vulkan-validationlayers && \
     rm -rf /var/lib/apt/lists/*
 
 # Set environment variables for Vulkan
