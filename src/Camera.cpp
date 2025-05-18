@@ -1,0 +1,100 @@
+#include "Camera.h"
+#include <iostream>
+
+Camera::Camera(GLFWwindow* window, float fov, float near, float far)
+    : window(window), fov(fov), near(near), far(far),
+      position(glm::vec3(125.0f, 125.0f, 125.0f)), // Start at center of 250^3 grid
+      worldUp(glm::vec3(0.0f, 1.0f, 0.0f)),
+      yaw(-90.0f), pitch(0.0f),
+      movementSpeed(50.0f),
+      mouseSensitivity(0.1f),
+      zoom(45.0f) {
+    updateCameraVectors();
+}
+
+void Camera::update(float deltaTime) {
+    // Keyboard input
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        moveForward(movementSpeed * deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        moveForward(-movementSpeed * deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        moveRight(-movementSpeed * deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        moveRight(movementSpeed * deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+        moveUp(movementSpeed * deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
+        moveUp(-movementSpeed * deltaTime);
+}
+
+glm::mat4 Camera::getViewMatrix() const {
+    return glm::lookAt(position, position + front, up);
+}
+
+glm::mat4 Camera::getProjectionMatrix() const {
+    int width, height;
+    glfwGetFramebufferSize(window, &width, &height);
+    return glm::perspective(glm::radians(zoom), (float)width / (float)height, near, far);
+}
+
+void Camera::moveForward(float distance) {
+    position += front * distance;
+}
+
+void Camera::moveRight(float distance) {
+    position += right * distance;
+}
+
+void Camera::moveUp(float distance) {
+    position += up * distance;
+}
+
+void Camera::rotate(float yaw, float pitch) {
+    this->yaw += yaw;
+    this->pitch += pitch;
+    
+    // Constrain pitch
+    if (this->pitch > 89.0f)
+        this->pitch = 89.0f;
+    if (this->pitch < -89.0f)
+        this->pitch = -89.0f;
+    
+    updateCameraVectors();
+}
+
+void Camera::processMouseMovement(float xoffset, float yoffset, bool constrainPitch) {
+    xoffset *= mouseSensitivity;
+    yoffset *= mouseSensitivity;
+    
+    yaw += xoffset;
+    pitch += yoffset;
+    
+    if (constrainPitch) {
+        if (pitch > 89.0f)
+            pitch = 89.0f;
+        if (pitch < -89.0f)
+            pitch = -89.0f;
+    }
+    
+    updateCameraVectors();
+}
+
+void Camera::processMouseScroll(float yoffset) {
+    zoom -= yoffset;
+    if (zoom < 1.0f)
+        zoom = 1.0f;
+    if (zoom > 45.0f)
+        zoom = 45.0f;
+}
+
+void Camera::updateCameraVectors() {
+    glm::vec3 newFront;
+    newFront.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
+    newFront.y = sin(glm::radians(pitch));
+    newFront.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
+    front = glm::normalize(newFront);
+    
+    right = glm::normalize(glm::cross(front, worldUp));
+    up = glm::normalize(glm::cross(right, front));
+} 

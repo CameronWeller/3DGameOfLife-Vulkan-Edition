@@ -1,0 +1,97 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+// Constants for 3D Game of Life rules
+const int SURVIVE_MIN = 4;
+const int SURVIVE_MAX = 6;
+const int BIRTH_COUNT = 4;
+
+// Grid dimensions
+layout(push_constant) uniform PushConstants {
+    uint width;
+    uint height;
+    uint depth;
+} pc;
+
+// Current and next state buffers
+layout(binding = 0) buffer StateBuffer {
+    uint states[];
+} stateBuffer;
+
+layout(binding = 1) buffer NextStateBuffer {
+    uint states[];
+} nextStateBuffer;
+
+// Helper function to get cell state
+uint getCellState(uint x, uint y, uint z) {
+    if (x >= pc.width || y >= pc.height || z >= pc.depth) {
+        return 0;
+    }
+    uint index = z * pc.width * pc.height + y * pc.width + x;
+    return stateBuffer.states[index];
+}
+
+// Helper function to set cell state
+void setCellState(uint x, uint y, uint z, uint state) {
+    if (x >= pc.width || y >= pc.height || z >= pc.depth) {
+        return;
+    }
+    uint index = z * pc.width * pc.height + y * pc.width + x;
+    nextStateBuffer.states[index] = state;
+}
+
+// Count live neighbors in 3D space
+uint countNeighbors(uint x, uint y, uint z) {
+    uint count = 0;
+    
+    // Check all 26 neighbors
+    for (int dx = -1; dx <= 1; dx++) {
+        for (int dy = -1; dy <= 1; dy++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                if (dx == 0 && dy == 0 && dz == 0) continue;
+                
+                int nx = int(x) + dx;
+                int ny = int(y) + dy;
+                int nz = int(z) + dz;
+                
+                if (nx >= 0 && nx < int(pc.width) &&
+                    ny >= 0 && ny < int(pc.height) &&
+                    nz >= 0 && nz < int(pc.depth)) {
+                    count += getCellState(uint(nx), uint(ny), uint(nz));
+                }
+            }
+        }
+    }
+    
+    return count;
+}
+
+void main() {
+    uint x = gl_GlobalInvocationID.x;
+    uint y = gl_GlobalInvocationID.y;
+    uint z = gl_GlobalInvocationID.z;
+    
+    if (x >= pc.width || y >= pc.height || z >= pc.depth) {
+        return;
+    }
+    
+    uint currentState = getCellState(x, y, z);
+    uint neighborCount = countNeighbors(x, y, z);
+    uint nextState = 0;
+    
+    // Apply 3D Game of Life rules
+    if (currentState == 1) {
+        // Survival rules
+        if (neighborCount >= SURVIVE_MIN && neighborCount <= SURVIVE_MAX) {
+            nextState = 1;
+        }
+    } else {
+        // Birth rules
+        if (neighborCount == BIRTH_COUNT) {
+            nextState = 1;
+        }
+    }
+    
+    setCellState(x, y, z, nextState);
+} 

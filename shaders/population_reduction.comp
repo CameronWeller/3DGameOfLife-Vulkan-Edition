@@ -1,0 +1,47 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+// Input buffer containing cell states (0 or 1)
+layout(binding = 0) buffer StateBuffer {
+    uint states[];
+} stateBuffer;
+
+// Output buffer for reduction results
+layout(binding = 1) buffer ResultBuffer {
+    uint result;
+} resultBuffer;
+
+// Shared memory for local reduction
+shared uint sharedData[256];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint gid = gl_GlobalInvocationID.x;
+    uint stride = gl_WorkGroupSize.x;
+    
+    // Load data into shared memory
+    if (gid < stateBuffer.states.length()) {
+        sharedData[tid] = stateBuffer.states[gid];
+    } else {
+        sharedData[tid] = 0;
+    }
+    
+    // Synchronize threads
+    memoryBarrierShared();
+    barrier();
+    
+    // Parallel reduction
+    for (uint offset = stride/2; offset > 0; offset >>= 1) {
+        if (tid < offset) {
+            sharedData[tid] += sharedData[tid + offset];
+        }
+        memoryBarrierShared();
+        barrier();
+    }
+    
+    // Write result
+    if (tid == 0) {
+        atomicAdd(resultBuffer.result, sharedData[0]);
+    }
+} 

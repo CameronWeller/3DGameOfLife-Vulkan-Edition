@@ -1,0 +1,13 @@
+User requested a custom C++ engine project with:
+- Vulkan for graphics (AMD-optimized, cross-platform)
+- HIP for GPU compute (AMD/CUDA portability)
+- CMake build system
+- Minimal Vulkan setup first, then HIP setup
+- This summary is a backup of user intent and requirements
+
+Planned steps:
+1. C++ project with CMake
+2. Vulkan SDK integration
+3. Minimal Vulkan example
+4. HIP integration and example
+5. Document everything 
