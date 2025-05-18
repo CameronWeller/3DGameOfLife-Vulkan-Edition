@@ -1,0 +1,10 @@
+build/
+.git/
+.gitignore
+*.swp
+*.swo
+*.log
+*.tmp
+.vscode/
+.idea/
+.DS_Store 

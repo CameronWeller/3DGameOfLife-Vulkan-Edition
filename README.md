@@ -94,3 +94,28 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 3. Commit your changes
 4. Push to the branch
 5. Create a new Pull Request 
+
+## Troubleshooting
+- If you see X11 or display errors, ensure your X server is running and DISPLAY is set correctly.
+- If Docker build fails, try `docker-compose build --no-cache`.
+- For shader errors, check that your GLSL files are present in the `shaders/` directory.
+
+## Clean/Rebuild
+- To clean: `cmake --build build --target clean` or use the `distclean` target.
+- To rebuild: `docker-compose build --no-cache`
+
+## Adding Shaders
+- Place new `.vert`, `.frag`, or `.comp` files in `shaders/`.
+- Add a `compile_shader()` call in `CMakeLists.txt` for each new shader.
+
+## Developer Onboarding
+- Ensure Docker and an X server are installed.
+- Run `scripts/setup_windows.bat` on Windows to set up X11.
+- Use VSCode with the `CMake Tools` and `Remote - Containers` extensions for best experience.
+- For local intellisense, install Vulkan SDK, GLFW, and GLM, or point your includePath to the Docker build directories.
+
+## Versioning
+- The engine version is tracked in `version.txt` (to be created).
+
+## CI/CD
+- Recommended: Set up GitHub Actions or similar to run `docker-compose build` and basic tests on every push/PR. 

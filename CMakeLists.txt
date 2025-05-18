@@ -90,4 +90,30 @@ target_link_libraries(vulkan-engine PRIVATE
 if(HIP_FOUND)
     target_link_libraries(vulkan-engine PRIVATE HIP::hip)
     target_compile_definitions(vulkan-engine PRIVATE WITH_HIP)
+endif()
+
+# Out-of-source build check
+if(${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_BINARY_DIR})
+  message(FATAL_ERROR "In-source builds are not allowed. Please use a separate build directory.")
+endif()
+
+# Compiler warnings
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-Wall -Wextra -Wpedantic)
+    # add_compile_options(-Werror) # Uncomment to treat warnings as errors
+endif()
+
+# Export compile commands
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Add a distclean target
+add_custom_target(distclean
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_BINARY_DIR}/*
+    COMMENT "Remove all build files"
+)
+
+# Check for required programs
+get_filename_component(GIT_EXECUTABLE git)
+if(NOT GIT_EXECUTABLE)
+    message(WARNING "git not found. Some features may not work.")
 endif() 

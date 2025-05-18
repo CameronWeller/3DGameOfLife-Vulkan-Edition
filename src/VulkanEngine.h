@@ -9,9 +9,52 @@
 #include <array>
 #include <memory>
 #include <set>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 // Forward declarations
 class MemoryPool;
+
+struct Vertex {
+    glm::vec3 pos;
+    glm::vec3 color;
+    glm::vec2 texCoord;
+
+    static VkVertexInputBindingDescription getBindingDescription() {
+        VkVertexInputBindingDescription bindingDescription{};
+        bindingDescription.binding = 0;
+        bindingDescription.stride = sizeof(Vertex);
+        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        return bindingDescription;
+    }
+
+    static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions() {
+        std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
+
+        attributeDescriptions[0].binding = 0;
+        attributeDescriptions[0].location = 0;
+        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptions[0].offset = offsetof(Vertex, pos);
+
+        attributeDescriptions[1].binding = 0;
+        attributeDescriptions[1].location = 1;
+        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptions[1].offset = offsetof(Vertex, color);
+
+        attributeDescriptions[2].binding = 0;
+        attributeDescriptions[2].location = 2;
+        attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
+
+        return attributeDescriptions;
+    }
+};
+
+struct UniformBufferObject {
+    alignas(16) glm::mat4 model;
+    alignas(16) glm::mat4 view;
+    alignas(16) glm::mat4 proj;
+};
 
 struct SwapChainSupportDetails {
     VkSurfaceCapabilitiesKHR capabilities;
@@ -22,7 +65,7 @@ struct SwapChainSupportDetails {
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
     std::optional<uint32_t> presentFamily;
-    std::optional<uint32_t> computeFamily;  // For HIP compute operations
+    std::optional<uint32_t> computeFamily;
 
     bool isComplete() const {
         return graphicsFamily.has_value() && presentFamily.has_value();
@@ -71,6 +114,7 @@ public:
     static constexpr int HEIGHT = 600;
     static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
     static constexpr const char* WINDOW_TITLE = "Vulkan HIP Engine";
+    static constexpr bool enableValidationLayers = true;
 
     VulkanEngine();
     ~VulkanEngine();
@@ -173,6 +217,15 @@ private:
     // Vertex buffer
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
+    std::vector<Vertex> vertices;
+
+    // Uniform buffers
+    std::vector<VkBuffer> uniformBuffers;
+    std::vector<VkDeviceMemory> uniformBuffersMemory;
+
+    // Descriptor pool and sets
+    VkDescriptorPool descriptorPool;
+    std::vector<VkDescriptorSet> descriptorSets;
 
     // Depth buffer
     VkImage depthImage;
@@ -187,15 +240,14 @@ private:
 
     // Initialization methods
     void initWindow();
+    void initVulkan();
     void createInstance();
     void setupDebugMessenger();
     void createSurface();
     void pickPhysicalDevice();
     void createLogicalDevice();
     void createCommandPools();
-    void createCommandBuffers();
     void createDescriptorSetLayout();
-    void createSyncObjects();
     void createGraphicsPipeline();
 
     // Helper methods
@@ -219,8 +271,8 @@ private:
     void waitForComputeCompletion();
 
     // Memory management methods
-    VkBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
-    void destroyBuffer(VkBuffer buffer, VkDeviceMemory memory);
+    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
+                     VkBuffer& buffer, VkDeviceMemory& bufferMemory);
 
     // Command buffer methods
     VkCommandBuffer beginSingleTimeCommands();
@@ -234,6 +286,16 @@ private:
     void destroySyncObjects();
     void destroyDebugMessenger();
 
+    // Debug messenger methods
+    void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
+    static VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
+        const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
+        const VkAllocationCallbacks* pAllocator,
+        VkDebugUtilsMessengerEXT* pDebugMessenger);
+    static void DestroyDebugUtilsMessengerEXT(VkInstance instance,
+        VkDebugUtilsMessengerEXT debugMessenger,
+        const VkAllocationCallbacks* pAllocator);
+
     // Callback functions
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
@@ -242,7 +304,7 @@ private:
         const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
         void* pUserData);
 
-    // New private methods
+    // Additional methods
     void createSwapChain();
     void createImageViews();
     void createRenderPass();
@@ -256,7 +318,9 @@ private:
     void updateUniformBuffer(uint32_t currentImage);
     void drawFrame();
     void createCommandBuffers();
-    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
+    void createUniformBuffers();
+    void createDescriptorPool();
+    void createDescriptorSets();
     VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
     VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
     VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
@@ -265,11 +329,13 @@ private:
     VkFormat findDepthFormat();
     bool hasStencilComponent(VkFormat format);
     VkSampleCountFlagBits getMaxUsableSampleCount();
-    void createImage(uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits numSamples,
-                    VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
-                    VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
-    void createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels, VkImageView& imageView);
-    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels);
+    void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
+                    VkImageUsageFlags usage, VkMemoryPropertyFlags properties,
+                    VkImage& image, VkDeviceMemory& imageMemory);
+    void createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags,
+                        VkImageView& imageView);
+    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout,
+                             VkImageLayout newLayout);
     void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
     void generateMipmaps(VkImage image, VkFormat imageFormat, int32_t texWidth, int32_t texHeight, uint32_t mipLevels);
 }; 
