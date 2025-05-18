@@ -1,0 +1,23 @@
+{
+    "application": {
+        "name": "Vulkan HIP Engine",
+        "version": "1.0.0",
+        "debug": true
+    },
+    "rendering": {
+        "vsync": true,
+        "msaaSamples": 1,
+        "maxFramesInFlight": 2,
+        "clearColor": [0.0, 0.0, 0.0, 1.0]
+    },
+    "compute": {
+        "workGroupSize": [8, 8, 8],
+        "maxComputeWorkGroupInvocations": 1024
+    },
+    "logging": {
+        "level": "debug",
+        "file": "logs/engine.log",
+        "maxFileSize": 10485760,
+        "maxFiles": 5
+    }
+} 

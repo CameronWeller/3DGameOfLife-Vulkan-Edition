@@ -7,121 +7,191 @@
 #include <stdexcept>
 #include <optional>
 #include <array>
+#include <memory>
+#include <set>
+
+// Forward declarations
+class MemoryPool;
 
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
     std::optional<uint32_t> presentFamily;
     std::optional<uint32_t> computeFamily;  // For HIP compute operations
 
-    bool isComplete() {
+    bool isComplete() const {
         return graphicsFamily.has_value() && presentFamily.has_value();
     }
 };
 
+class MemoryPool {
+public:
+    struct BufferAllocation {
+        VkBuffer buffer;
+        VkDeviceMemory memory;
+        VkDeviceSize size;
+        VkBufferUsageFlags usage;
+        VkMemoryPropertyFlags properties;
+        bool inUse;
+    };
+
+    struct StagingBuffer {
+        VkBuffer buffer;
+        VkDeviceMemory memory;
+        VkDeviceSize size;
+        bool inUse;
+    };
+
+    MemoryPool(VkDevice device);
+    ~MemoryPool();
+
+    BufferAllocation allocateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
+    void freeBuffer(const BufferAllocation& allocation);
+    StagingBuffer getStagingBuffer(VkDeviceSize size);
+    void returnStagingBuffer(const StagingBuffer& buffer);
+
+private:
+    VkDevice device;
+    std::vector<BufferAllocation> bufferPool;
+    std::vector<StagingBuffer> stagingPool;
+    VkDeviceSize maxStagingSize;
+    
+    // Add findMemoryType as a private method
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+};
+
 class VulkanEngine {
 public:
+    static constexpr int WIDTH = 800;
+    static constexpr int HEIGHT = 600;
+    static constexpr const char* WINDOW_TITLE = "Vulkan HIP Engine";
+
     VulkanEngine();
     ~VulkanEngine();
 
+    // Delete copy constructor and assignment operator
+    VulkanEngine(const VulkanEngine&) = delete;
+    VulkanEngine& operator=(const VulkanEngine&) = delete;
+
     void init();
-    void cleanup();
     void run();
 
+    // Static instance getter
+    static VulkanEngine* getInstance() { return instance; }
+
+    // Add new public accessors
+    MemoryPool& getMemoryPool() { return *memoryPool; }
+    VkSemaphore& getComputeSemaphore(uint32_t index) { return computeSemaphores[index]; }
+    VkFence& getComputeFence(uint32_t index) { return computeFences[index]; }
+
     // Static accessors for device and memory management
-    static VkDevice getDevice() { return device; }
+    static VkDevice getDevice() { return instance ? instance->device : VK_NULL_HANDLE; }
     static uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+    // Add accessor for physicalDevice
+    static VkPhysicalDevice getPhysicalDevice() { return instance ? instance->physicalDevice : VK_NULL_HANDLE; }
 
 private:
-    // Window
-    GLFWwindow* window;
-    const uint32_t WIDTH = 800;
-    const uint32_t HEIGHT = 600;
-    const char* WINDOW_TITLE = "Vulkan HIP Engine";
+    // Static instance pointer
+    static VulkanEngine* instance;
 
-    // Vulkan instance and device
-    VkInstance instance;
+    // Window and instance
+    GLFWwindow* window;
+    VkInstance vkInstance;
+    VkDebugUtilsMessengerEXT debugMessenger;
+
+    // Device and queues
     VkPhysicalDevice physicalDevice;
     VkDevice device;
     VkQueue graphicsQueue;
     VkQueue presentQueue;
-    VkQueue computeQueue;  // For HIP compute operations
-    
-    // Surface
-    VkSurfaceKHR surface;
-    
-    // Pipeline components
-    VkPipelineLayout pipelineLayout;
-    VkPipeline graphicsPipeline;
-    
-    // Command pool and buffers
-    VkCommandPool graphicsCommandPool;
-    VkCommandPool computeCommandPool;  // Separate pool for compute operations
-    std::vector<VkCommandBuffer> graphicsCommandBuffers;
-    std::vector<VkCommandBuffer> computeCommandBuffers;
-    
-    // Performance optimization structures
-    struct {
-        VkPhysicalDeviceFeatures features{};
-        VkPhysicalDeviceProperties properties{};
-        VkPhysicalDeviceMemoryProperties memoryProperties{};
-    } deviceInfo;
-
-    // Queue family indices
+    VkQueue computeQueue;
     QueueFamilyIndices queueFamilyIndices;
 
-    // Private helper methods
-    void createInstance();
-    void pickPhysicalDevice();
-    void createLogicalDevice();
-    void createCommandPools();
-    void createGraphicsPipeline();
-    
-    // Window and surface methods
-    void initWindow();
-    void createSurface();
-    void cleanupSurface();
-    
-    // Queue family methods
-    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
-    
-    // Performance optimization methods
-    void enableDeviceFeatures();
-    void createCommandBuffers();
-    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
-    
-    // Validation layers
+    // Surface
+    VkSurfaceKHR surface;
+
+    // Pipeline
+    VkPipelineLayout pipelineLayout;
+    VkPipeline graphicsPipeline;
+    VkDescriptorSetLayout descriptorSetLayout;
+    std::vector<VkShaderModule> shaderModules;
+
+    // Command pools and buffers
+    VkCommandPool graphicsCommandPool;
+    VkCommandPool computeCommandPool;
+    std::vector<VkCommandBuffer> graphicsCommandBuffers;
+    std::vector<VkCommandBuffer> computeCommandBuffers;
+
+    // Memory management
+    std::unique_ptr<MemoryPool> memoryPool;
+
+    // Synchronization objects
+    std::vector<VkSemaphore> computeSemaphores;
+    std::vector<VkFence> computeFences;
+
+    // Device features and extensions
+    VkPhysicalDeviceFeatures deviceInfo{};
+    const std::vector<const char*> deviceExtensions = {
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME
+    };
     const std::vector<const char*> validationLayers = {
         "VK_LAYER_KHRONOS_validation"
     };
-    
-    // Device extensions
-    const std::vector<const char*> deviceExtensions = {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-        VK_KHR_MAINTENANCE1_EXTENSION_NAME,  // For better performance
-        VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,  // For better resource management
-        VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME  // For better memory access
-    };
 
-    // Helper functions
+    // Initialization methods
+    void initWindow();
+    void createInstance();
+    void setupDebugMessenger();
+    void createSurface();
+    void pickPhysicalDevice();
+    void createLogicalDevice();
+    void createCommandPools();
+    void createCommandBuffers();
+    void createDescriptorSetLayout();
+    void createSyncObjects();
+    void createGraphicsPipeline();
+
+    // Helper methods
     bool checkValidationLayerSupport();
     std::vector<const char*> getRequiredExtensions();
     bool isDeviceSuitable(VkPhysicalDevice device);
+    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
     bool checkDeviceExtensionSupport(VkPhysicalDevice device);
+    void enableDeviceFeatures();
 
-    // Static callback functions
-    static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
-
-    // Compute pipeline support
+    // Shader methods
     VkShaderModule createShaderModule(const std::vector<char>& code);
+    std::vector<char> readFile(const std::string& filename);
+    void createShaderStages(const std::string& vertPath, const std::string& fragPath,
+                           VkPipelineShaderStageCreateInfo& vertStageInfo,
+                           VkPipelineShaderStageCreateInfo& fragStageInfo);
+
+    // Compute pipeline methods
     VkPipeline createComputePipeline(const std::string& shaderPath);
     void destroyComputePipeline(VkPipeline pipeline);
-    
-    // Memory management
+    void waitForComputeCompletion();
+
+    // Memory management methods
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
     VkBuffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
     void destroyBuffer(VkBuffer buffer, VkDeviceMemory memory);
-    void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
-    
-    // Command buffer management
+
+    // Command buffer methods
     VkCommandBuffer beginSingleTimeCommands();
     void endSingleTimeCommands(VkCommandBuffer commandBuffer);
+    void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
+    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
+
+    // Cleanup methods
+    void cleanup();
+    void cleanupSurface();
+    void destroySyncObjects();
+    void destroyDebugMessenger();
+
+    // Callback functions
+    static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
+    static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
+        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+        VkDebugUtilsMessageTypeFlagsEXT messageType,
+        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+        void* pUserData);
 }; 

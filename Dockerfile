@@ -21,15 +21,21 @@ RUN apt-get update && \
     libxinerama-dev \
     libxcursor-dev \
     libxi-dev \
-    libglm-dev && \
+    libglm-dev \
+    libgl1-mesa-dev \
+    libglu1-mesa-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Vulkan SDK
+# Install Vulkan SDK and validation layers
 RUN wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | apt-key add - && \
     wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list http://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list && \
     apt-get update && \
-    apt-get install -y vulkan-sdk && \
+    apt-get install -y vulkan-sdk vulkan-validationlayers && \
     rm -rf /var/lib/apt/lists/*
+
+# Set environment variables for Vulkan
+ENV VK_LAYER_PATH=/usr/share/vulkan/explicit_layer.d
+ENV VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation
 
 # Set working directory
 WORKDIR /workspace
@@ -39,7 +45,9 @@ COPY . /workspace
 
 # Build the project
 RUN cmake -S . -B build && \
-    cmake --build build
+    cmake --build build --verbose && \
+    ls -la build && \
+    ls -la build/shaders
 
 # Default command
-CMD ["/workspace/build/engine"] 
+CMD ["/workspace/build/vulkan-engine"] 

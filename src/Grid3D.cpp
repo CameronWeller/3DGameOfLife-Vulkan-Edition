@@ -32,16 +32,24 @@ void Grid3D::initialize() {
 }
 
 void Grid3D::createBuffers() {
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = getTotalCells() * sizeof(uint32_t);
-    bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    auto& memoryPool = VulkanEngine::getInstance()->getMemoryPool();
+    
+    // Allocate state buffers from memory pool
+    auto stateAllocation = memoryPool.allocateBuffer(
+        getTotalCells() * sizeof(uint32_t),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
+    stateBuffer = stateAllocation.buffer;
+    stateMemory = stateAllocation.memory;
 
-    if (vkCreateBuffer(VulkanEngine::getDevice(), &bufferInfo, nullptr, &stateBuffer) != VK_SUCCESS ||
-        vkCreateBuffer(VulkanEngine::getDevice(), &bufferInfo, nullptr, &nextStateBuffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create grid buffers!");
-    }
+    auto nextStateAllocation = memoryPool.allocateBuffer(
+        getTotalCells() * sizeof(uint32_t),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
+    nextStateBuffer = nextStateAllocation.buffer;
+    nextStateMemory = nextStateAllocation.memory;
 }
 
 void Grid3D::allocateMemory() {
@@ -56,13 +64,30 @@ void Grid3D::allocateMemory() {
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
     );
 
-    if (vkAllocateMemory(VulkanEngine::getDevice(), &allocInfo, nullptr, &stateMemory) != VK_SUCCESS ||
-        vkAllocateMemory(VulkanEngine::getDevice(), &allocInfo, nullptr, &nextStateMemory) != VK_SUCCESS) {
+    VkResult result = vkAllocateMemory(VulkanEngine::getDevice(), &allocInfo, nullptr, &stateMemory);
+    if (result != VK_SUCCESS) {
+        vkDestroyBuffer(VulkanEngine::getDevice(), stateBuffer, nullptr);
+        vkDestroyBuffer(VulkanEngine::getDevice(), nextStateBuffer, nullptr);
         throw std::runtime_error("Failed to allocate grid memory!");
     }
 
-    vkBindBufferMemory(VulkanEngine::getDevice(), stateBuffer, stateMemory, 0);
-    vkBindBufferMemory(VulkanEngine::getDevice(), nextStateBuffer, nextStateMemory, 0);
+    result = vkBindBufferMemory(VulkanEngine::getDevice(), stateBuffer, stateMemory, 0);
+    if (result != VK_SUCCESS) {
+        vkDestroyBuffer(VulkanEngine::getDevice(), stateBuffer, nullptr);
+        vkDestroyBuffer(VulkanEngine::getDevice(), nextStateBuffer, nullptr);
+        vkFreeMemory(VulkanEngine::getDevice(), stateMemory, nullptr);
+        vkFreeMemory(VulkanEngine::getDevice(), nextStateMemory, nullptr);
+        throw std::runtime_error("Failed to bind grid buffer memory!");
+    }
+
+    result = vkBindBufferMemory(VulkanEngine::getDevice(), nextStateBuffer, stateMemory, 0);
+    if (result != VK_SUCCESS) {
+        vkDestroyBuffer(VulkanEngine::getDevice(), stateBuffer, nullptr);
+        vkDestroyBuffer(VulkanEngine::getDevice(), nextStateBuffer, nullptr);
+        vkFreeMemory(VulkanEngine::getDevice(), stateMemory, nullptr);
+        vkFreeMemory(VulkanEngine::getDevice(), nextStateMemory, nullptr);
+        throw std::runtime_error("Failed to bind grid buffer memory!");
+    }
 }
 
 void Grid3D::createComputeResources() {
@@ -85,7 +110,8 @@ void Grid3D::createComputeResources() {
     layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
     layoutInfo.pBindings = bindings.data();
 
-    if (vkCreateDescriptorSetLayout(VulkanEngine::getDevice(), &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
+    VkResult result = vkCreateDescriptorSetLayout(VulkanEngine::getDevice(), &layoutInfo, nullptr, &descriptorSetLayout);
+    if (result != VK_SUCCESS) {
         throw std::runtime_error("Failed to create descriptor set layout!");
     }
 
@@ -100,7 +126,8 @@ void Grid3D::createComputeResources() {
     poolInfo.pPoolSizes = &poolSize;
     poolInfo.maxSets = 1;
 
-    if (vkCreateDescriptorPool(VulkanEngine::getDevice(), &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
+    result = vkCreateDescriptorPool(VulkanEngine::getDevice(), &poolInfo, nullptr, &descriptorPool);
+    if (result != VK_SUCCESS) {
         throw std::runtime_error("Failed to create descriptor pool!");
     }
 
@@ -111,7 +138,8 @@ void Grid3D::createComputeResources() {
     allocInfo.descriptorSetCount = 1;
     allocInfo.pSetLayouts = &descriptorSetLayout;
 
-    if (vkAllocateDescriptorSets(VulkanEngine::getDevice(), &allocInfo, &descriptorSet) != VK_SUCCESS) {
+    result = vkAllocateDescriptorSets(VulkanEngine::getDevice(), &allocInfo, &descriptorSet);
+    if (result != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate descriptor set!");
     }
 
@@ -159,14 +187,13 @@ void Grid3D::createComputeResources() {
     bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateBuffer(VulkanEngine::getDevice(), &bufferInfo, nullptr, &populationBuffer) != VK_SUCCESS) {
+    result = vkCreateBuffer(VulkanEngine::getDevice(), &bufferInfo, nullptr, &populationBuffer);
+    if (result != VK_SUCCESS) {
         throw std::runtime_error("Failed to create population buffer!");
     }
 
-    VkMemoryRequirements memRequirements;
     vkGetBufferMemoryRequirements(VulkanEngine::getDevice(), populationBuffer, &memRequirements);
 
-    VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
     allocInfo.memoryTypeIndex = VulkanEngine::findMemoryType(
@@ -174,11 +201,17 @@ void Grid3D::createComputeResources() {
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
     );
 
-    if (vkAllocateMemory(VulkanEngine::getDevice(), &allocInfo, nullptr, &populationMemory) != VK_SUCCESS) {
+    result = vkAllocateMemory(VulkanEngine::getDevice(), &allocInfo, nullptr, &populationMemory);
+    if (result != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate population memory!");
     }
 
-    vkBindBufferMemory(VulkanEngine::getDevice(), populationBuffer, populationMemory, 0);
+    result = vkBindBufferMemory(VulkanEngine::getDevice(), populationBuffer, populationMemory, 0);
+    if (result != VK_SUCCESS) {
+        vkDestroyBuffer(VulkanEngine::getDevice(), populationBuffer, nullptr);
+        vkFreeMemory(VulkanEngine::getDevice(), populationMemory, nullptr);
+        throw std::runtime_error("Failed to bind population buffer memory!");
+    }
 
     // Update descriptor set for population reduction
     VkDescriptorBufferInfo populationBufferInfo{};
@@ -223,21 +256,29 @@ void Grid3D::destroyComputeResources() {
 }
 
 void Grid3D::destroyBuffers() {
+    auto& memoryPool = VulkanEngine::getInstance()->getMemoryPool();
+    
     if (stateBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(VulkanEngine::getDevice(), stateBuffer, nullptr);
+        memoryPool.freeBuffer({stateBuffer, stateMemory, getTotalCells() * sizeof(uint32_t),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false});
     }
     if (nextStateBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(VulkanEngine::getDevice(), nextStateBuffer, nullptr);
-    }
-    if (stateMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(VulkanEngine::getDevice(), stateMemory, nullptr);
-    }
-    if (nextStateMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(VulkanEngine::getDevice(), nextStateMemory, nullptr);
+        memoryPool.freeBuffer({nextStateBuffer, nextStateMemory, getTotalCells() * sizeof(uint32_t),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false});
     }
 }
 
 void Grid3D::update() {
+    static uint32_t currentFrame = 0;
+    auto& memoryPool = VulkanEngine::getInstance()->getMemoryPool();
+    
+    // Wait for previous frame's compute operations to complete
+    vkWaitForFences(VulkanEngine::getDevice(), 1, &VulkanEngine::getInstance()->getComputeFence(currentFrame), VK_TRUE, UINT64_MAX);
+    vkResetFences(VulkanEngine::getDevice(), 1, &VulkanEngine::getInstance()->getComputeFence(currentFrame));
+
+    // Record compute command buffer
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -245,6 +286,16 @@ void Grid3D::update() {
     if (vkBeginCommandBuffer(computeCommandBuffer, &beginInfo) != VK_SUCCESS) {
         throw std::runtime_error("Failed to begin recording compute command buffer!");
     }
+
+    // Add memory barrier to ensure previous writes are complete
+    VkMemoryBarrier memoryBarrier{};
+    memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(computeCommandBuffer,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
 
     // Bind compute pipeline
     vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
@@ -259,36 +310,18 @@ void Grid3D::update() {
                       0, sizeof(pushConstants), pushConstants);
 
     // Dispatch compute shader
-    uint32_t groupCountX = (width + 7) / 8;  // Round up to nearest multiple of 8
+    uint32_t groupCountX = (width + 7) / 8;
     uint32_t groupCountY = (height + 7) / 8;
     uint32_t groupCountZ = (depth + 7) / 8;
     vkCmdDispatch(computeCommandBuffer, groupCountX, groupCountY, groupCountZ);
 
-    if (vkEndCommandBuffer(computeCommandBuffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to record compute command buffer!");
-    }
-
-    // Submit compute command buffer
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &computeCommandBuffer;
-
-    if (vkQueueSubmit(VulkanEngine::getComputeQueue(), 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to submit compute command buffer!");
-    }
-
-    // Wait for compute shader to complete
-    vkQueueWaitIdle(VulkanEngine::getComputeQueue());
-
-    // Update population count using reduction shader
-    VkCommandBufferBeginInfo populationBeginInfo{};
-    populationBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    populationBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-    if (vkBeginCommandBuffer(computeCommandBuffer, &populationBeginInfo) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to begin recording compute command buffer!");
-    }
+    // Add memory barrier to ensure compute shader writes are complete
+    memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(computeCommandBuffer,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
 
     // Reset population buffer to zero
     vkCmdFillBuffer(computeCommandBuffer, populationBuffer, 0, sizeof(uint32_t), 0);
@@ -296,80 +329,47 @@ void Grid3D::update() {
     // Bind population reduction pipeline
     vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, populationPipeline);
 
-    // Bind descriptor set
-    vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                           pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-
     // Dispatch population reduction shader
-    uint32_t groupCount = (getTotalCells() + 255) / 256;  // Round up to nearest multiple of 256
+    uint32_t groupCount = (getTotalCells() + 255) / 256;
     vkCmdDispatch(computeCommandBuffer, groupCount, 1, 1);
 
     if (vkEndCommandBuffer(computeCommandBuffer) != VK_SUCCESS) {
         throw std::runtime_error("Failed to record compute command buffer!");
     }
 
-    // Submit compute command buffer
-    VkSubmitInfo populationSubmitInfo{};
-    populationSubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    populationSubmitInfo.commandBufferCount = 1;
-    populationSubmitInfo.pCommandBuffers = &computeCommandBuffer;
+    // Submit compute command buffer with synchronization
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &computeCommandBuffer;
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = &VulkanEngine::getInstance()->getComputeSemaphore(currentFrame);
 
-    if (vkQueueSubmit(VulkanEngine::getComputeQueue(), 1, &populationSubmitInfo, VK_NULL_HANDLE) != VK_SUCCESS) {
+    if (vkQueueSubmit(VulkanEngine::getComputeQueue(), 1, &submitInfo, 
+        VulkanEngine::getInstance()->getComputeFence(currentFrame)) != VK_SUCCESS) {
         throw std::runtime_error("Failed to submit compute command buffer!");
     }
 
-    // Wait for compute shader to complete
-    vkQueueWaitIdle(VulkanEngine::getComputeQueue());
-
-    // Read population count
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingMemory;
+    // Read population count using staging buffer
+    auto stagingBuffer = memoryPool.getStagingBuffer(sizeof(uint32_t));
     
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = sizeof(uint32_t);
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    if (vkCreateBuffer(VulkanEngine::getDevice(), &bufferInfo, nullptr, &stagingBuffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create staging buffer!");
-    }
-
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(VulkanEngine::getDevice(), stagingBuffer, &memRequirements);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = VulkanEngine::findMemoryType(
-        memRequirements.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-
-    if (vkAllocateMemory(VulkanEngine::getDevice(), &allocInfo, nullptr, &stagingMemory) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate staging memory!");
-    }
-
-    vkBindBufferMemory(VulkanEngine::getDevice(), stagingBuffer, stagingMemory, 0);
-
     // Copy from population buffer to staging buffer
     VkCommandBuffer commandBuffer = VulkanEngine::beginSingleTimeCommands();
 
     VkBufferCopy copyRegion{};
     copyRegion.size = sizeof(uint32_t);
-    vkCmdCopyBuffer(commandBuffer, populationBuffer, stagingBuffer, 1, &copyRegion);
+    vkCmdCopyBuffer(commandBuffer, populationBuffer, stagingBuffer.buffer, 1, &copyRegion);
 
     VulkanEngine::endSingleTimeCommands(commandBuffer);
 
     // Read population count
     void* data;
-    vkMapMemory(VulkanEngine::getDevice(), stagingMemory, 0, sizeof(uint32_t), 0, &data);
+    vkMapMemory(VulkanEngine::getDevice(), stagingBuffer.memory, 0, sizeof(uint32_t), 0, &data);
     memcpy(&population, data, sizeof(uint32_t));
-    vkUnmapMemory(VulkanEngine::getDevice(), stagingMemory);
+    vkUnmapMemory(VulkanEngine::getDevice(), stagingBuffer.memory);
 
-    // Cleanup
-    vkDestroyBuffer(VulkanEngine::getDevice(), stagingBuffer, nullptr);
-    vkFreeMemory(VulkanEngine::getDevice(), stagingMemory, nullptr);
+    // Return staging buffer to pool
+    memoryPool.returnStagingBuffer(stagingBuffer);
 
     // Swap buffers
     std::swap(stateBuffer, nextStateBuffer);
@@ -377,48 +377,21 @@ void Grid3D::update() {
 
     // Update statistics
     generation++;
+    currentFrame = (currentFrame + 1) % 2;
 }
 
 void Grid3D::setCell(uint32_t x, uint32_t y, uint32_t z, bool state) {
     if (!isValidPosition(x, y, z)) return;
     
-    // Create staging buffer for single cell update
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingMemory;
-    uint32_t value = state ? 1 : 0;
+    auto& memoryPool = VulkanEngine::getInstance()->getMemoryPool();
+    auto stagingBuffer = memoryPool.getStagingBuffer(sizeof(uint32_t));
     
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = sizeof(uint32_t);
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    if (vkCreateBuffer(VulkanEngine::getDevice(), &bufferInfo, nullptr, &stagingBuffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create staging buffer!");
-    }
-
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(VulkanEngine::getDevice(), stagingBuffer, &memRequirements);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = VulkanEngine::findMemoryType(
-        memRequirements.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-
-    if (vkAllocateMemory(VulkanEngine::getDevice(), &allocInfo, nullptr, &stagingMemory) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate staging memory!");
-    }
-
-    vkBindBufferMemory(VulkanEngine::getDevice(), stagingBuffer, stagingMemory, 0);
-
     // Copy value to staging buffer
     void* data;
-    vkMapMemory(VulkanEngine::getDevice(), stagingMemory, 0, sizeof(uint32_t), 0, &data);
+    vkMapMemory(VulkanEngine::getDevice(), stagingBuffer.memory, 0, sizeof(uint32_t), 0, &data);
+    uint32_t value = state ? 1 : 0;
     memcpy(data, &value, sizeof(uint32_t));
-    vkUnmapMemory(VulkanEngine::getDevice(), stagingMemory);
+    vkUnmapMemory(VulkanEngine::getDevice(), stagingBuffer.memory);
 
     // Copy from staging buffer to state buffer
     VkCommandBuffer commandBuffer = VulkanEngine::beginSingleTimeCommands();
@@ -427,48 +400,19 @@ void Grid3D::setCell(uint32_t x, uint32_t y, uint32_t z, bool state) {
     copyRegion.srcOffset = 0;
     copyRegion.dstOffset = getIndex(x, y, z) * sizeof(uint32_t);
     copyRegion.size = sizeof(uint32_t);
-    vkCmdCopyBuffer(commandBuffer, stagingBuffer, stateBuffer, 1, &copyRegion);
+    vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, stateBuffer, 1, &copyRegion);
 
     VulkanEngine::endSingleTimeCommands(commandBuffer);
 
-    // Cleanup
-    vkDestroyBuffer(VulkanEngine::getDevice(), stagingBuffer, nullptr);
-    vkFreeMemory(VulkanEngine::getDevice(), stagingMemory, nullptr);
+    // Return staging buffer to pool
+    memoryPool.returnStagingBuffer(stagingBuffer);
 }
 
 bool Grid3D::getCell(uint32_t x, uint32_t y, uint32_t z) const {
     if (!isValidPosition(x, y, z)) return false;
     
-    // Create staging buffer for reading
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingMemory;
-    
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = sizeof(uint32_t);
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    if (vkCreateBuffer(VulkanEngine::getDevice(), &bufferInfo, nullptr, &stagingBuffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create staging buffer!");
-    }
-
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(VulkanEngine::getDevice(), stagingBuffer, &memRequirements);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = VulkanEngine::findMemoryType(
-        memRequirements.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-
-    if (vkAllocateMemory(VulkanEngine::getDevice(), &allocInfo, nullptr, &stagingMemory) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate staging memory!");
-    }
-
-    vkBindBufferMemory(VulkanEngine::getDevice(), stagingBuffer, stagingMemory, 0);
+    auto& memoryPool = VulkanEngine::getInstance()->getMemoryPool();
+    auto stagingBuffer = memoryPool.getStagingBuffer(sizeof(uint32_t));
 
     // Copy from state buffer to staging buffer
     VkCommandBuffer commandBuffer = VulkanEngine::beginSingleTimeCommands();
@@ -477,74 +421,44 @@ bool Grid3D::getCell(uint32_t x, uint32_t y, uint32_t z) const {
     copyRegion.srcOffset = getIndex(x, y, z) * sizeof(uint32_t);
     copyRegion.dstOffset = 0;
     copyRegion.size = sizeof(uint32_t);
-    vkCmdCopyBuffer(commandBuffer, stateBuffer, stagingBuffer, 1, &copyRegion);
+    vkCmdCopyBuffer(commandBuffer, stateBuffer, stagingBuffer.buffer, 1, &copyRegion);
 
     VulkanEngine::endSingleTimeCommands(commandBuffer);
 
     // Read value from staging buffer
     void* data;
-    vkMapMemory(VulkanEngine::getDevice(), stagingMemory, 0, sizeof(uint32_t), 0, &data);
+    vkMapMemory(VulkanEngine::getDevice(), stagingBuffer.memory, 0, sizeof(uint32_t), 0, &data);
     uint32_t value;
     memcpy(&value, data, sizeof(uint32_t));
-    vkUnmapMemory(VulkanEngine::getDevice(), stagingMemory);
+    vkUnmapMemory(VulkanEngine::getDevice(), stagingBuffer.memory);
 
-    // Cleanup
-    vkDestroyBuffer(VulkanEngine::getDevice(), stagingBuffer, nullptr);
-    vkFreeMemory(VulkanEngine::getDevice(), stagingMemory, nullptr);
+    // Return staging buffer to pool
+    memoryPool.returnStagingBuffer(stagingBuffer);
 
     return value == 1;
 }
 
 void Grid3D::clear() {
-    // Create staging buffer filled with zeros
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingMemory;
-    
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = getTotalCells() * sizeof(uint32_t);
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    if (vkCreateBuffer(VulkanEngine::getDevice(), &bufferInfo, nullptr, &stagingBuffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create staging buffer!");
-    }
-
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(VulkanEngine::getDevice(), stagingBuffer, &memRequirements);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = VulkanEngine::findMemoryType(
-        memRequirements.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-
-    if (vkAllocateMemory(VulkanEngine::getDevice(), &allocInfo, nullptr, &stagingMemory) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate staging memory!");
-    }
-
-    vkBindBufferMemory(VulkanEngine::getDevice(), stagingBuffer, stagingMemory, 0);
+    auto& memoryPool = VulkanEngine::getInstance()->getMemoryPool();
+    auto stagingBuffer = memoryPool.getStagingBuffer(getTotalCells() * sizeof(uint32_t));
 
     // Fill staging buffer with zeros
     void* data;
-    vkMapMemory(VulkanEngine::getDevice(), stagingMemory, 0, getTotalCells() * sizeof(uint32_t), 0, &data);
+    vkMapMemory(VulkanEngine::getDevice(), stagingBuffer.memory, 0, getTotalCells() * sizeof(uint32_t), 0, &data);
     memset(data, 0, getTotalCells() * sizeof(uint32_t));
-    vkUnmapMemory(VulkanEngine::getDevice(), stagingMemory);
+    vkUnmapMemory(VulkanEngine::getDevice(), stagingBuffer.memory);
 
     // Copy from staging buffer to state buffer
     VkCommandBuffer commandBuffer = VulkanEngine::beginSingleTimeCommands();
 
     VkBufferCopy copyRegion{};
     copyRegion.size = getTotalCells() * sizeof(uint32_t);
-    vkCmdCopyBuffer(commandBuffer, stagingBuffer, stateBuffer, 1, &copyRegion);
+    vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, stateBuffer, 1, &copyRegion);
 
     VulkanEngine::endSingleTimeCommands(commandBuffer);
 
-    // Cleanup
-    vkDestroyBuffer(VulkanEngine::getDevice(), stagingBuffer, nullptr);
-    vkFreeMemory(VulkanEngine::getDevice(), stagingMemory, nullptr);
+    // Return staging buffer to pool
+    memoryPool.returnStagingBuffer(stagingBuffer);
 
     population = 0;
     generation = 0;

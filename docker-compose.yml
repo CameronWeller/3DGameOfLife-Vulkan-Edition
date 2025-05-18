@@ -6,9 +6,13 @@ services:
     environment:
       - DISPLAY=host.docker.internal:0.0
     volumes:
-      - .:/workspace
+      - .:/workspace:delegated
       - /tmp/.X11-unix:/tmp/.X11-unix
+      - build:/workspace/build
     devices:
       - /dev/dri:/dev/dri
     privileged: true
-    network_mode: host 
+    network_mode: host
+
+volumes:
+  build: 

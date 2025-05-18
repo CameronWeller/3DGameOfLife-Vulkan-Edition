@@ -1,0 +1,33 @@
+{
+    "validation": {
+        "enabled": true,
+        "layers": [
+            "VK_LAYER_KHRONOS_validation"
+        ]
+    },
+    "device": {
+        "extensions": [
+            "VK_KHR_swapchain",
+            "VK_KHR_maintenance1",
+            "VK_EXT_descriptor_indexing",
+            "VK_KHR_buffer_device_address"
+        ],
+        "features": {
+            "samplerAnisotropy": true,
+            "fillModeNonSolid": true,
+            "wideLines": true,
+            "multiDrawIndirect": true,
+            "shaderStorageBufferArrayDynamicIndexing": true
+        }
+    },
+    "window": {
+        "width": 800,
+        "height": 600,
+        "title": "Vulkan HIP Engine",
+        "resizable": true
+    },
+    "memory": {
+        "stagingBufferSize": 1048576,
+        "maxBufferPoolSize": 1073741824
+    }
+} 
