@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <chrono>
 #include <thread>
+#include <GLFW/glfw3.h>
 
 // Forward declaration of callback function
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
@@ -17,7 +18,7 @@ int main() {
         engine.init();
         
         // Set up key callback
-        GLFWwindow* window = engine.getWindow();
+        GLFWwindow* window = engine.getWindowManager()->getWindow();
         glfwSetKeyCallback(window, keyCallback);
         
         std::cout << "Controls:\n"
@@ -46,7 +47,7 @@ int main() {
         }
         
         // Wait for device idle before cleanup
-        vkDeviceWaitIdle(VulkanEngine::getDevice());
+        vkDeviceWaitIdle(engine.getVulkanContext()->getDevice());
         
         return 0;
     } catch (const std::exception& e) {

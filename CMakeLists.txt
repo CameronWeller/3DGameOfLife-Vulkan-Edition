@@ -80,7 +80,6 @@ add_executable(${PROJECT_NAME}
     src/VulkanEngine.cpp
     src/VulkanContext.cpp
     src/WindowManager.cpp
-    src/UI.cpp
     src/Camera.cpp
     src/RayCaster.cpp
     src/VulkanMemoryManager.cpp

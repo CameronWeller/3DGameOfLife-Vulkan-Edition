@@ -15,6 +15,7 @@
 #include <limits>
 #include "VulkanContext.h"
 #include "WindowManager.h"
+#include "SaveManager.h"
 
 // Initialize the static instance pointer
 VulkanEngine* VulkanEngine::instance_ = nullptr;
@@ -25,15 +26,15 @@ VulkanEngine::VulkanEngine()
       swapChainImageFormat_(VK_FORMAT_UNDEFINED),
       renderPass_(VK_NULL_HANDLE),
       depthImage_(VK_NULL_HANDLE),
-      depthImageMemory_(VK_NULL_HANDLE),
+      depthImageAllocation_(VK_NULL_HANDLE),
       depthImageView_(VK_NULL_HANDLE),
       colorImage_(VK_NULL_HANDLE),
-      colorImageMemory_(VK_NULL_HANDLE),
+      colorImageAllocation_(VK_NULL_HANDLE),
       colorImageView_(VK_NULL_HANDLE),
       vertexBuffer_(VK_NULL_HANDLE),
-      vertexBufferMemory_(VK_NULL_HANDLE),
+      vertexBufferAllocation_(VK_NULL_HANDLE),
       indexBuffer_(VK_NULL_HANDLE),
-      indexBufferMemory_(VK_NULL_HANDLE),
+      indexBufferAllocation_(VK_NULL_HANDLE),
       descriptorPool_(VK_NULL_HANDLE),
       textureImageView_(VK_NULL_HANDLE),
       textureSampler_(VK_NULL_HANDLE),
@@ -41,7 +42,11 @@ VulkanEngine::VulkanEngine()
       framebufferResized_(false),
       graphicsCommandPool_(VK_NULL_HANDLE),
       computeCommandPool_(VK_NULL_HANDLE),
-      descriptorSetLayout_(VK_NULL_HANDLE) {
+      descriptorSetLayout_(VK_NULL_HANDLE),
+      saveManager_(std::make_unique<SaveManager>()),
+      loadingElapsed_(0.0f),
+      isLoading_(false),
+      lastAutoSave_(std::chrono::steady_clock::now()) {
     
     if (instance_ != nullptr) {
         throw std::runtime_error("VulkanEngine instance already exists!");
@@ -73,7 +78,13 @@ VulkanEngine::~VulkanEngine() {
 // Initialize the engine
 void VulkanEngine::init() {
     // Create window manager first
-    windowManager_ = std::make_unique<WindowManager>(WIDTH, HEIGHT, WINDOW_TITLE);
+    windowManager_ = std::make_shared<WindowManager>();
+    WindowManager::WindowConfig cfg{};
+    cfg.width = WIDTH;
+    cfg.height = HEIGHT;
+    cfg.title = WINDOW_TITLE;
+    cfg.resizable = true;
+    windowManager_->init(cfg);
     
     // Create Vulkan context with window manager
     vulkanContext_ = std::make_unique<VulkanContext>(
@@ -247,10 +258,43 @@ void VulkanEngine::drawFrame() {
     }
 
     currentFrame_ = (currentFrame_ + 1) % MAX_FRAMES_IN_FLIGHT;
+
+    // Handle ESC key to return to menu
+    if (glfwGetKey(windowManager_->getWindow(), GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+        currentState_ = App::State::Menu;
+        return;
+    }
+
+    // Check for auto-save after pause
+    if (currentState_ == App::State::Menu && autoSaveEnabled_) {
+        auto now = std::chrono::steady_clock::now();
+        if (now - lastAutoSave_ >= AUTO_SAVE_INTERVAL) {
+            performAutoSave();
+            lastAutoSave_ = now;
+        }
+    }
 }
 
 void VulkanEngine::waitForComputeCompletion() {
-    vkWaitForFences(vulkanContext_->getDevice(), 1, &computeFences[currentFrame_], VK_TRUE, UINT64_MAX);
+    VK_CHECK(vkWaitForFences(vulkanContext_->getDevice(), 1, &computeFences[currentFrame_], VK_TRUE, UINT64_MAX));
+    VK_CHECK(vkResetFences(vulkanContext_->getDevice(), 1, &computeFences[currentFrame_]));
+}
+
+void VulkanEngine::submitComputeCommand(VkCommandBuffer commandBuffer) {
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    // Wait for graphics queue to finish if needed
+    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+    if (graphicsQueue_ != computeQueue_) {
+        submitInfo.waitSemaphoreCount = 1;
+        submitInfo.pWaitSemaphores = &renderFinishedSemaphores_[currentFrame_];
+        submitInfo.pWaitDstStageMask = &waitStage;
+    }
+
+    VK_CHECK(vkQueueSubmit(computeQueue_, 1, &submitInfo, computeFences[currentFrame_]));
 }
 
 void VulkanEngine::createCommandPools() {
@@ -275,9 +319,24 @@ void VulkanEngine::createCommandPools() {
 
 // Run the engine
 void VulkanEngine::run() {
-    while (!windowManager_->shouldClose()) {
+    while (!windowManager_->shouldClose() && currentState_ != App::State::Exiting) {
         windowManager_->pollEvents();
-        drawFrame();
+        switch (currentState_) {
+            case App::State::Menu:
+                drawMenu();
+                break;
+            case App::State::Running:
+                drawFrame();
+                break;
+            case App::State::SavePicker:
+                drawSavePicker();
+                break;
+            case App::State::Loading:
+                drawLoading();
+                break;
+            case App::State::Exiting:
+                break;
+        }
     }
 
     vkDeviceWaitIdle(vulkanContext_->getDevice());
@@ -349,11 +408,9 @@ VkPipeline VulkanEngine::createComputePipeline(const std::string& shaderPath) {
         throw std::runtime_error("Device not available for compute pipeline creation");
     }
 
-    auto shaderCode = readFile(shaderPath);
-    VkShaderModule computeShaderModule = createShaderModule(shaderCode); 
-    // Note: The created shaderModule should be managed (stored for cleanup) by a future ShaderManager or PipelineManager
-    // For now, VulkanEngine might still temporarily hold it in shaderModules if createShaderModule adds it there.
-    // Or, it must be destroyed after pipeline creation if not stored globally.
+    // Load compute shader
+    auto computeShaderCode = readFile(shaderPath);
+    ShaderModule computeShaderModule(createShaderModule(computeShaderCode));
 
     VkPipelineShaderStageCreateInfo shaderStageInfo{};
     shaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -361,59 +418,43 @@ VkPipeline VulkanEngine::createComputePipeline(const std::string& shaderPath) {
     shaderStageInfo.module = computeShaderModule;
     shaderStageInfo.pName = "main";
 
-    // descriptorSetLayout and pipelineLayout are still members of VulkanEngine for now
-    // They will be obtained from DescriptorSetManager and PipelineManager later.
+    // Create pipeline layout
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout_; 
-    
-    VkPushConstantRange pushConstantRange{};
-    pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    pushConstantRange.offset = 0;
-    pushConstantRange.size = sizeof(uint32_t) * 3; 
-    pipelineLayoutInfo.pushConstantRangeCount = 1;
-    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+    pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout_;
 
-    // Assuming pipelineLayout is a member to be created/managed by PipelineManager later
-    // For now, we might be creating a local one or using a member of VulkanEngine.
-    // Let's assume it's a member `this->pipelineLayout_Compute` for this specific pipeline for now.
-    VkPipelineLayout tempPipelineLayout; // This should be a member or managed by PipelineManager
-    if (vkCreatePipelineLayout(currentDevice, &pipelineLayoutInfo, nullptr, &tempPipelineLayout) != VK_SUCCESS) {
-        vkDestroyShaderModule(currentDevice, computeShaderModule, nullptr); // Clean up shader module on failure
-        throw std::runtime_error("Failed to create compute pipeline layout!");
-    }
+    PipelineLayout pipelineLayout;
+    VK_CHECK(vkCreatePipelineLayout(currentDevice, &pipelineLayoutInfo, nullptr, pipelineLayout.address()));
 
     VkComputePipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     pipelineInfo.stage = shaderStageInfo;
-    pipelineInfo.layout = tempPipelineLayout; // Use the layout created for this pipeline
+    pipelineInfo.layout = pipelineLayout;
 
-    VkPipeline computePipeline;
-    if (vkCreateComputePipelines(currentDevice, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computePipeline) != VK_SUCCESS) {
-        vkDestroyPipelineLayout(currentDevice, tempPipelineLayout, nullptr); // Clean up layout
-        vkDestroyShaderModule(currentDevice, computeShaderModule, nullptr); // Clean up shader module
-        throw std::runtime_error("Failed to create compute pipeline!");
-    }
+    Pipeline computePipeline;
+    VK_CHECK(vkCreateComputePipelines(currentDevice, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, computePipeline.address()));
 
-    // Shader module can be destroyed after pipeline creation if not managed elsewhere
-    vkDestroyShaderModule(currentDevice, computeShaderModule, nullptr);
-    // The tempPipelineLayout should also be managed (destroyed when this compute pipeline is destroyed)
-    // This highlights the need for PipelineManager to own layouts and pipelines together.
+    // Store pipeline and layout for cleanup
+    computePipelines_.push_back({std::move(computePipeline), std::move(pipelineLayout)});
 
-    return computePipeline;
+    return computePipelines_.back().pipeline;
 }
 
 // Destroy a compute pipeline
 void VulkanEngine::destroyComputePipeline(VkPipeline pipeline) {
-    // This function might need to also destroy the associated pipelineLayout
-    // if it's uniquely created for this compute pipeline.
     VkDevice currentDevice = vulkanContext_->getDevice();
     if (currentDevice == VK_NULL_HANDLE || pipeline == VK_NULL_HANDLE) return;
 
-    vkDestroyPipeline(currentDevice, pipeline, nullptr);
-    // If a unique pipelineLayout was created with this compute pipeline, destroy it here.
-    // For now, assuming a shared or globally managed pipelineLayout, or that it's handled elsewhere.
+    // Find and remove the pipeline info
+    auto it = std::find_if(computePipelines_.begin(), computePipelines_.end(),
+        [pipeline](const ComputePipelineInfo& info) { return info.pipeline == pipeline; });
+
+    if (it != computePipelines_.end()) {
+        vkDestroyPipeline(currentDevice, it->pipeline, nullptr);
+        vkDestroyPipelineLayout(currentDevice, it->layout, nullptr);
+        computePipelines_.erase(it);
+    }
 }
 
 // Begin a single-time command buffer
@@ -500,10 +541,10 @@ void VulkanEngine::cleanup() {
         
         // Destroy buffers with VMA
         if (vertexBuffer_ != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(vma, vertexBuffer_, vertexBufferMemory_);
+            vmaDestroyBuffer(vma, vertexBuffer_, vertexBufferAllocation_);
         }
         if (indexBuffer_ != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(vma, indexBuffer_, indexBufferMemory_);
+            vmaDestroyBuffer(vma, indexBuffer_, indexBufferAllocation_);
         }
         if (uniformBuffers_[0] != VK_NULL_HANDLE) {
             vmaDestroyBuffer(vma, uniformBuffers_[0], uniformBufferAllocations_[0]);
@@ -514,13 +555,14 @@ void VulkanEngine::cleanup() {
         
         // Destroy images with VMA
         if (depthImage_ != VK_NULL_HANDLE) {
-            vmaDestroyImage(vma, depthImage_, depthImageMemory_);
+            vmaDestroyImage(vma, depthImage_, depthImageAllocation_);
         }
         if (colorImage_ != VK_NULL_HANDLE) {
-            vmaDestroyImage(vma, colorImage_, colorImageMemory_);
+            vmaDestroyImage(vma, colorImage_, colorImageAllocation_);
         }
     }
 
+    // Clean up swap chain and related resources
     cleanupSwapChain();
 
     // Clean up other resources
@@ -564,8 +606,12 @@ void VulkanEngine::cleanup() {
         }
     }
 
-    // Clean up swap chain
-    cleanupSwapChain();
+    // Clean up compute pipelines
+    for (const auto& pipelineInfo : computePipelines_) {
+        vkDestroyPipeline(vulkanContext_->getDevice(), pipelineInfo.pipeline, nullptr);
+        vkDestroyPipelineLayout(vulkanContext_->getDevice(), pipelineInfo.layout, nullptr);
+    }
+    computePipelines_.clear();
 
     // Clean up Vulkan context
     vulkanContext_.reset();
@@ -597,13 +643,20 @@ VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code) {
 }
 
 void VulkanEngine::createCommandBuffers() {
+    // Free existing command buffers if any
+    if (!commandBuffers_.empty()) {
+        vkFreeCommandBuffers(vulkanContext_->getDevice(), graphicsCommandPool_, 
+                           static_cast<uint32_t>(commandBuffers_.size()), commandBuffers_.data());
+        commandBuffers_.clear();
+    }
+
     commandBuffers_.resize(MAX_FRAMES_IN_FLIGHT);
 
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.commandPool = graphicsCommandPool_;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandBufferCount = (uint32_t) commandBuffers_.size();
+    allocInfo.commandBufferCount = static_cast<uint32_t>(commandBuffers_.size());
 
     if (vkAllocateCommandBuffers(vulkanContext_->getDevice(), &allocInfo, commandBuffers_.data()) != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate command buffers!");
@@ -883,7 +936,7 @@ void VulkanEngine::createDepthResources() {
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
     );
     depthImage_ = depthImageAlloc.image;
-    depthImageMemory_ = depthImageAlloc.allocation;
+    depthImageAllocation_ = depthImageAlloc.allocation;
 
     memoryManager->createImageView(depthImage_, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, depthImageView_);
 }
@@ -904,7 +957,7 @@ void VulkanEngine::createColorResources() {
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
     );
     colorImage_ = colorImageAlloc.image;
-    colorImageMemory_ = colorImageAlloc.allocation;
+    colorImageAllocation_ = colorImageAlloc.allocation;
 
     memoryManager->createImageView(colorImage_, colorFormat, VK_IMAGE_ASPECT_COLOR_BIT, colorImageView_);
 }
@@ -970,7 +1023,7 @@ void VulkanEngine::createVertexBuffer() {
 }
 
 void VulkanEngine::createIndexBuffer() {
-    VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+    VkDeviceSize bufferSize = sizeof(indices_[0]) * indices_.size();
 
     auto memoryManager = vulkanContext_->getMemoryManager();
     if (!memoryManager) {
@@ -983,7 +1036,7 @@ void VulkanEngine::createIndexBuffer() {
     // Map and copy data
     void* data;
     vmaMapMemory(memoryManager->getAllocator(), stagingBuffer.allocation, &data);
-    memcpy(data, indices.data(), (size_t)bufferSize);
+    memcpy(data, indices_.data(), (size_t)bufferSize);
     vmaUnmapMemory(memoryManager->getAllocator(), stagingBuffer.allocation);
 
     // Create index buffer
@@ -1130,4 +1183,154 @@ void VulkanEngine::updateUniformBuffer(uint32_t currentImage) {
     ubo.proj[1][1] *= -1;
 
     memcpy(uniformBuffersMapped_[currentImage], &ubo, sizeof(ubo));
+}
+
+void VulkanEngine::drawMenu() {
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    ImGui::SetNextWindowPos({0,0}, ImGuiCond_Always);
+    ImGui::SetNextWindowSize({400,300}, ImGuiCond_Always);
+    ImGui::Begin("Main Menu", nullptr,
+                 ImGuiWindowFlags_NoResize |
+                 ImGuiWindowFlags_NoCollapse |
+                 ImGuiWindowFlags_NoMove);
+
+    if (ImGui::Button("Continue", ImVec2(-1,40))) {
+        loadLastSave();
+        currentState_ = App::State::Running;
+    }
+
+    if (ImGui::Button("Load Save...", ImVec2(-1,40))) {
+        showSavePicker_ = true;
+    }
+
+    if (ImGui::Button("New Project", ImVec2(-1,40))) {
+        newProject();
+        currentState_ = App::State::Running;
+    }
+
+    if (ImGui::Button("Exit", ImVec2(-1,40))) {
+        currentState_ = App::State::Exiting;
+    }
+    ImGui::End();
+
+    if (showSavePicker_) drawSavePicker();
+
+    ImGui::Render();
+    renderImguiDrawData();
+}
+
+void VulkanEngine::drawSavePicker() {
+    ImGui::SetNextWindowPos({100,100}, ImGuiCond_Always);
+    ImGui::SetNextWindowSize({300,400}, ImGuiCond_Always);
+    ImGui::Begin("Load Save", &showSavePicker_,
+                 ImGuiWindowFlags_NoResize |
+                 ImGuiWindowFlags_NoCollapse);
+
+    saveFiles_ = saveManager_->getSaveFiles();
+    for (size_t i = 0; i < saveFiles_.size(); ++i) {
+        if (ImGui::Selectable(saveFiles_[i].displayName.c_str(), selectedSaveIndex_ == i)) {
+            selectedSaveIndex_ = i;
+        }
+    }
+
+    if (ImGui::Button("Load", ImVec2(-1,40)) && selectedSaveIndex_ >= 0) {
+        loadSave(saveFiles_[selectedSaveIndex_].filename);
+        currentState_ = App::State::Running;
+        showSavePicker_ = false;
+    }
+
+    ImGui::End();
+}
+
+void VulkanEngine::newProject() {
+    // TODO: Implement new project initialization
+}
+
+void VulkanEngine::loadLastSave() {
+    std::string lastSave = saveManager_->getLastSaveFile();
+    if (!lastSave.empty()) {
+        loadSave(lastSave);
+    }
+}
+
+void VulkanEngine::loadSave(const std::string& filename) {
+    if (isLoading_) return;
+    isLoading_ = true;
+    loadingElapsed_ = 0.0f;
+    loadingProgress_ = 0.0f;
+    loadingStatus_ = "Loading save file...";
+    currentState_ = App::State::Loading;
+
+    loadingFuture_ = std::async(std::launch::async, [this, filename]() {
+        try {
+            // Phase 1: Read file (25%)
+            loadingStatus_ = "Reading save file...";
+            loadingProgress_ = 0.25f;
+            
+            VoxelData temp;
+            bool ok = saveManager_->loadSaveFile(filename, temp);
+            if (!ok) {
+                loadingStatus_ = "Failed to load save file";
+                return false;
+            }
+
+            // Phase 2: Process voxel data (50%)
+            loadingStatus_ = "Processing voxel data...";
+            loadingProgress_ = 0.75f;
+            
+            loadedVoxelData_ = std::move(temp);
+
+            // Phase 3: Complete (100%)
+            loadingStatus_ = "Complete!";
+            loadingProgress_ = 1.0f;
+            return true;
+        }
+        catch (const std::exception& e) {
+            loadingStatus_ = std::string("Error: ") + e.what();
+            return false;
+        }
+    });
+}
+
+void VulkanEngine::saveCurrent() {
+    std::string filename = saveManager_->generateSaveFileName();
+    saveManager_->saveCurrentState(filename);
+}
+
+void VulkanEngine::setAppState(App::State newState) {
+    currentState_ = newState;
+}
+
+void VulkanEngine::drawLoading() {
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    ImGui::SetNextWindowPos({static_cast<float>(WIDTH/2 - 150), static_cast<float>(HEIGHT/2 - 50)}, ImGuiCond_Always);
+    ImGui::SetNextWindowSize({300.0f, 100.0f}, ImGuiCond_Always);
+    ImGui::Begin("Loading", nullptr,
+                 ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar);
+
+    ImGui::Text("%s", loadingStatus_.c_str());
+
+    if (loadingFuture_.valid() && loadingFuture_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+        bool success = loadingFuture_.get();
+        if (success) {
+            // TODO: Integrate loadedVoxelData_ into engine world
+            currentState_ = App::State::Running;
+        } else {
+            currentState_ = App::State::Menu;
+        }
+        isLoading_ = false;
+    }
+
+    ImGui::ProgressBar(loadingProgress_, ImVec2(-1.0f, 0.0f));
+
+    ImGui::End();
+
+    ImGui::Render();
+    renderImguiDrawData();
 } 

@@ -11,15 +11,92 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <vk_mem_alloc.h>
+#include <future>
+#include <functional>
+#include <unordered_map>
+#include <sstream>
+#include <iomanip>
+#include <chrono>
+#include <atomic>
 
 // Project includes
 #include "Vertex.h"
 #include "VulkanContext.h"
 #include "WindowManager.h"
 #include "VulkanMemoryManager.h"
+#include "AppState.h"
+#include "SaveManager.h"
 
 // Forward declarations
 class VulkanMemoryManager;
+
+/**
+ * @brief RAII wrapper for Vulkan resources
+ */
+template<typename T, typename Deleter>
+class VulkanResource {
+public:
+    VulkanResource() : resource_(VK_NULL_HANDLE) {}
+    explicit VulkanResource(T resource) : resource_(resource) {}
+    ~VulkanResource() { if (resource_ != VK_NULL_HANDLE) Deleter()(resource_); }
+
+    // Prevent copying
+    VulkanResource(const VulkanResource&) = delete;
+    VulkanResource& operator=(const VulkanResource&) = delete;
+
+    // Allow moving
+    VulkanResource(VulkanResource&& other) noexcept : resource_(other.resource_) {
+        other.resource_ = VK_NULL_HANDLE;
+    }
+    VulkanResource& operator=(VulkanResource&& other) noexcept {
+        if (this != &other) {
+            if (resource_ != VK_NULL_HANDLE) {
+                Deleter()(resource_);
+            }
+            resource_ = other.resource_;
+            other.resource_ = VK_NULL_HANDLE;
+        }
+        return *this;
+    }
+
+    // Accessors
+    T get() const { return resource_; }
+    T* address() { return &resource_; }
+    operator T() const { return resource_; }
+
+private:
+    T resource_;
+};
+
+// Resource deleters
+struct PipelineDeleter {
+    void operator()(VkPipeline pipeline) const {
+        if (pipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(VulkanEngine::getInstance()->getVulkanContext()->getDevice(), pipeline, nullptr);
+        }
+    }
+};
+
+struct PipelineLayoutDeleter {
+    void operator()(VkPipelineLayout layout) const {
+        if (layout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(VulkanEngine::getInstance()->getVulkanContext()->getDevice(), layout, nullptr);
+        }
+    }
+};
+
+struct ShaderModuleDeleter {
+    void operator()(VkShaderModule module) const {
+        if (module != VK_NULL_HANDLE) {
+            vkDestroyShaderModule(VulkanEngine::getInstance()->getVulkanContext()->getDevice(), module, nullptr);
+        }
+    }
+};
+
+// Type aliases for RAII resources
+using Pipeline = VulkanResource<VkPipeline, PipelineDeleter>;
+using PipelineLayout = VulkanResource<VkPipelineLayout, PipelineLayoutDeleter>;
+using ShaderModule = VulkanResource<VkShaderModule, ShaderModuleDeleter>;
 
 /**
  * @brief Uniform buffer object for shader transformation matrices
@@ -37,6 +114,118 @@ struct SwapChainSupportDetails {
     VkSurfaceCapabilitiesKHR capabilities;
     std::vector<VkSurfaceFormatKHR> formats;
     std::vector<VkPresentModeKHR> presentModes;
+};
+
+/**
+ * @brief Helper macros for Vulkan error checking
+ */
+#define VK_CHECK(x) do { \
+    VkResult err = x; \
+    if (err) { \
+        std::cerr << "Vulkan error: " << err << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
+        throw std::runtime_error("Vulkan error: " + std::to_string(err)); \
+    } \
+} while(0)
+
+/**
+ * @brief Helper function to check if a Vulkan result is an error
+ */
+inline bool isVulkanError(VkResult result) {
+    return result < 0;
+}
+
+/**
+ * @brief Helper function to get a string description of a Vulkan result
+ */
+inline std::string getVulkanResultString(VkResult result) {
+    switch (result) {
+        case VK_SUCCESS: return "VK_SUCCESS";
+        case VK_NOT_READY: return "VK_NOT_READY";
+        case VK_TIMEOUT: return "VK_TIMEOUT";
+        case VK_EVENT_SET: return "VK_EVENT_SET";
+        case VK_EVENT_RESET: return "VK_EVENT_RESET";
+        case VK_INCOMPLETE: return "VK_INCOMPLETE";
+        case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
+        case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+        case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
+        case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
+        case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
+        case VK_ERROR_LAYER_NOT_PRESENT: return "VK_ERROR_LAYER_NOT_PRESENT";
+        case VK_ERROR_EXTENSION_NOT_PRESENT: return "VK_ERROR_EXTENSION_NOT_PRESENT";
+        case VK_ERROR_FEATURE_NOT_PRESENT: return "VK_ERROR_FEATURE_NOT_PRESENT";
+        case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
+        case VK_ERROR_TOO_MANY_OBJECTS: return "VK_ERROR_TOO_MANY_OBJECTS";
+        case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED";
+        case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
+        case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY";
+        case VK_ERROR_INVALID_EXTERNAL_HANDLE: return "VK_ERROR_INVALID_EXTERNAL_HANDLE";
+        case VK_ERROR_FRAGMENTATION: return "VK_ERROR_FRAGMENTATION";
+        case VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS: return "VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS";
+        case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR";
+        case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR: return "VK_ERROR_NATIVE_WINDOW_IN_USE_KHR";
+        case VK_SUBOPTIMAL_KHR: return "VK_SUBOPTIMAL_KHR";
+        case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
+        case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR: return "VK_ERROR_INCOMPATIBLE_DISPLAY_KHR";
+        case VK_ERROR_VALIDATION_FAILED_EXT: return "VK_ERROR_VALIDATION_FAILED_EXT";
+        case VK_ERROR_INVALID_SHADER_NV: return "VK_ERROR_INVALID_SHADER_NV";
+        default: return "Unknown error";
+    }
+}
+
+/**
+ * @brief State machine for the Vulkan engine
+ */
+class EngineStateMachine {
+public:
+    using StateHandler = std::function<void()>;
+    using StateTransition = std::function<bool()>;
+
+    void addState(App::State state, StateHandler enter, StateHandler update, StateHandler exit) {
+        states_[state] = {enter, update, exit};
+    }
+
+    void addTransition(App::State from, App::State to, StateTransition condition) {
+        transitions_[from][to] = condition;
+    }
+
+    void setState(App::State newState) {
+        if (currentState_ != newState) {
+            if (currentState_ != App::State::None) {
+                states_[currentState_].exit();
+            }
+            currentState_ = newState;
+            if (currentState_ != App::State::None) {
+                states_[currentState_].enter();
+            }
+        }
+    }
+
+    void update() {
+        if (currentState_ != App::State::None) {
+            // Check for state transitions
+            for (const auto& [nextState, condition] : transitions_[currentState_]) {
+                if (condition()) {
+                    setState(nextState);
+                    break;
+                }
+            }
+            // Update current state
+            states_[currentState_].update();
+        }
+    }
+
+    App::State getCurrentState() const { return currentState_; }
+
+private:
+    struct StateHandlers {
+        StateHandler enter;
+        StateHandler update;
+        StateHandler exit;
+    };
+
+    App::State currentState_ = App::State::None;
+    std::unordered_map<App::State, StateHandlers> states_;
+    std::unordered_map<App::State, std::unordered_map<App::State, StateTransition>> transitions_;
 };
 
 /**
@@ -182,9 +371,26 @@ public:
      */
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
 
+    // New public methods for menu system
+    void drawMenu();
+    void drawSavePicker();
+    void newProject();
+    void loadLastSave();
+    void loadSave(const std::string& filename);
+    void saveCurrent();
+    void setAppState(App::State newState);
+
+    void drawLoading();
+
+    // Auto-save members
+    bool autoSaveEnabled_ = true;
+    std::chrono::steady_clock::time_point lastAutoSave_;
+    static constexpr auto AUTO_SAVE_INTERVAL = std::chrono::minutes(5);
+    static constexpr const char* AUTO_SAVE_PREFIX = "autosave_";
+
 private:
     static VulkanEngine* instance_;
-    std::unique_ptr<WindowManager> windowManager_;
+    std::shared_ptr<WindowManager> windowManager_;
     VkSurfaceKHR surface_;
     std::unique_ptr<VulkanContext> vulkanContext_;
     VkInstance vkInstance_;
@@ -272,6 +478,34 @@ private:
     VmaAllocation indexBufferAllocation_;
     std::vector<Vertex> vertices_;
     std::vector<uint32_t> indices_;
+
+    // New private members for menu system
+    App::State currentState_ = App::State::Menu;
+    App::MenuState menuState_;
+    std::unique_ptr<SaveManager> saveManager_;
+    bool showSavePicker_ = false;
+    bool showNewProjectDialog_ = false;
+    bool showSettings_ = false;
+    std::vector<App::SaveInfo> saveFiles_;
+    int selectedSaveIndex_ = -1;
+
+    // Add new member for compute pipeline layout tracking
+    struct ComputePipelineInfo {
+        VkPipeline pipeline;
+        VkPipelineLayout layout;
+    };
+    std::vector<ComputePipelineInfo> computePipelines_;
+
+    // Loading screen members
+    bool isLoading_ = false;
+    float loadingElapsed_ = 0.0f;
+    std::future<bool> loadingFuture_;
+    VoxelData loadedVoxelData_;
+    std::atomic<float> loadingProgress_{0.0f};
+    std::string loadingStatus_{"Loading..."};
+
+    EngineStateMachine stateMachine_;
+    void initializeStateMachine();
 
     /**
      * @brief Create command pools for graphics and compute operations

@@ -1,15 +1,18 @@
 #include "UI.h"
 #include <imgui.h>
-#include <imgui_impl_glfw.h>
-#include <imgui_impl_vulkan.h>
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_vulkan.h>
 #include <sstream>
 #include <iomanip>
 
-UI::UI(GLFWwindow* window, Camera* camera)
-    : window(window), camera(camera), isPaused(true), tickRate(1.0f),
+UI::UI(VulkanEngine* engine)
+    : engine_(engine), isPaused_(true), tickRate(1.0f),
       placementMode(false), placementPos(0.0f),
       gridMin(0.0f), gridMax(250.0f), voxelSize(1.0f),
       population(0), generation(0) {
+    if (engine_) {
+        window = engine_->getWindowManager()->getWindow();
+    }
 }
 
 UI::~UI() {
@@ -45,7 +48,7 @@ void UI::render() {
 void UI::handleInput() {
     // Toggle pause with Space
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
-        isPaused = !isPaused;
+        isPaused_ = !isPaused_;
     }
     
     // Toggle placement mode with E
@@ -126,8 +129,8 @@ void UI::renderControls() {
     ImGui::Begin("Controls");
     
     // Pause/Resume button
-    if (ImGui::Button(isPaused ? "Resume" : "Pause")) {
-        isPaused = !isPaused;
+    if (ImGui::Button(isPaused_ ? "Resume" : "Pause")) {
+        isPaused_ = !isPaused_;
     }
     
     // Tick rate slider

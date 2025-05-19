@@ -857,3 +857,25 @@ Details:
   * Next: Refactor VulkanEngine to use VulkanMemoryManager instead of MemoryPool
   * Approach: All changes are made with explicit, minimal edits and clear markers to avoid disrupting other agents' work
 Status: 🔄 In Progress 
+
+### Session 27
+- Date: [2025-05-19]
+- Agent: Level the Laborer
+- Action: Consolidated environment setup scripts and captured latest execution log
+- Purpose: Provide a single source of truth for Windows environment configuration and build, and track the outcome
+- Details:
+  * Created `scripts/fix_environment.ps1` and `scripts/fix_environment.bat` for automated environment checks:
+    - Detect and configure Visual Studio, Vulkan SDK, and vcpkg
+    - Generate build directory, configure CMake, and build project in Debug mode
+  * Initial run output (PowerShell):
+    ```
+    Checking and fixing environment variables...
+    Visual Studio not found in PATH. Attempting to find it...
+    Visual Studio not found. Please install Visual Studio 2022 with C++ development tools.
+    ```
+  * Issue: Visual Studio installation not detected at default Community path. Will enhance detection using `vswhere` and Build Tools SKU.
+  * Next steps:
+    1. Update scripts to use `vswhere.exe` for robust Visual Studio detection
+    2. Add fallback to Visual Studio Build Tools path (`BuildTools` SKU)
+    3. Re-run setup scripts after installing or locating a valid VS instance
+- Status: 🔄 In Progress 

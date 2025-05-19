@@ -59,6 +59,7 @@ private:
 
     GLFWwindow* window_ = nullptr;
     WindowConfig config_;
+    bool glfwInitialized_ = false;
     
     // Callback storage
     FramebufferResizeCallback framebufferResizeCallback_;

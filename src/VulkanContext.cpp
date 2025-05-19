@@ -5,6 +5,24 @@
 #include <cstring> // For strcmp
 #include <GLFW/glfw3.h> // Required for glfwGetRequiredInstanceExtensions
 #include <algorithm>
+#include <fstream>
+#include <chrono>
+#include <iomanip>
+
+// Add after the includes
+static std::ofstream validationLogFile;
+static bool validationLogInitialized = false;
+
+static void initializeValidationLog() {
+    if (!validationLogInitialized) {
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        std::stringstream ss;
+        ss << "vulkan_validation_" << std::put_time(std::localtime(&time), "%Y%m%d_%H%M%S") << ".log";
+        validationLogFile.open(ss.str(), std::ios::out | std::ios::app);
+        validationLogInitialized = true;
+    }
+}
 
 // Static callback function needs to be defined outside the class or be static member
 VKAPI_ATTR VkBool32 VKAPI_CALL VulkanContext::debugCallback(
@@ -12,7 +30,47 @@ VKAPI_ATTR VkBool32 VKAPI_CALL VulkanContext::debugCallback(
     VkDebugUtilsMessageTypeFlagsEXT messageType,
     const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
     void* pUserData) {
-    std::cerr << "Validation layer: " << pCallbackData->pMessage << std::endl;
+    
+    initializeValidationLog();
+
+    std::stringstream ss;
+    ss << "[" << std::put_time(std::localtime(&std::time(nullptr)), "%Y-%m-%d %H:%M:%S") << "] ";
+
+    // Add severity level
+    switch (messageSeverity) {
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
+            ss << "[VERBOSE] ";
+            break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
+            ss << "[INFO] ";
+            break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+            ss << "[WARNING] ";
+            break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+            ss << "[ERROR] ";
+            break;
+        default:
+            ss << "[UNKNOWN] ";
+    }
+
+    // Add message type
+    if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT)
+        ss << "[GENERAL] ";
+    if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT)
+        ss << "[VALIDATION] ";
+    if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)
+        ss << "[PERFORMANCE] ";
+
+    ss << pCallbackData->pMessage << std::endl;
+
+    // Write to log file
+    validationLogFile << ss.str();
+    validationLogFile.flush();
+
+    // Also output to console for immediate feedback
+    std::cerr << ss.str();
+
     return VK_FALSE;
 }
 
@@ -49,18 +107,13 @@ VulkanContext::VulkanContext(std::shared_ptr<WindowManager> windowManager,
 }
 
 VulkanContext::~VulkanContext() {
-    // Clean up in reverse order of creation
-    memoryManager_.reset();  // This will call VulkanMemoryManager's destructor
-    deviceManager_.reset();  // This will call DeviceManager's destructor
-    cleanupSurface();
-    cleanupDebugMessenger();
-    vkDestroyInstance(vkInstance_, nullptr);
+    cleanup();
 }
 
 void VulkanContext::cleanup() {
-    if (deviceManager_) {
-        deviceManager_.reset(); // Destroys DeviceManager, which destroys logical device
-    }
+    // Clean up in reverse order of creation
+    memoryManager_.reset();  // This will call VulkanMemoryManager's destructor
+    deviceManager_.reset();  // This will call DeviceManager's destructor
     cleanupSurface(); // Must be before instance destruction
     cleanupDebugMessenger();
     if (vkInstance_ != VK_NULL_HANDLE) {
@@ -90,8 +143,11 @@ const QueueFamilyIndices& VulkanContext::getQueueFamilyIndices() const {
 }
 
 void VulkanContext::createInstance() {
-    if (areValidationLayersEnabled() && !checkValidationLayerSupport()) {
-        throw std::runtime_error("Validation layers requested, but not available!");
+    if (areValidationLayersEnabled()) {
+        if (!checkValidationLayerSupport()) {
+            std::cerr << "Warning: Validation layers requested but not available. Disabling validation layers." << std::endl;
+            validationLayers_.clear();
+        }
     }
 
     VkApplicationInfo appInfo{};
@@ -115,29 +171,19 @@ void VulkanContext::createInstance() {
     if (areValidationLayersEnabled()) {
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
+
+    // Remove duplicates and sort
     std::sort(extensions.begin(), extensions.end());
     extensions.erase(std::unique(extensions.begin(), extensions.end()), extensions.end());
 
     createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
     createInfo.ppEnabledExtensionNames = extensions.data();
 
-    VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
     if (areValidationLayersEnabled()) {
         createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers_.size());
         createInfo.ppEnabledLayerNames = validationLayers_.data();
-        
-        debugCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-        debugCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-                                       VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                       VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-        debugCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                                   VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                                   VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-        debugCreateInfo.pfnUserCallback = debugCallback;
-        createInfo.pNext = &debugCreateInfo;
     } else {
         createInfo.enabledLayerCount = 0;
-        createInfo.pNext = nullptr;
     }
 
     if (vkCreateInstance(&createInfo, nullptr, &vkInstance_) != VK_SUCCESS) {
@@ -150,6 +196,8 @@ void VulkanContext::setupDebugMessenger() {
 
     VkDebugUtilsMessengerCreateInfoEXT createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    createInfo.pNext = nullptr;
+    createInfo.flags = 0;
     createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
                                VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
                                VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
@@ -190,9 +238,11 @@ void VulkanContext::cleanupDebugMessenger() {
 bool VulkanContext::checkValidationLayerSupport() const {
     uint32_t layerCount;
     vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+
     std::vector<VkLayerProperties> availableLayers(layerCount);
     vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
 
+    // Check if all requested validation layers are available
     for (const char* layerName : validationLayers_) {
         bool layerFound = false;
         for (const auto& layerProperties : availableLayers) {
@@ -202,10 +252,11 @@ bool VulkanContext::checkValidationLayerSupport() const {
             }
         }
         if (!layerFound) {
-            std::cerr << "Validation layer not found: " << layerName << std::endl;
+            std::cerr << "Validation layer requested but not available: " << layerName << std::endl;
             return false;
         }
     }
+
     return true;
 }
 

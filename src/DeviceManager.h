@@ -40,7 +40,7 @@ private:
     VkQueue presentQueue_ = VK_NULL_HANDLE;
     VkQueue computeQueue_ = VK_NULL_HANDLE;
 
-    const std::vector<const char*>& requiredDeviceExtensions_;
+    std::vector<const char*> requiredDeviceExtensions_;
     VkPhysicalDeviceFeatures supportedFeatures_;
     VkPhysicalDeviceProperties deviceProperties_;
 }; 

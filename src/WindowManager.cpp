@@ -1,6 +1,9 @@
-#include "WindowManager.h"
+#include "WindowManager.h"          // must be FIRST
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
 #include <stdexcept>
 #include <iostream>
+
 
 WindowManager::WindowManager() {}
 
@@ -14,6 +17,7 @@ void WindowManager::init(const WindowConfig& config) {
     if (!glfwInit()) {
         throw std::runtime_error("Failed to initialize GLFW!");
     }
+    glfwInitialized_ = true;
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, config_.resizable ? GLFW_TRUE : GLFW_FALSE);
@@ -47,7 +51,10 @@ void WindowManager::cleanup() {
         glfwDestroyWindow(window_);
         window_ = nullptr;
     }
-    glfwTerminate();
+    if (glfwInitialized_) {
+        glfwTerminate();
+        glfwInitialized_ = false;
+    }
 }
 
 VkSurfaceKHR WindowManager::createSurface(VkInstance instance) const {

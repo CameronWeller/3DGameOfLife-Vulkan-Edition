@@ -69,6 +69,6 @@ private:
     std::unique_ptr<DeviceManager> deviceManager_;
     std::unique_ptr<VulkanMemoryManager> memoryManager_;
 
-    const std::vector<const char*>& requiredInstanceExtensions_;
-    const std::vector<const char*>& validationLayers_;
+    std::vector<const char*> requiredInstanceExtensions_;
+    std::vector<const char*> validationLayers_;
 }; 
