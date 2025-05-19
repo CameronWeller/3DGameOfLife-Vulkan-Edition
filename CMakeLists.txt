@@ -86,12 +86,11 @@ set(SOURCE_FILES
     src/main.cpp
     src/VulkanEngine.cpp
     src/VulkanEngine.h
-    src/MemoryPool.cpp
-    src/MemoryPool.h
-    src/Vertex.cpp
-    src/Vertex.h
     src/Grid3D.cpp
     src/Grid3D.h
+    src/MemoryPool.cpp
+    src/MemoryPool.h
+    src/Vertex.h
 )
 
 # Add the executable

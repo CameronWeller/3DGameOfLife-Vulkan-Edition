@@ -1,14 +1,11 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
-#include <glm/glm.hpp>
 #include <array>
+#include <glm/glm.hpp>
 
 /**
- * @brief Represents a vertex with position, color, and texture coordinates
- * 
- * This struct defines the vertex format used in the rendering pipeline.
- * It provides static methods to generate Vulkan vertex input descriptions.
+ * @brief Vertex structure with position, color, and texture coordinates
  */
 struct Vertex {
     /** @brief Position of the vertex in 3D space */
@@ -21,22 +18,45 @@ struct Vertex {
     glm::vec2 texCoord;
 
     /**
-     * @brief Get the binding description for this vertex format
-     * 
-     * This describes how to interpret vertex buffer data in the shader
-     * 
-     * @return The vertex binding description
+     * @brief Get the binding description for vertex input
+     * @return VkVertexInputBindingDescription
      */
-    static VkVertexInputBindingDescription getBindingDescription();
-
+    static VkVertexInputBindingDescription getBindingDescription() {
+        VkVertexInputBindingDescription bindingDescription{};
+        bindingDescription.binding = 0;
+        bindingDescription.stride = sizeof(Vertex);
+        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        
+        return bindingDescription;
+    }
+    
     /**
-     * @brief Get the attribute descriptions for this vertex format
-     * 
-     * This describes the individual attributes within the vertex structure
-     * 
-     * @return Array of attribute descriptions (position, color, UV)
+     * @brief Get the attribute descriptions for vertex input
+     * @return std::array<VkVertexInputAttributeDescription, 3>
      */
-    static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions();
+    static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions() {
+        std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
+        
+        // Position
+        attributeDescriptions[0].binding = 0;
+        attributeDescriptions[0].location = 0;
+        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptions[0].offset = offsetof(Vertex, pos);
+        
+        // Color
+        attributeDescriptions[1].binding = 0;
+        attributeDescriptions[1].location = 1;
+        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptions[1].offset = offsetof(Vertex, color);
+        
+        // Texture coordinate
+        attributeDescriptions[2].binding = 0;
+        attributeDescriptions[2].location = 2;
+        attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
+        
+        return attributeDescriptions;
+    }
     
     /**
      * @brief Equality operator for vertices
