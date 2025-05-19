@@ -5,6 +5,20 @@ project(CPPVulkanHIPEngine LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Set policy for GLM compatibility
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
+# Windows-specific settings
+if(WIN32)
+    # Use MT instead of MD when building with MSVC
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    
+    # Disable specific warnings on Windows
+    if(MSVC)
+        add_compile_options(/W4 /wd4100 /wd4189)
+    endif()
+endif()
+
 # Find required packages
 find_package(Vulkan REQUIRED)
 find_package(HIP QUIET)  # Make HIP optional
@@ -67,11 +81,22 @@ compile_shader(basic.frag)
 compile_shader(game_of_life_3d.comp)
 compile_shader(population_reduction.comp)
 
-# Add source files
-add_executable(vulkan-engine
+# Define source files
+set(SOURCE_FILES
     src/main.cpp
     src/VulkanEngine.cpp
     src/VulkanEngine.h
+    src/MemoryPool.cpp
+    src/MemoryPool.h
+    src/Vertex.cpp
+    src/Vertex.h
+    src/Grid3D.cpp
+    src/Grid3D.h
+)
+
+# Add the executable
+add_executable(vulkan-engine
+    ${SOURCE_FILES}
     ${SHADER_SPV_FILES}
 )
 
@@ -92,6 +117,15 @@ target_link_libraries(vulkan-engine PRIVATE
 if(HIP_FOUND)
     target_link_libraries(vulkan-engine PRIVATE HIP::hip)
     target_compile_definitions(vulkan-engine PRIVATE WITH_HIP)
+endif()
+
+# Post-build copy of shaders for Windows
+if(WIN32)
+    add_custom_command(TARGET vulkan-engine POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:vulkan-engine>/shaders/"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHADER_OUTPUT_DIR}" "$<TARGET_FILE_DIR:vulkan-engine>/shaders/"
+        COMMENT "Copying shader files to output directory"
+    )
 endif()
 
 # Out-of-source build check

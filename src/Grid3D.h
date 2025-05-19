@@ -55,7 +55,6 @@ private:
     // Memory management
     void createBuffers();
     void destroyBuffers();
-    void allocateMemory();
     void freeMemory();
     
     // Helper functions
@@ -70,6 +69,9 @@ private:
     VkDescriptorSet descriptorSet;
     VkPipelineLayout pipelineLayout;
     VkPipeline computePipeline;
+    VkPipeline populationPipeline;
+    VkBuffer populationBuffer;
+    VkDeviceMemory populationMemory;
     
     void createComputeResources();
     void destroyComputeResources();

@@ -12,68 +12,55 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+// Project includes
+#include "Vertex.h"
+
 // Forward declarations
 class MemoryPool;
 
-struct Vertex {
-    glm::vec3 pos;
-    glm::vec3 color;
-    glm::vec2 texCoord;
-
-    static VkVertexInputBindingDescription getBindingDescription() {
-        VkVertexInputBindingDescription bindingDescription{};
-        bindingDescription.binding = 0;
-        bindingDescription.stride = sizeof(Vertex);
-        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        return bindingDescription;
-    }
-
-    static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions() {
-        std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
-
-        attributeDescriptions[0].binding = 0;
-        attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset = offsetof(Vertex, pos);
-
-        attributeDescriptions[1].binding = 0;
-        attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[1].offset = offsetof(Vertex, color);
-
-        attributeDescriptions[2].binding = 0;
-        attributeDescriptions[2].location = 2;
-        attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
-        attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
-
-        return attributeDescriptions;
-    }
-};
-
+/**
+ * @brief Uniform buffer object for shader transformation matrices
+ */
 struct UniformBufferObject {
     alignas(16) glm::mat4 model;
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
 };
 
+/**
+ * @brief Details about swap chain capabilities
+ */
 struct SwapChainSupportDetails {
     VkSurfaceCapabilitiesKHR capabilities;
     std::vector<VkSurfaceFormatKHR> formats;
     std::vector<VkPresentModeKHR> presentModes;
 };
 
+/**
+ * @brief Indices for queue families required by the application
+ */
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
     std::optional<uint32_t> presentFamily;
     std::optional<uint32_t> computeFamily;
 
+    /**
+     * @brief Check if all required queues were found
+     * @return True if all required queues are available
+     */
     bool isComplete() const {
         return graphicsFamily.has_value() && presentFamily.has_value();
     }
 };
 
+/**
+ * @brief Memory pool for efficient Vulkan resource management
+ */
 class MemoryPool {
 public:
+    /**
+     * @brief Represents an allocated buffer in the pool
+     */
     struct BufferAllocation {
         VkBuffer buffer;
         VkDeviceMemory memory;
@@ -83,6 +70,9 @@ public:
         bool inUse;
     };
 
+    /**
+     * @brief Represents a temporary staging buffer
+     */
     struct StagingBuffer {
         VkBuffer buffer;
         VkDeviceMemory memory;
@@ -90,12 +80,48 @@ public:
         bool inUse;
     };
 
-    MemoryPool(VkDevice device);
+    /**
+     * @brief Create a memory pool
+     * @param device The Vulkan logical device
+     */
+    explicit MemoryPool(VkDevice device);
+    
+    /**
+     * @brief Destroy the memory pool and free all resources
+     */
     ~MemoryPool();
 
-    BufferAllocation allocateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
+    // Delete copy constructor and assignment operator
+    MemoryPool(const MemoryPool&) = delete;
+    MemoryPool& operator=(const MemoryPool&) = delete;
+
+    /**
+     * @brief Allocate a buffer from the pool
+     * @param size Size of the buffer in bytes
+     * @param usage Buffer usage flags
+     * @param properties Memory property flags
+     * @return A buffer allocation
+     */
+    BufferAllocation allocateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, 
+                                   VkMemoryPropertyFlags properties);
+    
+    /**
+     * @brief Return a buffer to the pool
+     * @param allocation The buffer allocation to free
+     */
     void freeBuffer(const BufferAllocation& allocation);
+    
+    /**
+     * @brief Get a staging buffer for temporary use
+     * @param size Size of the staging buffer in bytes
+     * @return A staging buffer
+     */
     StagingBuffer getStagingBuffer(VkDeviceSize size);
+    
+    /**
+     * @brief Return a staging buffer to the pool
+     * @param buffer The staging buffer to return
+     */
     void returnStagingBuffer(const StagingBuffer& buffer);
 
 private:
@@ -104,7 +130,12 @@ private:
     std::vector<StagingBuffer> stagingPool;
     VkDeviceSize maxStagingSize;
     
-    // Add findMemoryType as a private method
+    /**
+     * @brief Find a suitable memory type
+     * @param typeFilter Filter for memory type bits
+     * @param properties Required memory properties
+     * @return Index of suitable memory type
+     */
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 };
 
@@ -116,10 +147,19 @@ private:
  */
 class VulkanEngine {
 public:
+    /** @brief Default window width */
     static constexpr int WIDTH = 800;
+    
+    /** @brief Default window height */
     static constexpr int HEIGHT = 600;
+    
+    /** @brief Maximum number of frames in flight */
     static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+    
+    /** @brief Default window title */
     static constexpr const char* WINDOW_TITLE = "Vulkan HIP Engine";
+    
+    /** @brief Whether validation layers are enabled */
     static constexpr bool enableValidationLayers = true;
 
     /**
@@ -141,24 +181,66 @@ public:
      * @throws std::runtime_error if initialization fails
      */
     void init();
+    
+    /**
+     * @brief Run the main application loop
+     */
     void run();
 
-    // Static instance getter
+    /**
+     * @brief Get the singleton instance
+     * @return Pointer to the singleton instance
+     */
     static VulkanEngine* getInstance() { return instance; }
 
-    // Add new public accessors
+    /**
+     * @brief Get the memory pool
+     * @return Reference to the memory pool
+     */
     MemoryPool& getMemoryPool() { return *memoryPool; }
+
+    /**
+     * @brief Get a compute semaphore
+     * @param index Index of the semaphore
+     * @return Reference to the semaphore
+     */
     VkSemaphore& getComputeSemaphore(uint32_t index) { return computeSemaphores[index]; }
+    
+    /**
+     * @brief Get a compute fence
+     * @param index Index of the fence
+     * @return Reference to the fence
+     */
     VkFence& getComputeFence(uint32_t index) { return computeFences[index]; }
 
-    // Static accessors for device and memory management
+    /**
+     * @brief Get the Vulkan logical device
+     * @return The Vulkan logical device
+     */
     static VkDevice getDevice() { return instance ? instance->device : VK_NULL_HANDLE; }
+    
+    /**
+     * @brief Find a suitable memory type
+     * @param typeFilter Filter for memory type bits
+     * @param properties Required memory properties
+     * @return Index of suitable memory type
+     */
     static uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+    
+    /**
+     * @brief Get the physical device
+     * @return The Vulkan physical device
+     */
     static VkPhysicalDevice getPhysicalDevice() { return instance ? instance->physicalDevice : VK_NULL_HANDLE; }
+    
+    /**
+     * @brief Get the compute queue
+     * @return The compute queue
+     */
+    static VkQueue getComputeQueue() { return instance ? instance->computeQueue : VK_NULL_HANDLE; }
 
     /**
      * @brief Create a buffer with the specified parameters
-     * 
      * @param size Size of the buffer in bytes
      * @param usage Buffer usage flags
      * @param properties Memory property flags
@@ -172,20 +254,53 @@ public:
 
     /**
      * @brief Create a shader module from SPIR-V code
-     * 
      * @param code Vector containing the SPIR-V code
-     * @param shaderModule Output parameter for the created shader module
+     * @return The created shader module
      * @throws std::runtime_error if shader module creation fails
      */
-    void createShaderModule(const std::vector<uint32_t>& code, 
-                           VkShaderModule& shaderModule);
+    VkShaderModule createShaderModule(const std::vector<char>& code);
 
     /**
      * @brief Get the current Vulkan instance
-     * 
-     * @return VkInstance The current Vulkan instance
+     * @return The current Vulkan instance
      */
     VkInstance getVkInstance() const { return vkInstance; }
+    
+    /**
+     * @brief Get the window
+     * @return The GLFW window
+     */
+    GLFWwindow* getWindow() const { return window; }
+    
+    /**
+     * @brief Draw a single frame
+     */
+    void drawFrame();
+    
+    /**
+     * @brief Create a compute pipeline
+     * @param shaderPath Path to the compute shader
+     * @return The created compute pipeline
+     */
+    VkPipeline createComputePipeline(const std::string& shaderPath);
+    
+    /**
+     * @brief Destroy a compute pipeline
+     * @param pipeline The pipeline to destroy
+     */
+    void destroyComputePipeline(VkPipeline pipeline);
+    
+    /**
+     * @brief Begin a single-time command buffer
+     * @return A command buffer ready for recording
+     */
+    VkCommandBuffer beginSingleTimeCommands();
+    
+    /**
+     * @brief End and submit a single-time command buffer
+     * @param commandBuffer The command buffer to submit
+     */
+    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
 
 private:
     // Static instance pointer
@@ -232,12 +347,16 @@ private:
         VkPhysicalDeviceMemoryProperties memoryProperties{};
     } deviceInfo;
     VkPhysicalDeviceFeatures enabledFeatures{};
+    
+    // List of required device extensions
     const std::vector<const char*> deviceExtensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_MAINTENANCE1_EXTENSION_NAME,  // For better performance
         VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,  // For better resource management
         VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME  // For better memory access
     };
+    
+    // List of validation layers to enable
     std::vector<const char*> validationLayers = {
         "VK_LAYER_KHRONOS_validation"
     };
@@ -307,25 +426,18 @@ private:
     void enableDeviceFeatures();
 
     // Shader methods
-    VkShaderModule createShaderModule(const std::vector<char>& code);
     std::vector<char> readFile(const std::string& filename);
     void createShaderStages(const std::string& vertPath, const std::string& fragPath,
                            VkPipelineShaderStageCreateInfo& vertStageInfo,
                            VkPipelineShaderStageCreateInfo& fragStageInfo);
 
     // Compute pipeline methods
-    VkPipeline createComputePipeline(const std::string& shaderPath);
-    void destroyComputePipeline(VkPipeline pipeline);
     void waitForComputeCompletion();
 
     // Memory management methods
-    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
-                     VkBuffer& buffer, VkDeviceMemory& bufferMemory);
+    void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
     // Command buffer methods
-    VkCommandBuffer beginSingleTimeCommands();
-    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
-    void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 
     // Cleanup methods
@@ -364,7 +476,6 @@ private:
     void recreateSwapChain();
     void cleanupSwapChain();
     void updateUniformBuffer(uint32_t currentImage);
-    void drawFrame();
     void createCommandBuffers();
     void createUniformBuffers();
     void createDescriptorPool();

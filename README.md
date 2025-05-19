@@ -1,13 +1,13 @@
 # Vulkan HIP Engine
 
-A modern C++ engine that combines Vulkan for graphics and AMD's HIP for compute operations. This engine is designed to provide high-performance graphics and compute capabilities with a focus on cross-platform compatibility.
+A modern C++ engine that combines Vulkan for graphics and AMD's HIP for compute operations. This engine is designed to provide high-performance graphics and compute capabilities with a focus on Windows-native deployment.
 
 ## Features
 
 - Vulkan-based graphics pipeline
 - AMD HIP compute integration
 - Modern C++17 codebase
-- Cross-platform support
+- Windows optimization with Visual Studio support
 - Validation layer support for debugging
 - Memory pool for efficient resource management
 - Compute shader support
@@ -16,16 +16,24 @@ A modern C++ engine that combines Vulkan for graphics and AMD's HIP for compute 
 
 ## Prerequisites
 
+- Visual Studio 2022 with C++ development tools
 - CMake 3.15 or higher
-- C++17 compatible compiler
 - Vulkan SDK 1.3 or higher
-- GLFW 3.3.8
-- GLM 0.9.9.8
+- GLFW 3.3.8 and GLM 0.9.9.8 (automatically fetched by CMake)
 - AMD HIP (optional, for compute operations)
 
 ## Building the Project
 
-### Using Docker (Recommended)
+### Native Windows Build (Recommended)
+
+```batch
+# Build the project with Visual Studio 2022
+scripts\build_windows.bat
+```
+
+The executable will be created at `build\Release\vulkan-engine.exe`
+
+### Using Docker (Alternative)
 
 ```bash
 # Build the Docker image
@@ -35,36 +43,27 @@ docker-compose build
 docker-compose run --rm vulkan-engine
 ```
 
-### Manual Build
-
-```bash
-# Create build directory
-mkdir build && cd build
-
-# Configure with CMake
-cmake ..
-
-# Build the project
-cmake --build .
-```
-
 ## Project Structure
 
 ```
 .
 ├── CMakeLists.txt          # CMake build configuration
-├── Dockerfile             # Docker configuration
-├── docker-compose.yml     # Docker Compose configuration
-├── README.md             # This file
-├── shaders/              # Shader source files
-│   ├── basic.vert       # Basic vertex shader
-│   ├── basic.frag       # Basic fragment shader
+├── Dockerfile              # Docker configuration
+├── docker-compose.yml      # Docker Compose configuration
+├── README.md               # This file
+├── scripts/                # Build and setup scripts
+│   ├── build_windows.bat   # Native Windows build script
+│   ├── setup_windows.bat   # Windows setup script (for Docker alternative)
+│   └── ...                 # Other utility scripts
+├── shaders/                # Shader source files
+│   ├── basic.vert          # Basic vertex shader
+│   ├── basic.frag          # Basic fragment shader
 │   ├── game_of_life_3d.comp    # 3D Game of Life compute shader
 │   └── population_reduction.comp # Population reduction compute shader
-└── src/                  # Source code
-    ├── main.cpp         # Application entry point
-    ├── VulkanEngine.cpp # Vulkan engine implementation
-    └── VulkanEngine.h   # Vulkan engine header
+└── src/                    # Source code
+    ├── main.cpp            # Application entry point
+    ├── VulkanEngine.cpp    # Vulkan engine implementation
+    └── VulkanEngine.h      # Vulkan engine header
 ```
 
 ## Shader Compilation
@@ -72,6 +71,13 @@ cmake --build .
 The project uses `glslc` from the Vulkan SDK to compile shaders to SPIR-V format. Shaders are automatically compiled during the build process.
 
 ## Development
+
+### Setting Up Your Development Environment
+
+1. Install Visual Studio 2022 with C++ development tools
+2. Install Vulkan SDK 1.3 or higher
+3. Clone this repository
+4. Run `scripts\build_windows.bat` to build the project
 
 ### Adding New Shaders
 
@@ -96,57 +102,27 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 5. Create a new Pull Request 
 
 ## Troubleshooting
-- If you see X11 or display errors, ensure your X server is running and DISPLAY is set correctly.
-- If Docker build fails, try `docker-compose build --no-cache`.
-- For shader errors, check that your GLSL files are present in the `shaders/` directory.
+
+### Windows Build Issues
+- Make sure Visual Studio 2022 is installed with C++ development tools
+- Ensure Vulkan SDK is properly installed and in your PATH
+- Check that CMake 3.15+ is installed and accessible
+
+### Docker Alternative
+- If using Docker and encountering X11/display errors, ensure VcXsrv is running and DISPLAY is set correctly
+- If Docker build fails, try `docker-compose build --no-cache`
+- For X11 setup on Windows, run `scripts/setup_windows.bat` before using Docker
 
 ## Clean/Rebuild
-- To clean: `cmake --build build --target clean` or use the `distclean` target.
-- To rebuild: `docker-compose build --no-cache`
-
-## Adding Shaders
-- Place new `.vert`, `.frag`, or `.comp` files in `shaders/`.
-- Add a `compile_shader()` call in `CMakeLists.txt` for each new shader.
-
-## Developer Onboarding
-- Ensure Docker and an X server are installed.
-- Run `scripts/setup_windows.bat` on Windows to set up X11.
-- Use VSCode with the `CMake Tools` and `Remote - Containers` extensions for best experience.
-- For local intellisense, install Vulkan SDK, GLFW, and GLM, or point your includePath to the Docker build directories.
-
-## Versioning
-- The engine version is tracked in `version.txt` (to be created).
-
-## CI/CD
-- Recommended: Set up GitHub Actions or similar to run `docker-compose build` and basic tests on every push/PR.
+- To clean: `scripts\clean_windows.bat` or delete the build directory
+- To rebuild from scratch: Run `scripts\build_windows.bat` again
 
 ## Code Quality & Static Analysis
 
 This project uses the following tools for code quality:
 
-- **clang-format**: Enforces code style. Run locally with:
-  ```
-  clang-format -i src/**/*.cpp src/**/*.h
-  ```
-  Or check formatting only:
-  ```
-  clang-format --dry-run --Werror src/**/*.cpp src/**/*.h
-  ```
-- **clang-tidy**: Advanced static analysis. Run locally with:
-  ```
-  mkdir -p build && cd build
-  cmake ..
-  cd ..
-  clang-tidy -p build src/**/*.cpp -- -std=c++17
-  ```
-- **cppcheck**: General static analysis. Run locally with:
-  ```
-  cppcheck --enable=all --suppress=missingIncludeSystem --std=c++17 src/
-  ```
-
-### In CI
-All of these checks are run automatically on every push and pull request. If any check fails, the CI will report the failure and you should fix the issues before merging.
-
-Suppressions for known false positives are in `cppcheck.suppress`.
+- **clang-format**: Enforces code style
+- **clang-tidy**: Advanced static analysis
+- **cppcheck**: General static analysis
 
 Configuration for these tools is in `.clang-format`, `.clang-tidy`, and `cppcheck.suppress` at the project root. 
