@@ -85,9 +85,6 @@ void VulkanEngine::init() {
     // Initialize device manager with required extensions and features
     vulkanContext_->initDeviceManager(deviceExtensions_, enabledFeatures_);
 
-    // Create memory pool
-    memoryPool_ = std::make_unique<MemoryPool>(vulkanContext_->getDevice(), vulkanContext_->getPhysicalDevice());
-
     // Get queue family indices
     queueFamilyIndices_ = vulkanContext_->getQueueFamilyIndices();
 
@@ -476,33 +473,6 @@ void VulkanEngine::endSingleTimeCommands(VkCommandBuffer commandBuffer) {
     vkFreeCommandBuffers(currentDevice, poolToUse, 1, &commandBuffer);
 }
 
-void VulkanEngine::copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
-    VkCommandBuffer commandBuffer = beginSingleTimeCommands();
-    VkBufferCopy copyRegion{};
-    copyRegion.size = size;
-    vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
-    endSingleTimeCommands(commandBuffer);
-}
-
-// This is the createBuffer that takes VkBuffer& and VkDeviceMemory& as output params
-// It will be used by systems that manage their own memory outside MemoryPool (e.g. initial vertex buffer setup)
-// Or, it can be a helper within MemoryPool itself.
-void VulkanEngine::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) {
-    VkDevice currentDevice = vulkanContext_->getDevice();
-    if (currentDevice == VK_NULL_HANDLE) {
-        throw std::runtime_error("Device not available for buffer creation");
-    }
-
-    auto memoryManager = vulkanContext_->getMemoryManager();
-    if (!memoryManager) {
-        throw std::runtime_error("Memory manager not available for buffer creation");
-    }
-
-    auto allocation = memoryManager->allocateBuffer(size, usage, properties);
-    buffer = allocation.buffer;
-    bufferMemory = allocation.allocation;
-}
-
 // Read a file into a vector of chars
 std::vector<char> VulkanEngine::readFile(const std::string& filename) {
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -524,87 +494,58 @@ std::vector<char> VulkanEngine::readFile(const std::string& filename) {
 void VulkanEngine::cleanup() {
     vkDeviceWaitIdle(vulkanContext_->getDevice());
 
-    // Clean up uniform buffers
-    auto memoryManager = vulkanContext_->getMemoryManager();
-    if (memoryManager) {
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            if (uniformBuffersMemory_[i] != VK_NULL_HANDLE) {
-                vmaUnmapMemory(memoryManager->getAllocator(), uniformBuffersMemory_[i]);
-                uniformBuffersMapped_[i] = nullptr;
-            }
+    // Clean up VMA resources
+    if (vulkanContext_ && vulkanContext_->getMemoryManager()) {
+        auto vma = vulkanContext_->getMemoryManager()->getAllocator();
+        
+        // Destroy buffers with VMA
+        if (vertexBuffer_ != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(vma, vertexBuffer_, vertexBufferMemory_);
+        }
+        if (indexBuffer_ != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(vma, indexBuffer_, indexBufferMemory_);
+        }
+        if (uniformBuffers_[0] != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(vma, uniformBuffers_[0], uniformBufferAllocations_[0]);
+        }
+        if (uniformBuffers_[1] != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(vma, uniformBuffers_[1], uniformBufferAllocations_[1]);
+        }
+        
+        // Destroy images with VMA
+        if (depthImage_ != VK_NULL_HANDLE) {
+            vmaDestroyImage(vma, depthImage_, depthImageMemory_);
+        }
+        if (colorImage_ != VK_NULL_HANDLE) {
+            vmaDestroyImage(vma, colorImage_, colorImageMemory_);
         }
     }
 
-    // Clean up index buffer
-    if (indexBuffer_ != VK_NULL_HANDLE) {
-        vkDestroyBuffer(vulkanContext_->getDevice(), indexBuffer_, nullptr);
-        indexBuffer_ = VK_NULL_HANDLE;
-    }
-    if (indexBufferMemory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(vulkanContext_->getDevice(), indexBufferMemory_, nullptr);
-        indexBufferMemory_ = VK_NULL_HANDLE;
-    }
+    cleanupSwapChain();
 
-    // Clean up vertex buffer
-    if (vertexBuffer_ != VK_NULL_HANDLE) {
-        vkDestroyBuffer(vulkanContext_->getDevice(), vertexBuffer_, nullptr);
-        vertexBuffer_ = VK_NULL_HANDLE;
-    }
-    if (vertexBufferMemory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(vulkanContext_->getDevice(), vertexBufferMemory_, nullptr);
-        vertexBufferMemory_ = VK_NULL_HANDLE;
-    }
-
-    // Clean up uniform buffers
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        if (uniformBuffers_[i] != VK_NULL_HANDLE) {
-            vkDestroyBuffer(vulkanContext_->getDevice(), uniformBuffers_[i], nullptr);
-            uniformBuffers_[i] = VK_NULL_HANDLE;
-        }
-        if (uniformBuffersMemory_[i] != VK_NULL_HANDLE) {
-            vkFreeMemory(vulkanContext_->getDevice(), uniformBuffersMemory_[i], nullptr);
-            uniformBuffersMemory_[i] = VK_NULL_HANDLE;
-        }
-    }
-
-    // Clean up descriptor pool
-    if (descriptorPool_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(vulkanContext_->getDevice(), descriptorPool_, nullptr);
-        descriptorPool_ = VK_NULL_HANDLE;
-    }
-
-    // Clean up descriptor set layout
+    // Clean up other resources
     if (descriptorSetLayout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(vulkanContext_->getDevice(), descriptorSetLayout_, nullptr);
-        descriptorSetLayout_ = VK_NULL_HANDLE;
     }
-
-    // Clean up pipeline
+    if (descriptorPool_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(vulkanContext_->getDevice(), descriptorPool_, nullptr);
+    }
     if (graphicsPipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(vulkanContext_->getDevice(), graphicsPipeline_, nullptr);
-        graphicsPipeline_ = VK_NULL_HANDLE;
     }
-
-    // Clean up pipeline layout
     if (pipelineLayout_ != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(vulkanContext_->getDevice(), pipelineLayout_, nullptr);
-        pipelineLayout_ = VK_NULL_HANDLE;
     }
-
-    // Clean up render pass
     if (renderPass_ != VK_NULL_HANDLE) {
         vkDestroyRenderPass(vulkanContext_->getDevice(), renderPass_, nullptr);
-        renderPass_ = VK_NULL_HANDLE;
     }
 
     // Clean up command pools
     if (graphicsCommandPool_ != VK_NULL_HANDLE) {
         vkDestroyCommandPool(vulkanContext_->getDevice(), graphicsCommandPool_, nullptr);
-        graphicsCommandPool_ = VK_NULL_HANDLE;
     }
     if (computeCommandPool_ != VK_NULL_HANDLE) {
         vkDestroyCommandPool(vulkanContext_->getDevice(), computeCommandPool_, nullptr);
-        computeCommandPool_ = VK_NULL_HANDLE;
     }
 
     // Clean up synchronization objects
@@ -621,34 +562,6 @@ void VulkanEngine::cleanup() {
             vkDestroyFence(vulkanContext_->getDevice(), inFlightFences_[i], nullptr);
             inFlightFences_[i] = VK_NULL_HANDLE;
         }
-    }
-
-    // Clean up depth resources
-    if (depthImageView_ != VK_NULL_HANDLE) {
-        vkDestroyImageView(vulkanContext_->getDevice(), depthImageView_, nullptr);
-        depthImageView_ = VK_NULL_HANDLE;
-    }
-    if (depthImage_ != VK_NULL_HANDLE) {
-        vkDestroyImage(vulkanContext_->getDevice(), depthImage_, nullptr);
-        depthImage_ = VK_NULL_HANDLE;
-    }
-    if (depthImageMemory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(vulkanContext_->getDevice(), depthImageMemory_, nullptr);
-        depthImageMemory_ = VK_NULL_HANDLE;
-    }
-
-    // Clean up color resources
-    if (colorImageView_ != VK_NULL_HANDLE) {
-        vkDestroyImageView(vulkanContext_->getDevice(), colorImageView_, nullptr);
-        colorImageView_ = VK_NULL_HANDLE;
-    }
-    if (colorImage_ != VK_NULL_HANDLE) {
-        vkDestroyImage(vulkanContext_->getDevice(), colorImage_, nullptr);
-        colorImage_ = VK_NULL_HANDLE;
-    }
-    if (colorImageMemory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(vulkanContext_->getDevice(), colorImageMemory_, nullptr);
-        colorImageMemory_ = VK_NULL_HANDLE;
     }
 
     // Clean up swap chain
@@ -695,130 +608,6 @@ void VulkanEngine::createCommandBuffers() {
     if (vkAllocateCommandBuffers(vulkanContext_->getDevice(), &allocInfo, commandBuffers_.data()) != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate command buffers!");
     }
-}
-
-// MemoryPool implementation (still in VulkanEngine.cpp for now, to be moved)
-MemoryPool::MemoryPool(VkDevice dev, VkPhysicalDevice pd) 
-    : device_(dev), 
-      physicalDevice_(pd),
-      maxStagingSize_(0) {
-    if (device_ == VK_NULL_HANDLE) {
-        throw std::runtime_error("MemoryPool: Device cannot be null");
-    }
-    if (physicalDevice_ == VK_NULL_HANDLE) {
-        throw std::runtime_error("MemoryPool: Physical device cannot be null");
-    }
-}
-
-MemoryPool::~MemoryPool() {
-    // Ensure device_ is valid if it came from VulkanContext and VulkanContext might be destroyed first.
-    // This highlights the ownership and lifetime issues we are resolving.
-    // For now, assume device_ is valid or cleanup is handled.
-    if (device_ == VK_NULL_HANDLE) return; // Or log warning
-
-    for (const auto& allocation : bufferPool_) {
-        if (allocation.buffer != VK_NULL_HANDLE) vkDestroyBuffer(device_, allocation.buffer, nullptr);
-        if (allocation.memory != VK_NULL_HANDLE) vkFreeMemory(device_, allocation.memory, nullptr);
-    }
-    bufferPool_.clear();
-    for (const auto& staging : stagingPool_) {
-        if (staging.buffer != VK_NULL_HANDLE) vkDestroyBuffer(device_, staging.buffer, nullptr);
-        if (staging.memory != VK_NULL_HANDLE) vkFreeMemory(device_, staging.memory, nullptr);
-    }
-    stagingPool_.clear();
-}
-
-// This is MemoryPool::findMemoryType. It needs a physical device.
-// It will get it from VulkanEngine::getInstance()->getVulkanContext()->getPhysicalDevice()
-// This is a temporary measure. This method should ideally not rely on a global singleton.
-// Once DeviceManager is fully integrated into VulkanContext, VulkanContext can pass VkPhysicalDevice to MemoryPool constructor
-// or MemoryPool can ask VulkanContext for it.
-uint32_t MemoryPool::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-    if (physicalDevice_ == VK_NULL_HANDLE) {
-        throw std::runtime_error("Physical device not available for MemoryPool::findMemoryType");
-    }
-
-    VkPhysicalDeviceMemoryProperties memProperties;
-    vkGetPhysicalDeviceMemoryProperties(physicalDevice_, &memProperties);
-    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-        if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-            return i;
-        }
-    }
-    throw std::runtime_error("Failed to find suitable memory type (MemoryPool)!");
-}
-
-
-MemoryPool::BufferAllocation MemoryPool::allocateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties) {
-    if (size == 0) throw std::runtime_error("MemoryPool: Cannot allocate buffer of size 0.");
-    // ... (rest of existing allocateBuffer implementation, ensure it uses this->findMemoryType) ...
-    // Create new buffer if no suitable one found
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = size;
-    bufferInfo.usage = usage;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    VkBuffer buffer;
-    if (vkCreateBuffer(device_, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create buffer in MemoryPool!");
-    }
-
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(device_, buffer, &memRequirements);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = this->findMemoryType(memRequirements.memoryTypeBits, properties); // Use member findMemoryType
-
-    VkDeviceMemory memory;
-    if (vkAllocateMemory(device_, &allocInfo, nullptr, &memory) != VK_SUCCESS) {
-        vkDestroyBuffer(device_, buffer, nullptr);
-        throw std::runtime_error("Failed to allocate buffer memory in MemoryPool!");
-    }
-
-    vkBindBufferMemory(device_, buffer, memory, 0);
-
-    BufferAllocation allocation{buffer, memory, size, usage, properties, true};
-    bufferPool_.push_back(allocation);
-    return allocation;
-}
-
-// ... (MemoryPool::freeBuffer, getStagingBuffer, returnStagingBuffer implementations, ensure they use this->findMemoryType for staging if needed)
-// Ensure getStagingBuffer also uses this->findMemoryType
-MemoryPool::StagingBuffer MemoryPool::getStagingBuffer(VkDeviceSize size) {
-    if (size == 0) throw std::runtime_error("MemoryPool: Cannot get staging buffer of size 0.");
-    // ... (rest of existing getStagingBuffer implementation) ...
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = size;
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT; // Or _DST_BIT or both depending on usage
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    VkBuffer buffer;
-    if (vkCreateBuffer(device_, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create staging buffer in MemoryPool!");
-    }
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(device_, buffer, &memRequirements);
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = this->findMemoryType(
-        memRequirements.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-    VkDeviceMemory memory;
-    if (vkAllocateMemory(device_, &allocInfo, nullptr, &memory) != VK_SUCCESS) {
-        vkDestroyBuffer(device_, buffer, nullptr);
-        throw std::runtime_error("Failed to allocate staging memory in MemoryPool!");
-    }
-    vkBindBufferMemory(device_, buffer, memory, 0);
-    StagingBuffer staging{buffer, memory, size, true};
-    stagingPool_.push_back(staging);
-    maxStagingSize_ = std::max(maxStagingSize_, size);
-    return staging;
 }
 
 void VulkanEngine::createSwapChain() {
@@ -1080,20 +869,44 @@ void VulkanEngine::createFramebuffers() {
 
 void VulkanEngine::createDepthResources() {
     VkFormat depthFormat = findDepthFormat();
+    auto memoryManager = vulkanContext_->getMemoryManager();
+    if (!memoryManager) {
+        throw std::runtime_error("Memory manager not available for depth resource creation");
+    }
 
-    createImage(swapChainExtent_.width, swapChainExtent_.height, depthFormat, VK_IMAGE_TILING_OPTIMAL, 
-               VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 
-               depthImage_, depthImageMemory_);
-    createImageView(depthImage_, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, depthImageView_);
+    auto depthImageAlloc = memoryManager->allocateImage(
+        swapChainExtent_.width,
+        swapChainExtent_.height,
+        depthFormat,
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
+    depthImage_ = depthImageAlloc.image;
+    depthImageMemory_ = depthImageAlloc.allocation;
+
+    memoryManager->createImageView(depthImage_, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, depthImageView_);
 }
 
 void VulkanEngine::createColorResources() {
     VkFormat colorFormat = swapChainImageFormat_;
+    auto memoryManager = vulkanContext_->getMemoryManager();
+    if (!memoryManager) {
+        throw std::runtime_error("Memory manager not available for color resource creation");
+    }
 
-    createImage(swapChainExtent_.width, swapChainExtent_.height, colorFormat, VK_IMAGE_TILING_OPTIMAL,
-               VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, colorImage_, colorImageMemory_);
-    createImageView(colorImage_, colorFormat, VK_IMAGE_ASPECT_COLOR_BIT, colorImageView_);
+    auto colorImageAlloc = memoryManager->allocateImage(
+        swapChainExtent_.width,
+        swapChainExtent_.height,
+        colorFormat,
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
+    colorImage_ = colorImageAlloc.image;
+    colorImageMemory_ = colorImageAlloc.allocation;
+
+    memoryManager->createImageView(colorImage_, colorFormat, VK_IMAGE_ASPECT_COLOR_BIT, colorImageView_);
 }
 
 VkFormat VulkanEngine::findDepthFormat() {
@@ -1123,84 +936,37 @@ bool VulkanEngine::hasStencilComponent(VkFormat format) {
     return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
-void VulkanEngine::createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
-                             VkImageUsageFlags usage, VkMemoryPropertyFlags properties,
-                             VkImage& image, VkDeviceMemory& imageMemory) {
-    VkImageCreateInfo imageInfo{};
-    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.extent.width = width;
-    imageInfo.extent.height = height;
-    imageInfo.extent.depth = 1;
-    imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
-    imageInfo.format = format;
-    imageInfo.tiling = tiling;
-    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageInfo.usage = usage;
-    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.flags = 0;
-
-    if (vkCreateImage(vulkanContext_->getDevice(), &imageInfo, nullptr, &image) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create image!");
-    }
-
-    VkMemoryRequirements memRequirements;
-    vkGetImageMemoryRequirements(vulkanContext_->getDevice(), image, &memRequirements);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = findMemoryType(vulkanContext_->getPhysicalDevice(), memRequirements.memoryTypeBits, properties);
-
-    if (vkAllocateMemory(vulkanContext_->getDevice(), &allocInfo, nullptr, &imageMemory) != VK_SUCCESS) {
-        vkDestroyImage(vulkanContext_->getDevice(), image, nullptr);
-        throw std::runtime_error("Failed to allocate image memory!");
-    }
-
-    vkBindImageMemory(vulkanContext_->getDevice(), image, imageMemory, 0);
-}
-
-void VulkanEngine::createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags,
-                                 VkImageView& imageView) {
-    VkImageViewCreateInfo viewInfo{};
-    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    viewInfo.image = image;
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = format;
-    viewInfo.subresourceRange.aspectMask = aspectFlags;
-    viewInfo.subresourceRange.baseMipLevel = 0;
-    viewInfo.subresourceRange.levelCount = 1;
-    viewInfo.subresourceRange.baseArrayLayer = 0;
-    viewInfo.subresourceRange.layerCount = 1;
-
-    if (vkCreateImageView(vulkanContext_->getDevice(), &viewInfo, nullptr, &imageView) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create texture image view!");
-    }
-}
-
 void VulkanEngine::createVertexBuffer() {
     VkDeviceSize bufferSize = sizeof(vertices_[0]) * vertices_.size();
 
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingBufferMemory;
-    createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
-                stagingBuffer, stagingBufferMemory);
+    auto memoryManager = vulkanContext_->getMemoryManager();
+    if (!memoryManager) {
+        throw std::runtime_error("Memory manager not available for vertex buffer creation");
+    }
 
+    // Create staging buffer
+    auto stagingBuffer = memoryManager->getStagingBuffer(bufferSize);
+
+    // Map and copy data
     void* data;
-    vkMapMemory(vulkanContext_->getDevice(), stagingBufferMemory, 0, bufferSize, 0, &data);
-    memcpy(data, vertices_.data(), (size_t) bufferSize);
-    vkUnmapMemory(vulkanContext_->getDevice(), stagingBufferMemory);
+    vmaMapMemory(memoryManager->getAllocator(), stagingBuffer.allocation, &data);
+    memcpy(data, vertices_.data(), (size_t)bufferSize);
+    vmaUnmapMemory(memoryManager->getAllocator(), stagingBuffer.allocation);
 
-    createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, 
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer_, vertexBufferMemory_);
+    // Create vertex buffer
+    auto vertexBufferAlloc = memoryManager->allocateBuffer(
+        bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
+    vertexBuffer_ = vertexBufferAlloc.buffer;
+    vertexBufferMemory_ = vertexBufferAlloc.allocation;
 
-    copyBuffer(stagingBuffer, vertexBuffer_, bufferSize);
+    // Copy data
+    copyBuffer(stagingBuffer.buffer, vertexBuffer_, bufferSize);
 
-    vkDestroyBuffer(vulkanContext_->getDevice(), stagingBuffer, nullptr);
-    vkFreeMemory(vulkanContext_->getDevice(), stagingBufferMemory, nullptr);
+    // Return staging buffer
+    memoryManager->returnStagingBuffer(stagingBuffer);
 }
 
 void VulkanEngine::createIndexBuffer() {
@@ -1245,7 +1011,7 @@ void VulkanEngine::createUniformBuffers() {
     }
 
     uniformBuffers_.resize(MAX_FRAMES_IN_FLIGHT);
-    uniformBuffersMemory_.resize(MAX_FRAMES_IN_FLIGHT);
+    uniformBufferAllocations_.resize(MAX_FRAMES_IN_FLIGHT);
     uniformBuffersMapped_.resize(MAX_FRAMES_IN_FLIGHT);
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -1255,7 +1021,7 @@ void VulkanEngine::createUniformBuffers() {
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
         );
         uniformBuffers_[i] = allocation.buffer;
-        uniformBuffersMemory_[i] = allocation.allocation;
+        uniformBufferAllocations_[i] = allocation.allocation;
 
         void* data;
         vmaMapMemory(memoryManager->getAllocator(), allocation.allocation, &data);

@@ -845,4 +845,15 @@ Notes:
 This is a large undertaking. I will start with **Phase 1: Core Vulkan Context & Device Management**.
 I'll create `QueueFamilyIndices.h` first as it's a simple struct.
 
---- 
+---
+
+2025-05-18 10:15:00 - Agent: GPT-4.1 (AI Assistant)
+Action: Major memory management refactor
+Details:
+  * Removed custom MemoryPool and its test (tests/test_memory_pool.cpp, src/MemoryPool.cpp deleted)
+  * Added VulkanMemoryManager (VMA wrapper) in src/VulkanMemoryManager.h/cpp
+  * Updated CMakeLists.txt and vcpkg.json to include vulkan-memory-allocator
+  * Confirmed build system and README reflect VMA and vcpkg usage
+  * Next: Refactor VulkanEngine to use VulkanMemoryManager instead of MemoryPool
+  * Approach: All changes are made with explicit, minimal edits and clear markers to avoid disrupting other agents' work
+Status: 🔄 In Progress 

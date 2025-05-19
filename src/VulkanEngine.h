@@ -10,11 +10,13 @@
 #include <set>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <vk_mem_alloc.h>
 
 // Project includes
 #include "Vertex.h"
 #include "VulkanContext.h"
 #include "WindowManager.h"
+#include "VulkanMemoryManager.h"
 
 // Forward declarations
 class VulkanMemoryManager;
@@ -44,7 +46,7 @@ struct SwapChainSupportDetails {
  * It provides a high-level interface for creating and managing Vulkan resources.
  * The engine is designed to be modular, with separate managers for different aspects:
  * - VulkanContext: Core Vulkan instance and device management
- * - MemoryPool: Buffer and memory management
+ * - VulkanMemoryManager: Buffer and memory management
  * - Future managers for pipelines, swapchain, etc.
  */
 class VulkanEngine {
@@ -122,19 +124,6 @@ public:
     VkFence& getComputeFence(uint32_t index) { return computeFences[index]; }
 
     /**
-     * @brief Create a buffer with the specified parameters
-     * @param size Size of the buffer in bytes
-     * @param usage Buffer usage flags
-     * @param properties Memory property flags
-     * @param buffer Output parameter for the created buffer
-     * @param bufferMemory Output parameter for the buffer memory
-     * @throws std::runtime_error if buffer creation fails
-     */
-    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, 
-                     VkMemoryPropertyFlags properties, VkBuffer& buffer, 
-                     VkDeviceMemory& bufferMemory);
-
-    /**
      * @brief Create a shader module from SPIR-V code
      * @param code Vector containing the SPIR-V code
      * @return The created shader module
@@ -186,15 +175,6 @@ public:
     void createIndexBuffer();
 
     /**
-     * @brief Find a suitable memory type for buffer allocation
-     * @param physicalDevice The physical device to query
-     * @param typeFilter Memory type filter
-     * @param properties Required memory properties
-     * @return The index of the suitable memory type
-     */
-    uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties);
-
-    /**
      * @brief Callback for window framebuffer resize events
      * @param window The GLFW window
      * @param width New width
@@ -231,10 +211,10 @@ private:
 
     // Depth and color resources
     VkImage depthImage_ = VK_NULL_HANDLE;
-    VkDeviceMemory depthImageMemory_ = VK_NULL_HANDLE;
+    VmaAllocation depthImageAllocation_ = VK_NULL_HANDLE;
     VkImageView depthImageView_ = VK_NULL_HANDLE;
     VkImage colorImage_ = VK_NULL_HANDLE;
-    VkDeviceMemory colorImageMemory_ = VK_NULL_HANDLE;
+    VmaAllocation colorImageAllocation_ = VK_NULL_HANDLE;
     VkImageView colorImageView_ = VK_NULL_HANDLE;
 
     // Command buffers and synchronization
@@ -284,35 +264,14 @@ private:
 
     // Buffers and resources
     std::vector<VkBuffer> uniformBuffers_;
-    std::vector<VkDeviceMemory> uniformBuffersMemory_;
+    std::vector<VmaAllocation> uniformBufferAllocations_;
     std::vector<void*> uniformBuffersMapped_;
     VkBuffer vertexBuffer_;
-    VkDeviceMemory vertexBufferMemory_;
+    VmaAllocation vertexBufferAllocation_;
     VkBuffer indexBuffer_;
-    VkDeviceMemory indexBufferMemory_;
+    VmaAllocation indexBufferAllocation_;
     std::vector<Vertex> vertices_;
     std::vector<uint32_t> indices_;
-
-    // Vertex and index buffers
-    std::vector<Vertex> vertices;
-    std::vector<uint32_t> indices;
-    VkBuffer vertexBuffer;
-    VkDeviceMemory vertexBufferMemory;
-    VkBuffer indexBuffer;
-    VkDeviceMemory indexBufferMemory;
-
-    // Uniform buffers
-    std::vector<VkBuffer> uniformBuffers;
-    std::vector<VkDeviceMemory> uniformBuffersMemory;
-    std::vector<void*> uniformBuffersMapped;
-
-    // Descriptor sets
-    VkDescriptorPool descriptorPool;
-    std::vector<VkDescriptorSet> descriptorSets;
-
-    // Texture resources
-    VkImageView textureImageView;
-    VkSampler textureSampler;
 
     /**
      * @brief Create command pools for graphics and compute operations
@@ -400,16 +359,11 @@ private:
     VkFormat findDepthFormat();
     bool hasStencilComponent(VkFormat format);
     VkSampleCountFlagBits getMaxUsableSampleCount();
-    void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
-                    VkImageUsageFlags usage, VkMemoryPropertyFlags properties,
-                    VkImage& image, VkDeviceMemory& imageMemory);
-    void createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags,
-                        VkImageView& imageView);
-    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout,
-                             VkImageLayout newLayout);
-    void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
-    void generateMipmaps(VkImage image, VkFormat imageFormat, int32_t texWidth, int32_t texHeight, uint32_t mipLevels);
 
     std::vector<const char*> getRequiredInstanceExtensions();
     void applyEnabledDeviceFeatures(VkPhysicalDeviceFeatures& features);
+
+#ifdef _MSC_VER
+#pragma message("If you see an error about vk_mem_alloc.h, ensure VMA is installed via vcpkg and your includePath is set to vcpkg/installed/<triplet>/include.")
+#endif
 }; 

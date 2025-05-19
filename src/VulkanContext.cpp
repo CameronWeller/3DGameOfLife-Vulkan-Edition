@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstring> // For strcmp
 #include <GLFW/glfw3.h> // Required for glfwGetRequiredInstanceExtensions
+#include <algorithm>
 
 // Static callback function needs to be defined outside the class or be static member
 VKAPI_ATTR VkBool32 VKAPI_CALL VulkanContext::debugCallback(

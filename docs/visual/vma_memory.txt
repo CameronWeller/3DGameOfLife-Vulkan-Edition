@@ -1,6 +1,15 @@
 Vulkan Memory Allocator (VMA) Integration
 =======================================
 
+The engine uses VMA for efficient memory management with the following features:
+- Automatic memory allocation and defragmentation
+- Memory pooling for staging buffers
+- Support for device-local and host-visible memory
+- Efficient buffer creation and management
+- Automatic memory type selection based on requirements
+
+The VulkanMemoryManager class provides a high-level interface to VMA functionality.
+
 Memory Allocation Flow
 ---------------------
 +------------------+     +------------------+     +------------------+

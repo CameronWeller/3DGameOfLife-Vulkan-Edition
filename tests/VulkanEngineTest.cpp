@@ -84,6 +84,13 @@ TEST_F(VulkanEngineTest, CleanupTest) {
     EXPECT_NO_THROW(engine->cleanup());
 }
 
+// Test memory manager creation
+TEST_F(VulkanEngineTest, MemoryManagerCreationTest) {
+    auto engine = VulkanEngine::getInstance();
+    ASSERT_NE(engine, nullptr);
+    EXPECT_NE(engine->getMemoryManager(), nullptr);
+}
+
 int main(int argc, char **argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

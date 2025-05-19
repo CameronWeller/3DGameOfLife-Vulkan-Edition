@@ -5,6 +5,8 @@ cmake_policy(VERSION 3.10)
 if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
         CACHE STRING "")
+    # Add vcpkg installed directory to prefix path
+    list(APPEND CMAKE_PREFIX_PATH "$ENV{VCPKG_ROOT}/installed/x64-windows")
 endif()
 
 project(CPPVulkanHIPEngine LANGUAGES CXX)
@@ -33,28 +35,7 @@ find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
 find_package(imgui REQUIRED)
 find_package(spdlog REQUIRED)
-find_package(vulkan-memory-allocator REQUIRED)
-
-# Add GLFW
-include(FetchContent)
-FetchContent_Declare(
-    glfw
-    GIT_REPOSITORY https://github.com/glfw/glfw.git
-    GIT_TAG 3.3.8
-)
-set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(glfw)
-
-# Add GLM
-FetchContent_Declare(
-    glm
-    GIT_REPOSITORY https://github.com/g-truc/glm.git
-    GIT_TAG 0.9.9.8
-)
-set(GLM_FORCE_CTOR_INIT ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(glm)
+find_package(VulkanMemoryAllocator REQUIRED)
 
 # Find glslc compiler
 find_program(GLSLC_EXECUTABLE glslc HINTS ${Vulkan_GLSLC_EXECUTABLE} ENV VULKAN_SDK PATH_SUFFIXES bin)
@@ -112,7 +93,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     glm::glm
     imgui::imgui
     spdlog::spdlog
-    vulkan-memory-allocator::vulkan-memory-allocator
+    GPUOpen::VulkanMemoryAllocator
 )
 
 # Include directories
