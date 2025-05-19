@@ -6,10 +6,7 @@ class PipelineTest : public ::testing::Test {
 protected:
     void SetUp() override {
         engine = std::make_unique<VulkanEngine>();
-        engine->initWindow(800, 600, "Pipeline Test Window");
-        engine->initVulkan();
-        engine->createSwapChain();
-        engine->createDescriptorSetLayout();
+        engine->init();
     }
 
     void TearDown() override {
@@ -52,23 +49,17 @@ TEST_F(PipelineTest, PipelineRecreationTest) {
 
 // Test shader module creation
 TEST_F(PipelineTest, ShaderModuleCreationTest) {
-    // Create a simple vertex shader
-    const char* vertexShaderSource = R"(
-        #version 450
-        layout(location = 0) in vec3 inPosition;
-        layout(location = 1) in vec3 inColor;
-        layout(location = 0) out vec3 fragColor;
-        void main() {
-            gl_Position = vec4(inPosition, 1.0);
-            fragColor = inColor;
-        }
-    )";
+    std::vector<char> shaderCode = {
+        // Simple vertex shader SPIR-V code
+        0x03, 0x02, 0x23, 0x07, 0x00, 0x00, 0x01, 0x00,
+        0x0A, 0x00, 0x08, 0x00, 0x0F, 0x00, 0x00, 0x00
+    };
     
-    VkShaderModule vertexShaderModule = engine->createShaderModule(vertexShaderSource, strlen(vertexShaderSource));
-    EXPECT_NE(vertexShaderModule, VK_NULL_HANDLE);
+    VkShaderModule shaderModule = engine->createShaderModule(shaderCode);
+    EXPECT_NE(shaderModule, VK_NULL_HANDLE);
     
     // Cleanup
-    vkDestroyShaderModule(engine->getDevice(), vertexShaderModule, nullptr);
+    vkDestroyShaderModule(engine->getVulkanContext()->getDevice(), shaderModule, nullptr);
 }
 
 // Test pipeline cache
@@ -77,11 +68,11 @@ TEST_F(PipelineTest, PipelineCacheTest) {
     cacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
     
     VkPipelineCache pipelineCache;
-    EXPECT_EQ(vkCreatePipelineCache(engine->getDevice(), &cacheInfo, nullptr, &pipelineCache), VK_SUCCESS);
+    EXPECT_EQ(vkCreatePipelineCache(engine->getVulkanContext()->getDevice(), &cacheInfo, nullptr, &pipelineCache), VK_SUCCESS);
     EXPECT_NE(pipelineCache, VK_NULL_HANDLE);
     
     // Cleanup
-    vkDestroyPipelineCache(engine->getDevice(), pipelineCache, nullptr);
+    vkDestroyPipelineCache(engine->getVulkanContext()->getDevice(), pipelineCache, nullptr);
 }
 
 // Test pipeline derivatives

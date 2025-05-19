@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "../src/VulkanEngine.h"
+#include "../src/VulkanContext.h"
 #include <memory>
 
 class VulkanEngineTest : public ::testing::Test {
@@ -21,76 +22,57 @@ TEST_F(VulkanEngineTest, InitializationTest) {
     EXPECT_NE(engine, nullptr);
 }
 
-// Test window creation
-TEST_F(VulkanEngineTest, WindowCreationTest) {
+// Test Vulkan context initialization
+TEST_F(VulkanEngineTest, VulkanContextInitializationTest) {
     engine = std::make_unique<VulkanEngine>();
-    EXPECT_NO_THROW(engine->initWindow(800, 600, "Test Window"));
-    EXPECT_NE(engine->getWindow(), nullptr);
+    EXPECT_NO_THROW(engine->init());
+    EXPECT_NE(engine->getVulkanContext(), nullptr);
 }
 
-// Test Vulkan instance creation
-TEST_F(VulkanEngineTest, InstanceCreationTest) {
+// Test device creation
+TEST_F(VulkanEngineTest, DeviceCreationTest) {
     engine = std::make_unique<VulkanEngine>();
-    engine->initWindow(800, 600, "Test Window");
-    EXPECT_NO_THROW(engine->initVulkan());
-    EXPECT_NE(engine->getVkInstance(), VK_NULL_HANDLE);
-}
-
-// Test physical device selection
-TEST_F(VulkanEngineTest, PhysicalDeviceSelectionTest) {
-    engine = std::make_unique<VulkanEngine>();
-    engine->initWindow(800, 600, "Test Window");
-    engine->initVulkan();
-    EXPECT_NE(engine->getPhysicalDevice(), VK_NULL_HANDLE);
-}
-
-// Test logical device creation
-TEST_F(VulkanEngineTest, LogicalDeviceCreationTest) {
-    engine = std::make_unique<VulkanEngine>();
-    engine->initWindow(800, 600, "Test Window");
-    engine->initVulkan();
-    EXPECT_NE(engine->getDevice(), VK_NULL_HANDLE);
+    engine->init();
+    auto context = engine->getVulkanContext();
+    EXPECT_NE(context->getDevice(), VK_NULL_HANDLE);
+    EXPECT_NE(context->getPhysicalDevice(), VK_NULL_HANDLE);
 }
 
 // Test queue creation
 TEST_F(VulkanEngineTest, QueueCreationTest) {
     engine = std::make_unique<VulkanEngine>();
-    engine->initWindow(800, 600, "Test Window");
-    engine->initVulkan();
-    EXPECT_NE(engine->getGraphicsQueue(), VK_NULL_HANDLE);
-    EXPECT_NE(engine->getPresentQueue(), VK_NULL_HANDLE);
+    engine->init();
+    auto context = engine->getVulkanContext();
+    EXPECT_NE(context->getGraphicsQueue(), VK_NULL_HANDLE);
+    EXPECT_NE(context->getPresentQueue(), VK_NULL_HANDLE);
+    EXPECT_NE(context->getComputeQueue(), VK_NULL_HANDLE);
 }
 
-// Test swapchain creation
-TEST_F(VulkanEngineTest, SwapchainCreationTest) {
+// Test memory pool creation
+TEST_F(VulkanEngineTest, MemoryPoolCreationTest) {
     engine = std::make_unique<VulkanEngine>();
-    engine->initWindow(800, 600, "Test Window");
-    engine->initVulkan();
-    EXPECT_NO_THROW(engine->createSwapChain());
+    engine->init();
+    EXPECT_NE(engine->getMemoryPool(), nullptr);
 }
 
 // Test command pool creation
 TEST_F(VulkanEngineTest, CommandPoolCreationTest) {
     engine = std::make_unique<VulkanEngine>();
-    engine->initWindow(800, 600, "Test Window");
-    engine->initVulkan();
+    engine->init();
     EXPECT_NO_THROW(engine->createCommandPools());
 }
 
 // Test descriptor set layout creation
 TEST_F(VulkanEngineTest, DescriptorSetLayoutCreationTest) {
     engine = std::make_unique<VulkanEngine>();
-    engine->initWindow(800, 600, "Test Window");
-    engine->initVulkan();
+    engine->init();
     EXPECT_NO_THROW(engine->createDescriptorSetLayout());
 }
 
 // Test pipeline creation
 TEST_F(VulkanEngineTest, PipelineCreationTest) {
     engine = std::make_unique<VulkanEngine>();
-    engine->initWindow(800, 600, "Test Window");
-    engine->initVulkan();
-    engine->createSwapChain();
+    engine->init();
     engine->createDescriptorSetLayout();
     EXPECT_NO_THROW(engine->createGraphicsPipeline());
 }
@@ -98,8 +80,7 @@ TEST_F(VulkanEngineTest, PipelineCreationTest) {
 // Test cleanup
 TEST_F(VulkanEngineTest, CleanupTest) {
     engine = std::make_unique<VulkanEngine>();
-    engine->initWindow(800, 600, "Test Window");
-    engine->initVulkan();
+    engine->init();
     EXPECT_NO_THROW(engine->cleanup());
 }
 

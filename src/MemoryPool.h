@@ -3,73 +3,46 @@
 #include <vulkan/vulkan.h>
 #include <vector>
 #include <memory>
+#include <stdexcept>
+#include <algorithm>
 
-// Forward declaration
-class VulkanEngine;
+// No need to forward declare VulkanEngine if physicalDevice is passed in constructor
 
-/**
- * @brief A buffer allocation from the memory pool
- */
-struct BufferAllocation {
-    VkBuffer buffer;
-    VkDeviceMemory memory;
-    VkDeviceSize size;
-    VkBufferUsageFlags usage;
-    VkMemoryPropertyFlags memoryProperties;
-    bool inUse;
-};
-
-/**
- * @brief Memory pool for efficient resource management
- */
 class MemoryPool {
 public:
-    /**
-     * @brief Construct a new Memory Pool
-     * @param device The Vulkan device
-     */
-    MemoryPool(VkDevice device);
-    
-    /**
-     * @brief Destroy the Memory Pool
-     */
+    struct BufferAllocation {
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        VkDeviceSize size = 0;
+        VkBufferUsageFlags usage = 0;
+        VkMemoryPropertyFlags properties = 0;
+        bool inUse = false;
+    };
+
+    struct StagingBuffer {
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        VkDeviceSize size = 0;
+        bool inUse = false;
+    };
+
+    MemoryPool(VkDevice device, VkPhysicalDevice physicalDevice);
     ~MemoryPool();
-    
-    /**
-     * @brief Allocate a buffer from the pool
-     * 
-     * @param size Size of the buffer
-     * @param usage Buffer usage flags
-     * @param properties Memory property flags
-     * @return BufferAllocation The allocated buffer
-     */
-    BufferAllocation allocateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, 
-                                   VkMemoryPropertyFlags properties);
-    
-    /**
-     * @brief Free a buffer allocation
-     * 
-     * @param allocation The buffer allocation to free
-     */
+
+    MemoryPool(const MemoryPool&) = delete;
+    MemoryPool& operator=(const MemoryPool&) = delete;
+
+    BufferAllocation allocateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
     void freeBuffer(const BufferAllocation& allocation);
-    
-    /**
-     * @brief Get a staging buffer for temporary use
-     * 
-     * @param size Size of the buffer
-     * @return BufferAllocation The staging buffer
-     */
-    BufferAllocation getStagingBuffer(VkDeviceSize size);
-    
-    /**
-     * @brief Return a staging buffer to the pool
-     * 
-     * @param allocation The staging buffer to return
-     */
-    void returnStagingBuffer(const BufferAllocation& allocation);
-    
+    StagingBuffer getStagingBuffer(VkDeviceSize size);
+    void returnStagingBuffer(const StagingBuffer& buffer);
+
 private:
-    VkDevice device;
-    std::vector<BufferAllocation> bufferAllocations;
-    std::vector<BufferAllocation> stagingBuffers;
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+
+    VkDevice device_;
+    VkPhysicalDevice physicalDevice_;
+    std::vector<BufferAllocation> bufferPool_;
+    std::vector<StagingBuffer> stagingPool_;
+    VkDeviceSize maxStagingSize_ = 0;
 }; 

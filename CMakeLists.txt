@@ -81,27 +81,27 @@ compile_shader(basic.frag)
 compile_shader(game_of_life_3d.comp)
 compile_shader(population_reduction.comp)
 
-# Define source files
-set(SOURCE_FILES
+# Add source files
+add_executable(vulkan-engine
     src/main.cpp
     src/VulkanEngine.cpp
     src/VulkanEngine.h
+    src/QueueFamilyIndices.h # Header only, but good to list
+    src/DeviceManager.cpp
+    src/DeviceManager.h
+    src/VulkanContext.cpp
+    src/VulkanContext.h
+    # ... other existing src files like Grid3D.cpp, Vertex.h etc. ...
     src/Grid3D.cpp
     src/Grid3D.h
-    src/MemoryPool.cpp
-    src/MemoryPool.h
-    src/Vertex.h
-)
-
-# Add the executable
-add_executable(vulkan-engine
-    ${SOURCE_FILES}
+    src/Vertex.h 
+    # Ensure all necessary .h files that are part of the library are also listed or handled by include_directories
     ${SHADER_SPV_FILES}
 )
 
 target_include_directories(vulkan-engine PRIVATE 
     ${Vulkan_INCLUDE_DIRS}
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src # Make sure this covers new subdirectories if any
     ${glm_SOURCE_DIR}
     ${SHADER_OUTPUT_DIR}
 )

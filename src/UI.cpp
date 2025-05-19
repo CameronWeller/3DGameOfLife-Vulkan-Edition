@@ -48,8 +48,8 @@ void UI::handleInput() {
         isPaused = !isPaused;
     }
     
-    // Toggle placement mode with P
-    if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS) {
+    // Toggle placement mode with E
+    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
         placementMode = !placementMode;
     }
     
@@ -134,7 +134,7 @@ void UI::renderControls() {
     ImGui::SliderFloat("Tick Rate", &tickRate, 0.1f, 10.0f, "%.1f Hz");
     
     // Placement mode toggle
-    ImGui::Checkbox("Placement Mode", &placementMode);
+    ImGui::Checkbox("Placement Mode (E)", &placementMode);
     
     if (placementMode) {
         ImGui::Text("Left Click: Place Voxel");

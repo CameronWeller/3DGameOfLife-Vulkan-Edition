@@ -1,38 +1,41 @@
 #include <algorithm>
 #include <stdexcept>
 #include <iostream>
-#include "VulkanEngine.h"
 
 // MemoryPool implementation
-MemoryPool::MemoryPool(VkDevice device) : device(device), maxStagingSize(0) {
-    if (device == VK_NULL_HANDLE) {
-        throw std::runtime_error("Cannot create memory pool with null device");
+MemoryPool::MemoryPool(VkDevice device, VkPhysicalDevice physicalDevice)
+    : device_(device), physicalDevice_(physicalDevice), maxStagingSize_(0) {
+    if (device_ == VK_NULL_HANDLE) {
+        throw std::runtime_error("MemoryPool: Vulkan device cannot be null.");
+    }
+    if (physicalDevice_ == VK_NULL_HANDLE) {
+        throw std::runtime_error("MemoryPool: Vulkan physical device cannot be null.");
     }
 }
 
 MemoryPool::~MemoryPool() {
     try {
         // Free all buffers in the pool
-        for (const auto& allocation : bufferPool) {
+        for (const auto& allocation : bufferPool_) {
             if (allocation.buffer != VK_NULL_HANDLE) {
-                vkDestroyBuffer(device, allocation.buffer, nullptr);
+                vkDestroyBuffer(device_, allocation.buffer, nullptr);
             }
             if (allocation.memory != VK_NULL_HANDLE) {
-                vkFreeMemory(device, allocation.memory, nullptr);
+                vkFreeMemory(device_, allocation.memory, nullptr);
             }
         }
-        bufferPool.clear();
+        bufferPool_.clear();
 
         // Free all staging buffers
-        for (const auto& staging : stagingPool) {
+        for (const auto& staging : stagingPool_) {
             if (staging.buffer != VK_NULL_HANDLE) {
-                vkDestroyBuffer(device, staging.buffer, nullptr);
+                vkDestroyBuffer(device_, staging.buffer, nullptr);
             }
             if (staging.memory != VK_NULL_HANDLE) {
-                vkFreeMemory(device, staging.memory, nullptr);
+                vkFreeMemory(device_, staging.memory, nullptr);
             }
         }
-        stagingPool.clear();
+        stagingPool_.clear();
         
         std::cout << "MemoryPool cleanup completed successfully" << std::endl;
     } catch (const std::exception& e) {
@@ -42,11 +45,11 @@ MemoryPool::~MemoryPool() {
 
 MemoryPool::BufferAllocation MemoryPool::allocateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties) {
     if (size == 0) {
-        throw std::runtime_error("Cannot allocate buffer of size 0");
+        throw std::runtime_error("MemoryPool: Cannot allocate buffer of size 0.");
     }
 
     // Try to find an existing buffer that matches requirements
-    for (auto& allocation : bufferPool) {
+    for (auto& allocation : bufferPool_) {
         if (!allocation.inUse && allocation.size >= size && 
             allocation.usage == usage && allocation.properties == properties) {
             allocation.inUse = true;
@@ -61,39 +64,36 @@ MemoryPool::BufferAllocation MemoryPool::allocateBuffer(VkDeviceSize size, VkBuf
     bufferInfo.usage = usage;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    VkBuffer buffer = VK_NULL_HANDLE;
-    VkResult result = vkCreateBuffer(device, &bufferInfo, nullptr, &buffer);
-    if (result != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create buffer in memory pool: " + std::to_string(result));
+    VkBuffer buffer;
+    if (vkCreateBuffer(device_, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
+        throw std::runtime_error("MemoryPool: Failed to create buffer!");
     }
 
     VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(device, buffer, &memRequirements);
+    vkGetBufferMemoryRequirements(device_, buffer, &memRequirements);
 
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
     allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
 
-    VkDeviceMemory memory = VK_NULL_HANDLE;
-    result = vkAllocateMemory(device, &allocInfo, nullptr, &memory);
-    if (result != VK_SUCCESS) {
-        vkDestroyBuffer(device, buffer, nullptr);
-        throw std::runtime_error("Failed to allocate memory in memory pool: " + std::to_string(result));
+    VkDeviceMemory memory;
+    if (vkAllocateMemory(device_, &allocInfo, nullptr, &memory) != VK_SUCCESS) {
+        vkDestroyBuffer(device_, buffer, nullptr);
+        throw std::runtime_error("MemoryPool: Failed to allocate buffer memory!");
     }
 
-    result = vkBindBufferMemory(device, buffer, memory, 0);
-    if (result != VK_SUCCESS) {
-        vkDestroyBuffer(device, buffer, nullptr);
-        vkFreeMemory(device, memory, nullptr);
-        throw std::runtime_error("Failed to bind buffer memory in memory pool: " + std::to_string(result));
+    if (vkBindBufferMemory(device_, buffer, memory, 0) != VK_SUCCESS) {
+        vkDestroyBuffer(device_, buffer, nullptr);
+        vkFreeMemory(device_, memory, nullptr);
+        throw std::runtime_error("MemoryPool: Failed to bind buffer memory!");
     }
 
-    BufferAllocation allocation{buffer, memory, size, usage, properties, true};
-    bufferPool.push_back(allocation);
+    BufferAllocation newAllocation{buffer, memory, size, usage, properties, true};
+    bufferPool_.push_back(newAllocation);
     
-    std::cout << "Allocated buffer of size " << size << " bytes (total buffers: " << bufferPool.size() << ")" << std::endl;
-    return allocation;
+    std::cout << "Allocated buffer of size " << size << " bytes (total buffers: " << bufferPool_.size() << ")" << std::endl;
+    return newAllocation;
 }
 
 void MemoryPool::freeBuffer(const BufferAllocation& allocation) {
@@ -101,24 +101,29 @@ void MemoryPool::freeBuffer(const BufferAllocation& allocation) {
         return; // Nothing to free
     }
 
-    auto it = std::find_if(bufferPool.begin(), bufferPool.end(),
+    auto it = std::find_if(bufferPool_.begin(), bufferPool_.end(),
         [&](const BufferAllocation& a) {
             return a.buffer == allocation.buffer && a.memory == allocation.memory;
         });
     
-    if (it != bufferPool.end()) {
+    if (it != bufferPool_.end()) {
         it->inUse = false;
         std::cout << "Returned buffer to pool (size: " << it->size << " bytes)" << std::endl;
+    } else {
+        // This could indicate an attempt to free a buffer not from this pool, or already freed and removed.
+        // Or, the buffer was created outside the pool and passed here by mistake.
+        // For now, just log or ignore. In a robust system, this might be an error.
+        // std::cerr << "Warning: Attempted to free a buffer not managed by this pool or already freed." << std::endl;
     }
 }
 
 MemoryPool::StagingBuffer MemoryPool::getStagingBuffer(VkDeviceSize size) {
     if (size == 0) {
-        throw std::runtime_error("Cannot get staging buffer of size 0");
+        throw std::runtime_error("MemoryPool: Cannot get staging buffer of size 0.");
     }
 
     // Try to find an existing staging buffer
-    for (auto& staging : stagingPool) {
+    for (auto& staging : stagingPool_) {
         if (!staging.inUse && staging.size >= size) {
             staging.inUse = true;
             return staging;
@@ -129,17 +134,16 @@ MemoryPool::StagingBuffer MemoryPool::getStagingBuffer(VkDeviceSize size) {
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     bufferInfo.size = size;
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT; // Staging can be src or dst
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    VkBuffer buffer = VK_NULL_HANDLE;
-    VkResult result = vkCreateBuffer(device, &bufferInfo, nullptr, &buffer);
-    if (result != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create staging buffer: " + std::to_string(result));
+    VkBuffer buffer;
+    if (vkCreateBuffer(device_, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
+        throw std::runtime_error("MemoryPool: Failed to create staging buffer!");
     }
 
     VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(device, buffer, &memRequirements);
+    vkGetBufferMemoryRequirements(device_, buffer, &memRequirements);
 
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -149,26 +153,24 @@ MemoryPool::StagingBuffer MemoryPool::getStagingBuffer(VkDeviceSize size) {
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     );
 
-    VkDeviceMemory memory = VK_NULL_HANDLE;
-    result = vkAllocateMemory(device, &allocInfo, nullptr, &memory);
-    if (result != VK_SUCCESS) {
-        vkDestroyBuffer(device, buffer, nullptr);
-        throw std::runtime_error("Failed to allocate staging memory: " + std::to_string(result));
+    VkDeviceMemory memory;
+    if (vkAllocateMemory(device_, &allocInfo, nullptr, &memory) != VK_SUCCESS) {
+        vkDestroyBuffer(device_, buffer, nullptr);
+        throw std::runtime_error("MemoryPool: Failed to allocate staging memory!");
     }
 
-    result = vkBindBufferMemory(device, buffer, memory, 0);
-    if (result != VK_SUCCESS) {
-        vkDestroyBuffer(device, buffer, nullptr);
-        vkFreeMemory(device, memory, nullptr);
-        throw std::runtime_error("Failed to bind staging buffer memory: " + std::to_string(result));
+    if (vkBindBufferMemory(device_, buffer, memory, 0) != VK_SUCCESS) {
+        vkDestroyBuffer(device_, buffer, nullptr);
+        vkFreeMemory(device_, memory, nullptr);
+        throw std::runtime_error("MemoryPool: Failed to bind staging memory!");
     }
 
-    StagingBuffer staging{buffer, memory, size, true};
-    stagingPool.push_back(staging);
-    maxStagingSize = std::max(maxStagingSize, size);
+    StagingBuffer newStaging{buffer, memory, size, true};
+    stagingPool_.push_back(newStaging);
+    maxStagingSize_ = std::max(maxStagingSize_, size);
     
-    std::cout << "Created staging buffer of size " << size << " bytes (total staging buffers: " << stagingPool.size() << ")" << std::endl;
-    return staging;
+    std::cout << "Created staging buffer of size " << size << " bytes (total staging buffers: " << stagingPool_.size() << ")" << std::endl;
+    return newStaging;
 }
 
 void MemoryPool::returnStagingBuffer(const StagingBuffer& buffer) {
@@ -176,31 +178,26 @@ void MemoryPool::returnStagingBuffer(const StagingBuffer& buffer) {
         return; // Nothing to return
     }
     
-    auto it = std::find_if(stagingPool.begin(), stagingPool.end(),
+    auto it = std::find_if(stagingPool_.begin(), stagingPool_.end(),
         [&](const StagingBuffer& s) {
             return s.buffer == buffer.buffer && s.memory == buffer.memory;
         });
     
-    if (it != stagingPool.end()) {
+    if (it != stagingPool_.end()) {
         it->inUse = false;
         std::cout << "Returned staging buffer to pool (size: " << it->size << " bytes)" << std::endl;
+    } else {
+        // std::cerr << "Warning: Attempted to return a staging buffer not managed by this pool." << std::endl;
     }
 }
 
 uint32_t MemoryPool::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-    if (device == VK_NULL_HANDLE) {
-        throw std::runtime_error("Cannot find memory type with null device");
-    }
-
     VkPhysicalDeviceMemoryProperties memProperties;
-    vkGetPhysicalDeviceMemoryProperties(VulkanEngine::getPhysicalDevice(), &memProperties);
-
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice_, &memProperties);
     for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-        if ((typeFilter & (1 << i)) && 
-            (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+        if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
             return i;
         }
     }
-
-    throw std::runtime_error("Failed to find suitable memory type");
+    throw std::runtime_error("MemoryPool: Failed to find suitable memory type!");
 } 

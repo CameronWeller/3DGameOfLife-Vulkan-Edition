@@ -1,7 +1,6 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
-#include <GLFW/glfw3.h>
 #include <vector>
 #include <string>
 #include <stdexcept>
@@ -14,6 +13,9 @@
 
 // Project includes
 #include "Vertex.h"
+#include "VulkanContext.h"
+#include "MemoryPool.h"
+#include "WindowManager.h"
 
 // Forward declarations
 class MemoryPool;
@@ -37,113 +39,14 @@ struct SwapChainSupportDetails {
 };
 
 /**
- * @brief Indices for queue families required by the application
- */
-struct QueueFamilyIndices {
-    std::optional<uint32_t> graphicsFamily;
-    std::optional<uint32_t> presentFamily;
-    std::optional<uint32_t> computeFamily;
-
-    /**
-     * @brief Check if all required queues were found
-     * @return True if all required queues are available
-     */
-    bool isComplete() const {
-        return graphicsFamily.has_value() && presentFamily.has_value();
-    }
-};
-
-/**
- * @brief Memory pool for efficient Vulkan resource management
- */
-class MemoryPool {
-public:
-    /**
-     * @brief Represents an allocated buffer in the pool
-     */
-    struct BufferAllocation {
-        VkBuffer buffer;
-        VkDeviceMemory memory;
-        VkDeviceSize size;
-        VkBufferUsageFlags usage;
-        VkMemoryPropertyFlags properties;
-        bool inUse;
-    };
-
-    /**
-     * @brief Represents a temporary staging buffer
-     */
-    struct StagingBuffer {
-        VkBuffer buffer;
-        VkDeviceMemory memory;
-        VkDeviceSize size;
-        bool inUse;
-    };
-
-    /**
-     * @brief Create a memory pool
-     * @param device The Vulkan logical device
-     */
-    explicit MemoryPool(VkDevice device);
-    
-    /**
-     * @brief Destroy the memory pool and free all resources
-     */
-    ~MemoryPool();
-
-    // Delete copy constructor and assignment operator
-    MemoryPool(const MemoryPool&) = delete;
-    MemoryPool& operator=(const MemoryPool&) = delete;
-
-    /**
-     * @brief Allocate a buffer from the pool
-     * @param size Size of the buffer in bytes
-     * @param usage Buffer usage flags
-     * @param properties Memory property flags
-     * @return A buffer allocation
-     */
-    BufferAllocation allocateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, 
-                                   VkMemoryPropertyFlags properties);
-    
-    /**
-     * @brief Return a buffer to the pool
-     * @param allocation The buffer allocation to free
-     */
-    void freeBuffer(const BufferAllocation& allocation);
-    
-    /**
-     * @brief Get a staging buffer for temporary use
-     * @param size Size of the staging buffer in bytes
-     * @return A staging buffer
-     */
-    StagingBuffer getStagingBuffer(VkDeviceSize size);
-    
-    /**
-     * @brief Return a staging buffer to the pool
-     * @param buffer The staging buffer to return
-     */
-    void returnStagingBuffer(const StagingBuffer& buffer);
-
-private:
-    VkDevice device;
-    std::vector<BufferAllocation> bufferPool;
-    std::vector<StagingBuffer> stagingPool;
-    VkDeviceSize maxStagingSize;
-    
-    /**
-     * @brief Find a suitable memory type
-     * @param typeFilter Filter for memory type bits
-     * @param properties Required memory properties
-     * @return Index of suitable memory type
-     */
-    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
-};
-
-/**
  * @brief Main engine class for Vulkan-based rendering
  * 
  * This class manages the Vulkan instance, device, swap chain, and rendering pipeline.
  * It provides a high-level interface for creating and managing Vulkan resources.
+ * The engine is designed to be modular, with separate managers for different aspects:
+ * - VulkanContext: Core Vulkan instance and device management
+ * - MemoryPool: Buffer and memory management
+ * - Future managers for pipelines, swapchain, etc.
  */
 class VulkanEngine {
 public:
@@ -191,13 +94,19 @@ public:
      * @brief Get the singleton instance
      * @return Pointer to the singleton instance
      */
-    static VulkanEngine* getInstance() { return instance; }
+    static VulkanEngine* getInstance() { return instance_; }
 
     /**
-     * @brief Get the memory pool
-     * @return Reference to the memory pool
+     * @brief Get the Vulkan context
+     * @return Pointer to the Vulkan context
      */
-    MemoryPool& getMemoryPool() { return *memoryPool; }
+    VulkanContext* getVulkanContext() const { return vulkanContext_.get(); }
+
+    /**
+     * @brief Get the window manager
+     * @return Pointer to the window manager
+     */
+    WindowManager* getWindowManager() const { return windowManager_.get(); }
 
     /**
      * @brief Get a compute semaphore
@@ -212,32 +121,6 @@ public:
      * @return Reference to the fence
      */
     VkFence& getComputeFence(uint32_t index) { return computeFences[index]; }
-
-    /**
-     * @brief Get the Vulkan logical device
-     * @return The Vulkan logical device
-     */
-    static VkDevice getDevice() { return instance ? instance->device : VK_NULL_HANDLE; }
-    
-    /**
-     * @brief Find a suitable memory type
-     * @param typeFilter Filter for memory type bits
-     * @param properties Required memory properties
-     * @return Index of suitable memory type
-     */
-    static uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
-    
-    /**
-     * @brief Get the physical device
-     * @return The Vulkan physical device
-     */
-    static VkPhysicalDevice getPhysicalDevice() { return instance ? instance->physicalDevice : VK_NULL_HANDLE; }
-    
-    /**
-     * @brief Get the compute queue
-     * @return The compute queue
-     */
-    static VkQueue getComputeQueue() { return instance ? instance->computeQueue : VK_NULL_HANDLE; }
 
     /**
      * @brief Create a buffer with the specified parameters
@@ -264,13 +147,7 @@ public:
      * @brief Get the current Vulkan instance
      * @return The current Vulkan instance
      */
-    VkInstance getVkInstance() const { return vkInstance; }
-    
-    /**
-     * @brief Get the window
-     * @return The GLFW window
-     */
-    GLFWwindow* getWindow() const { return window; }
+    VkInstance getVkInstance() const { return vulkanContext_->getInstance(); }
     
     /**
      * @brief Draw a single frame
@@ -302,169 +179,193 @@ public:
      */
     void endSingleTimeCommands(VkCommandBuffer commandBuffer);
 
+    MemoryPool* getMemoryPool() const { return memoryPool_.get(); }
+
+    /**
+     * @brief Create an index buffer for the vertices
+     */
+    void createIndexBuffer();
+
+    /**
+     * @brief Find a suitable memory type for buffer allocation
+     * @param physicalDevice The physical device to query
+     * @param typeFilter Memory type filter
+     * @param properties Required memory properties
+     * @return The index of the suitable memory type
+     */
+    uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties);
+
+    /**
+     * @brief Callback for window framebuffer resize events
+     * @param window The GLFW window
+     * @param width New width
+     * @param height New height
+     */
+    static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
+
 private:
-    // Static instance pointer
-    static VulkanEngine* instance;
+    static VulkanEngine* instance_;
+    std::unique_ptr<WindowManager> windowManager_;
+    VkSurfaceKHR surface_;
+    std::unique_ptr<VulkanContext> vulkanContext_;
+    VkInstance vkInstance_;
+    VkPhysicalDevice physicalDevice_;
+    VkDevice device_;
+    VkQueue graphicsQueue_;
+    VkQueue presentQueue_;
+    VkQueue computeQueue_;
+    VkPipelineLayout pipelineLayout_;
+    VkPipeline graphicsPipeline_;
+    std::unique_ptr<MemoryPool> memoryPool_;
 
-    // Window and instance
-    GLFWwindow* window;
-    VkInstance vkInstance;
-    VkDebugUtilsMessengerEXT debugMessenger;
-
-    // Device and queues
-    VkPhysicalDevice physicalDevice;
-    VkDevice device;
-    VkQueue graphicsQueue;
-    VkQueue presentQueue;
-    VkQueue computeQueue;
-    QueueFamilyIndices queueFamilyIndices;
-
-    // Surface
-    VkSurfaceKHR surface;
-
-    // Pipeline
+    // Vulkan handles
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
     VkDescriptorSetLayout descriptorSetLayout;
     std::vector<VkShaderModule> shaderModules;
 
-    // Command pools and buffers
     VkCommandPool graphicsCommandPool;
     VkCommandPool computeCommandPool;
     std::vector<VkCommandBuffer> graphicsCommandBuffers;
     std::vector<VkCommandBuffer> computeCommandBuffers;
 
-    // Memory management
-    std::unique_ptr<MemoryPool> memoryPool;
-
-    // Synchronization objects
     std::vector<VkSemaphore> computeSemaphores;
     std::vector<VkFence> computeFences;
 
-    // Device features and extensions
-    struct {
-        VkPhysicalDeviceProperties properties{};
-        VkPhysicalDeviceMemoryProperties memoryProperties{};
-    } deviceInfo;
-    VkPhysicalDeviceFeatures enabledFeatures{};
-    
-    // List of required device extensions
-    const std::vector<const char*> deviceExtensions = {
+    VkPhysicalDeviceFeatures enabledFeatures_{};
+    const std::vector<const char*> deviceExtensions_ = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-        VK_KHR_MAINTENANCE1_EXTENSION_NAME,  // For better performance
-        VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,  // For better resource management
-        VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME  // For better memory access
+        VK_KHR_MAINTENANCE1_EXTENSION_NAME,
+        VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,
+        VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME
     };
-    
-    // List of validation layers to enable
-    std::vector<const char*> validationLayers = {
+    const std::vector<const char*> validationLayers_ = {
         "VK_LAYER_KHRONOS_validation"
     };
+    const std::vector<const char*> instanceExtensions_ = {};
 
-    // Swap chain
+    QueueFamilyIndices queueFamilyIndices_;
+
+    // Buffers and resources
+    std::vector<VkBuffer> uniformBuffers_;
+    std::vector<VkDeviceMemory> uniformBuffersMemory_;
+    std::vector<void*> uniformBuffersMapped_;
+    VkBuffer vertexBuffer_;
+    VkDeviceMemory vertexBufferMemory_;
+    VkBuffer indexBuffer_;
+    VkDeviceMemory indexBufferMemory_;
+    std::vector<Vertex> vertices_;
+    std::vector<uint32_t> indices_;
+
+    // Swap chain resources
     VkSwapchainKHR swapChain;
     std::vector<VkImage> swapChainImages;
-    VkFormat swapChainImageFormat;
-    VkExtent2D swapChainExtent;
     std::vector<VkImageView> swapChainImageViews;
     std::vector<VkFramebuffer> swapChainFramebuffers;
-
-    // Render pass
+    VkFormat swapChainImageFormat;
+    VkExtent2D swapChainExtent;
     VkRenderPass renderPass;
+
+    // Depth and color resources
+    VkImage depthImage;
+    VkDeviceMemory depthImageMemory;
+    VkImageView depthImageView;
+    VkImage colorImage;
+    VkDeviceMemory colorImageMemory;
+    VkImageView colorImageView;
 
     // Command buffers and synchronization
     std::vector<VkCommandBuffer> commandBuffers;
     std::vector<VkSemaphore> imageAvailableSemaphores;
     std::vector<VkSemaphore> renderFinishedSemaphores;
     std::vector<VkFence> inFlightFences;
-    std::vector<VkFence> imagesInFlight;
-    size_t currentFrame = 0;
-    bool framebufferResized = false;
+    uint32_t currentFrame;
+    bool framebufferResized;
 
-    // Vertex buffer
+    // Vertex and index buffers
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
-    std::vector<Vertex> vertices;
+    VkBuffer indexBuffer;
+    VkDeviceMemory indexBufferMemory;
 
     // Uniform buffers
     std::vector<VkBuffer> uniformBuffers;
     std::vector<VkDeviceMemory> uniformBuffersMemory;
+    std::vector<void*> uniformBuffersMapped;
 
-    // Descriptor pool and sets
+    // Descriptor sets
     VkDescriptorPool descriptorPool;
     std::vector<VkDescriptorSet> descriptorSets;
 
-    // Depth buffer
-    VkImage depthImage;
-    VkDeviceMemory depthImageMemory;
-    VkImageView depthImageView;
+    // Texture resources
+    VkImageView textureImageView;
+    VkSampler textureSampler;
 
-    // MSAA
-    VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
-    VkImage colorImage;
-    VkDeviceMemory colorImageMemory;
-    VkImageView colorImageView;
-
-    // Initialization methods
-    void initWindow();
-    void initVulkan();
-    void createInstance();
-    void setupDebugMessenger();
-    void createSurface();
-    void pickPhysicalDevice();
-    void createLogicalDevice();
+    /**
+     * @brief Create command pools for graphics and compute operations
+     * @throws std::runtime_error if command pool creation fails
+     */
     void createCommandPools();
+
+    /**
+     * @brief Create the descriptor set layout for shader resources
+     * @throws std::runtime_error if descriptor set layout creation fails
+     */
     void createDescriptorSetLayout();
+
+    /**
+     * @brief Create the graphics pipeline
+     * @throws std::runtime_error if pipeline creation fails
+     */
     void createGraphicsPipeline();
 
-    // Helper methods
-    bool checkValidationLayerSupport();
-    std::vector<const char*> getRequiredExtensions();
-    bool isDeviceSuitable(VkPhysicalDevice device) const;
-    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) const;
-    bool checkDeviceExtensionSupport(VkPhysicalDevice device) const;
-    void enableDeviceFeatures();
-
-    // Shader methods
+    /**
+     * @brief Read a file into a vector of chars
+     * @param filename Path to the file to read
+     * @return Vector containing the file contents
+     * @throws std::runtime_error if file cannot be opened
+     */
     std::vector<char> readFile(const std::string& filename);
+
+    /**
+     * @brief Create shader stages for the graphics pipeline
+     * @param vertPath Path to the vertex shader
+     * @param fragPath Path to the fragment shader
+     * @param vertStageInfo Output parameter for vertex shader stage info
+     * @param fragStageInfo Output parameter for fragment shader stage info
+     * @throws std::runtime_error if shader creation fails
+     */
     void createShaderStages(const std::string& vertPath, const std::string& fragPath,
                            VkPipelineShaderStageCreateInfo& vertStageInfo,
                            VkPipelineShaderStageCreateInfo& fragStageInfo);
 
-    // Compute pipeline methods
+    /**
+     * @brief Wait for compute operations to complete
+     */
     void waitForComputeCompletion();
 
-    // Memory management methods
+    /**
+     * @brief Copy data between buffers
+     * @param srcBuffer Source buffer
+     * @param dstBuffer Destination buffer
+     * @param size Size of data to copy
+     */
     void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
-    // Command buffer methods
+    /**
+     * @brief Record commands for drawing a frame
+     * @param commandBuffer Command buffer to record into
+     * @param imageIndex Index of the swap chain image to render to
+     */
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 
-    // Cleanup methods
+    /**
+     * @brief Clean up all Vulkan resources
+     */
     void cleanup();
-    void cleanupSurface();
-    void destroySyncObjects();
-    void destroyDebugMessenger();
 
-    // Debug messenger methods
-    void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
-    static VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
-        const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
-        const VkAllocationCallbacks* pAllocator,
-        VkDebugUtilsMessengerEXT* pDebugMessenger);
-    static void DestroyDebugUtilsMessengerEXT(VkInstance instance,
-        VkDebugUtilsMessengerEXT debugMessenger,
-        const VkAllocationCallbacks* pAllocator);
-
-    // Callback functions
-    static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
-    static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
-        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-        VkDebugUtilsMessageTypeFlagsEXT messageType,
-        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-        void* pUserData);
-
-    // Additional methods
     void createSwapChain();
     void createImageViews();
     void createRenderPass();
@@ -497,4 +398,7 @@ private:
                              VkImageLayout newLayout);
     void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
     void generateMipmaps(VkImage image, VkFormat imageFormat, int32_t texWidth, int32_t texHeight, uint32_t mipLevels);
+
+    std::vector<const char*> getRequiredInstanceExtensions();
+    void applyEnabledDeviceFeatures(VkPhysicalDeviceFeatures& features);
 }; 

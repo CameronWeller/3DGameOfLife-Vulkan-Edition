@@ -1,4 +1,4 @@
-# IOlog - Interaction and Operation Log
+a# IOlog - Interaction and Operation Log
 Last Updated: [Current Date]
 
 ## Agent Registry
@@ -663,5 +663,186 @@ Notes:
   - Multiple "Copying old device 0 into new device 0" warnings
   - Invalid device error in vkDeviceWaitIdle
   - Next steps: Fix Vulkan device initialization and validation layer setup
+
+## Refactoring Plan: Modular Vulkan Engine (YYYY-MM-DD)
+
+**Goal:** Refactor the monolithic `VulkanEngine` class into a component-based architecture to improve maintainability, testability, and collaboration.
+
+**Overall Strategy:**
+- Gradually extract responsibilities from `VulkanEngine` into new, focused manager classes.
+- `VulkanEngine` will become a coordinator, owning instances of these managers.
+- Update dependencies and call sites as functionality is moved.
+- Ensure the application remains functional (or at least buildable) after each major step.
+- Update/create unit tests for new/refactored components.
+
+---
+
+**Phase 1: Core Vulkan Context & Device Management**
+*   **Objective:** Isolate Vulkan instance, physical/logical device, and queue management.
+1.  **Create `QueueFamilyIndices.h` (if not already separate)**
+    *   [ ] Define the `QueueFamilyIndices` struct.
+2.  **Create `DeviceManager.h` and `DeviceManager.cpp`**
+    *   [ ] Members: `VkPhysicalDevice physicalDevice`, `VkDevice device`, `QueueFamilyIndices queueFamilyIndices`, `VkQueue graphicsQueue`, `VkQueue presentQueue`, `VkQueue computeQueue`. (Potentially references to `VulkanContext` or `VkInstance`/`VkSurfaceKHR` for queries).
+    *   [ ] Methods:
+        *   `DeviceManager(VkInstance instance, VkSurfaceKHR surface)` constructor.
+        *   `pickPhysicalDevice()`
+        *   `isDeviceSuitable(VkPhysicalDevice physicalDevice) const`
+        *   `findQueueFamilies(VkPhysicalDevice physicalDevice) const`
+        *   `checkDeviceExtensionSupport(VkPhysicalDevice physicalDevice) const`
+        *   `createLogicalDevice(const std::vector<const char*>& validationLayers, const VkPhysicalDeviceFeatures& enabledFeatures, const std::vector<const char*>& deviceExtensions)`
+        *   `cleanup()`
+        *   Getters for `VkPhysicalDevice`, `VkDevice`, `QueueFamilyIndices`, and queues.
+3.  **Create `VulkanContext.h` and `VulkanContext.cpp`**
+    *   [ ] Members: `VkInstance vkInstance`, `VkDebugUtilsMessengerEXT debugMessenger`, `std::unique_ptr<DeviceManager> deviceManager`.
+    *   [ ] Methods:
+        *   `VulkanContext(GLFWwindow* window)` (or takes surface directly)
+        *   `init(const std::vector<const char*>& validationLayers, const std::vector<const char*>& requiredExtensions)` (Handles instance creation, debug messenger setup, surface creation - surface creation might move to WindowManager later).
+        *   `initDeviceManager(const VkPhysicalDeviceFeatures& enabledFeatures, const std::vector<const char*>& deviceExtensions)`
+        *   `cleanup()`
+        *   Getters for `VkInstance`, `VkDevice` (via `deviceManager`), `VkPhysicalDevice` (via `deviceManager`), queues (via `deviceManager`), `VkSurfaceKHR` (if owned here).
+4.  **Refactor `VulkanEngine` to use `VulkanContext`**
+    *   [ ] `VulkanEngine` holds `std::unique_ptr<VulkanContext>`.
+    *   [ ] Delegate `createInstance`, `setupDebugMessenger`, `pickPhysicalDevice`, `createLogicalDevice` calls to `VulkanContext` and its `DeviceManager`.
+    *   [ ] Update `VulkanEngine` methods that use `vkInstance`, `physicalDevice`, `device`, `queues` to get them from `VulkanContext`.
+5.  **Update `CMakeLists.txt`** to include new files.
+6.  **Test:** Ensure basic initialization still works.
+
+---
+
+**Phase 2: Window and Surface Management**
+*   **Objective:** Isolate GLFW window and Vulkan surface management.
+1.  **Create `WindowManager.h` and `WindowManager.cpp`**
+    *   [ ] Members: `GLFWwindow* window`, `VkSurfaceKHR surface`.
+    *   [ ] Methods:
+        *   `WindowManager(const char* title, int width, int height)`
+        *   `initWindow()`
+        *   `createSurface(VkInstance instance)`
+        *   `cleanup(VkInstance instance)` (instance passed for surface destruction)
+        *   `getWindow() const`
+        *   `getSurface() const`
+        *   `shouldClose() const`
+        *   `pollEvents()`
+        *   `setFramebufferResizedCallback(GLFWframebuffersizefun callback)`
+        *   `setWindowUserPointer(void* pointer)`
+        *   `getFramebufferSize(int* width, int* height)`
+        *   Static callback: `framebufferResizeCallback` (or adapt existing).
+2.  **Refactor `VulkanContext`** (if it currently handles surface creation)
+    *   [ ] Surface creation/cleanup moves to `WindowManager`. `VulkanContext` might take `VkSurfaceKHR` in constructor or via a setter from `WindowManager`.
+3.  **Refactor `VulkanEngine` to use `WindowManager`**
+    *   [ ] `VulkanEngine` holds `std::unique_ptr<WindowManager>`.
+    *   [ ] Delegate windowing and surface calls.
+    *   [ ] Update `framebufferResized` logic.
+4.  **Update `CMakeLists.txt`**.
+5.  **Test:** Window creation, surface creation, and resize events.
+
+---
+
+**Phase 3: Swapchain Management**
+*   **Objective:** Isolate swapchain creation, image views, and recreation logic.
+1.  **Create `SwapchainManager.h` and `SwapchainManager.cpp`**
+    *   [ ] Members: `VkSwapchainKHR swapChain`, `std::vector<VkImage> swapChainImages`, `VkFormat swapChainImageFormat`, `VkExtent2D swapChainExtent`, `std::vector<VkImageView> swapChainImageViews`.
+    *   [ ] Dependencies: `VulkanContext` (for device, physicalDevice), `WindowManager` (for surface, window extent).
+    *   [ ] Methods:
+        *   `SwapchainManager(VulkanContext* context, WindowManager* windowManager)`
+        *   `create()` (was `createSwapChain` + `createImageViews`)
+        *   `recreate()`
+        *   `cleanup()`
+        *   `querySupport(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface) const`
+        *   `chooseSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) const`
+        *   `choosePresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) const`
+        *   `chooseExtent(const VkSurfaceCapabilitiesKHR& capabilities, GLFWwindow* window) const`
+        *   Getters for swapchain details.
+2.  **Refactor `VulkanEngine` to use `SwapchainManager`**
+    *   [ ] Delegate swapchain related calls.
+3.  **Update `CMakeLists.txt`**.
+4.  **Test:** Swapchain creation and recreation (e.g., on resize).
+
+---
+
+**Phase 4: Render Pass and Framebuffer Management**
+*   **Objective:** Separate render pass and framebuffer setup.
+1.  **Create `RenderPassManager.h` and `RenderPassManager.cpp`**
+    *   [ ] Members: `VkRenderPass renderPass`.
+    *   [ ] Dependencies: `VulkanContext` (for device), `SwapchainManager` (for format).
+    *   [ ] Methods: `create(VkFormat swapchainImageFormat, VkFormat depthFormat, VkSampleCountFlagBits msaaSamples)`, `cleanup()`, `get() const`.
+2.  **Create `FramebufferManager.h` and `FramebufferManager.cpp`**
+    *   [ ] Members: `std::vector<VkFramebuffer> swapChainFramebuffers`.
+    *   [ ] Dependencies: `VulkanContext`, `SwapchainManager`, `RenderPassManager`, (and image views for depth/color if MSAA).
+    *   [ ] Methods: `create(const std::vector<VkImageView>& swapChainImageViews, VkImageView depthImageView, VkImageView colorImageView, VkExtent2D swapChainExtent, VkRenderPass renderPass)`, `cleanup()`, `get(uint32_t index) const`, `getCount() const`.
+3.  **Refactor `VulkanEngine` to use these managers.**
+4.  **Update `CMakeLists.txt`**.
+5.  **Test:** Render pass and framebuffer creation, especially during swapchain recreation.
+
+---
+
+**Phase 5: Pipeline Management**
+*   **Objective:** Isolate graphics and compute pipeline creation.
+1.  **Create `DescriptorSetManager.h` and `DescriptorSetManager.cpp`** (Might be part of PipelineManager or separate)
+    *   [ ] Members: `VkDescriptorSetLayout descriptorSetLayout`, `VkDescriptorPool descriptorPool`, `std::vector<VkDescriptorSet> descriptorSets`.
+    *   [ ] Dependencies: `VulkanContext`.
+    *   [ ] Methods: `createLayout()`, `createPool()`, `createSets()`, `cleanupLayout()`, `cleanupPool()`, etc.
+2.  **Create `PipelineManager.h` and `PipelineManager.cpp`**
+    *   [ ] Members: `VkPipelineLayout graphicsPipelineLayout`, `VkPipeline graphicsPipeline` (and similar for compute).
+    *   [ ] Dependencies: `VulkanContext`, `RenderPassManager`, `DescriptorSetManager`.
+    *   [ ] Methods: `createGraphicsLayout(VkDescriptorSetLayout descriptorSetLayout)`, `createGraphicsPipeline(VkRenderPass renderPass, VkSampleCountFlagBits msaaSamples, const std::string& vertShaderPath, const std::string& fragShaderPath)`, `createComputePipeline(const std::string& compShaderPath, VkDescriptorSetLayout descriptorSetLayout, VkPipelineLayout& outPipelineLayout, VkPipeline& outPipeline)`, `cleanup()`.
+3.  **Refactor `VulkanEngine` to use these managers.**
+4.  **Update `CMakeLists.txt`**.
+5.  **Test:** Pipeline creation for both graphics and compute.
+
+---
+
+**Phase 6: Command and Synchronization Management**
+*   **Objective:** Centralize command pool/buffer and synchronization primitive management.
+1.  **Create `CommandManager.h` and `CommandManager.cpp`**
+    *   [ ] Members: `VkCommandPool graphicsCommandPool`, `VkCommandPool computeCommandPool`. (Command buffers might be per-frame or per-use, managed where needed or by this manager).
+    *   [ ] Dependencies: `VulkanContext`, `DeviceManager` (for queue family indices).
+    *   [ ] Methods: `createPools()`, `cleanupPools()`, `createCommandBuffers(VkCommandPool pool, std::vector<VkCommandBuffer>& buffers, uint32_t count)`, `freeCommandBuffers(VkCommandPool pool, std::vector<VkCommandBuffer>& buffers)`, `beginSingleTimeCommands(VkCommandPool pool) const`, `endSingleTimeCommands(VkCommandPool pool, VkCommandBuffer commandBuffer, VkQueue queue) const`.
+2.  **Create `SyncManager.h` and `SyncManager.cpp`**
+    *   [ ] Members: `std::vector<VkSemaphore> imageAvailableSemaphores`, `renderFinishedSemaphores`, `computeSemaphores`; `std::vector<VkFence> inFlightFences`, `computeFences`. (Potentially `imagesInFlight` if tied to swapchain images directly).
+    *   [ ] Dependencies: `VulkanContext`.
+    *   [ ] Methods: `createGraphicsSyncObjects(uint32_t count)`, `createComputeSyncObjects(uint32_t count)`, `cleanupGraphicsSyncObjects()`, `cleanupComputeSyncObjects()`. Getters.
+3.  **Refactor `VulkanEngine` to use these managers.**
+4.  **Update `CMakeLists.txt`**.
+5.  **Test:** Command buffer recording, submission, and synchronization.
+
+---
+
+**Phase 7: Resource Management (Buffers, Images, Shaders)**
+*   **Objective:** Consolidate creation and management of buffers, images, and shader modules.
+1.  **Refine `MemoryPool.h` and `MemoryPool.cpp` (or rename to `ResourceManager`)**
+    *   [ ] Current `MemoryPool` from `VulkanEngine.h/.cpp` becomes its own class.
+    *   [ ] Add methods for image creation: `createImage()`, `createImageView()`.
+    *   [ ] Add methods for shader module management: `loadShaderModule(const std::string& path)`, `destroyShaderModule(VkShaderModule module)`. (Store loaded modules to avoid reloads, or let PipelineManager handle this).
+    *   [ ] Manage vertex buffers, uniform buffers, depth/color images.
+2.  **Refactor `VulkanEngine` to use the refined `ResourceManager` (or `MemoryPool`).**
+3.  **Update `CMakeLists.txt`**.
+4.  **Test:** Buffer, image, and shader module lifecycle.
+
+---
+
+**Phase 8: Main Loop and Drawing Logic Review**
+*   **Objective:** Ensure `VulkanEngine::run()` and `drawFrame()` correctly coordinate the new manager classes.
+1.  [ ] Review `VulkanEngine::run()`: Ensure it correctly calls `WindowManager::pollEvents()` and `drawFrame()`.
+2.  [ ] Review `VulkanEngine::drawFrame()`:
+    *   [ ] Calls to `SyncManager` for waiting on fences and acquiring semaphores.
+    *   [ ] Calls to `SwapchainManager` for acquiring next image.
+    *   [ ] Calls to `ResourceManager`/`PipelineManager` for updating uniform buffers.
+    *   [ ] Calls to `CommandManager` for command buffer recording.
+    *   [ ] Calls to `SyncManager` for queue submission with semaphores/fences.
+    *   [ ] Calls to `SwapchainManager` for presentation.
+    *   [ ] Handles swapchain recreation logic by coordinating `SwapchainManager`, `RenderPassManager`, `FramebufferManager`, `PipelineManager`.
+3.  **Test:** Full application run, including window resizing and an end-to-end rendering/compute cycle.
+
+---
+
+**General Guidelines During Refactoring:**
+-   **Commit frequently:** After each logical step or sub-task, commit changes with a clear message.
+-   **Build often:** Compile the code frequently to catch errors early.
+-   **Test incrementally:** As components are refactored or created, write/update unit tests.
+-   **Address TODOs:** Resolve any TODO comments related to the refactoring.
+-   **Documentation:** Update comments and Doxygen documentation for new/modified classes and methods.
+
+This is a large undertaking. I will start with **Phase 1: Core Vulkan Context & Device Management**.
+I'll create `QueueFamilyIndices.h` first as it's a simple struct.
 
 --- 
