@@ -1,0 +1,34 @@
+Vulkan Engine Architecture
+=========================
+
++------------------------+     +------------------------+     +------------------------+
+|     VulkanEngine      |     |    VulkanContext      |     |     WindowManager     |
+|  (Main Engine Class)  |<--->|  (Vulkan Instance &   |<--->|  (Window & Surface    |
+|                       |     |   Device Management)  |     |   Management)         |
++------------------------+     +------------------------+     +------------------------+
+           |                             |                             |
+           v                             v                             v
++------------------------+     +------------------------+     +------------------------+
+|    MemoryManager      |     |    PipelineManager     |     |    ResourceManager    |
+|  (VMA Integration)    |<--->|  (Graphics/Compute    |<--->|  (Textures, Buffers,  |
+|                       |     |   Pipeline Creation)  |     |   Descriptor Sets)    |
++------------------------+     +------------------------+     +------------------------+
+           |                             |                             |
+           v                             v                             v
++------------------------+     +------------------------+     +------------------------+
+|    CommandManager     |     |    SyncManager         |     |    ValidationLayer    |
+|  (Command Buffers &   |<--->|  (Semaphores &        |<--->|  (Debug & Validation  |
+|   Command Pools)      |     |   Fences)             |     |   Features)           |
++------------------------+     +------------------------+     +------------------------+
+
+Key Components:
+--------------
+1. VulkanEngine: Main orchestrator, handles initialization and main loop
+2. VulkanContext: Manages Vulkan instance, physical device, and logical device
+3. WindowManager: Handles window creation and surface management
+4. MemoryManager: VMA integration for efficient memory allocation
+5. PipelineManager: Graphics and compute pipeline creation/management
+6. ResourceManager: Texture, buffer, and descriptor set management
+7. CommandManager: Command buffer and pool management
+8. SyncManager: Synchronization primitives (semaphores, fences)
+9. ValidationLayer: Debug and validation features 

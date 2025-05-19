@@ -1,0 +1,73 @@
+Graphics Pipeline Flow
+=====================
+
+Pipeline Stages
+--------------
++------------------+     +------------------+     +------------------+
+|  Input Assembly  |---->|  Vertex Shader   |---->|  Tessellation   |
+|  (Vertex Data)   |     |  (Transform)     |     |  (Optional)     |
++------------------+     +------------------+     +------------------+
+                                                          |
+                                                          v
++------------------+     +------------------+     +------------------+
+|  Rasterization   |<----|  Geometry Shader |<----|  Tessellation    |
+|  (Fragments)     |     |  (Optional)      |     |  Evaluation     |
++------------------+     +------------------+     +------------------+
+        |
+        v
++------------------+     +------------------+     +------------------+
+|  Fragment Shader |---->|  Color Blending  |---->|  Frame Buffer   |
+|  (Pixels)        |     |  (Output)        |     |  Output         |
++------------------+     +------------------+     +------------------+
+
+Pipeline State
+-------------
++------------------+
+|  Pipeline Layout |
+|  (Push Constants |
+|   & Descriptors) |
++------------------+
+        |
+        v
++------------------+     +------------------+     +------------------+
+|  Vertex Input    |     |  Input Assembly  |     |  Rasterization  |
+|  State           |     |  State           |     |  State          |
++------------------+     +------------------+     +------------------+
+        |                        |                        |
+        v                        v                        v
++------------------+     +------------------+     +------------------+
+|  Viewport State  |     |  Color Blend     |     |  Depth/Stencil  |
+|  (Scissor)       |     |  State           |     |  State          |
++------------------+     +------------------+     +------------------+
+
+Command Recording Flow
+--------------------
++------------------+     +------------------+     +------------------+
+|  Begin Command   |---->|  Bind Pipeline   |---->|  Bind Vertex     |
+|  Buffer          |     |                  |     |  Buffers         |
++------------------+     +------------------+     +------------------+
+                                                          |
+                                                          v
++------------------+     +------------------+     +------------------+
+|  Draw Commands   |<----|  Bind Descriptor |<----|  Push Constants  |
+|  (Draw/DrawIndex)|     |  Sets            |     |                  |
++------------------+     +------------------+     +------------------+
+        |
+        v
++------------------+
+|  End Command     |
+|  Buffer          |
++------------------+
+
+Key Features:
+------------
+1. Dynamic state management
+2. Pipeline derivatives
+3. Pipeline cache
+4. Multiple subpasses
+5. Secondary command buffers
+6. Push constants
+7. Descriptor sets
+8. Vertex input binding
+9. Viewport/scissor state
+10. Color/depth/stencil state 

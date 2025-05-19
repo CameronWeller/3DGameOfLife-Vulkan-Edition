@@ -1,0 +1,66 @@
+Vulkan Memory Allocator (VMA) Integration
+=======================================
+
+Memory Allocation Flow
+---------------------
++------------------+     +------------------+     +------------------+
+|  Application     |     |  VMA Allocator   |     |  GPU Memory     |
+|  Request        |---->|  (MemoryPool)    |---->|  (VkDeviceMemory)|
++------------------+     +------------------+     +------------------+
+        |                        |                        |
+        v                        v                        v
++------------------+     +------------------+     +------------------+
+|  Buffer/Image    |     |  Memory Block    |     |  Memory Pool     |
+|  Creation       |<----|  Management      |<----|  (Heap)          |
++------------------+     +------------------+     +------------------+
+
+Memory Types
+-----------
+1. Device Local Memory (Fastest GPU access)
+   +------------------+
+   |  GPU-Only Memory |
+   |  (VRAM)         |
+   +------------------+
+
+2. Host Visible Memory (CPU accessible)
+   +------------------+
+   |  CPU-GPU Shared  |
+   |  Memory          |
+   +------------------+
+
+3. Host Coherent Memory (Automatic sync)
+   +------------------+
+   |  CPU-GPU Shared  |
+   |  (Coherent)      |
+   +------------------+
+
+Memory Allocation Strategies
+--------------------------
+1. Dedicated Allocations
+   +------------------+
+   |  Single Resource |
+   |  Per Allocation  |
+   +------------------+
+
+2. Pooled Allocations
+   +------------------+
+   |  Multiple Small  |
+   |  Resources       |
+   +------------------+
+
+3. Sub-allocations
+   +------------------+
+   |  Split Large     |
+   |  Memory Blocks   |
+   +------------------+
+
+Key Features:
+------------
+1. Automatic memory type selection
+2. Memory defragmentation
+3. Memory pooling
+4. Dedicated allocations
+5. Memory mapping
+6. Buffer/image creation helpers
+7. Memory budget tracking
+8. Memory leak detection 

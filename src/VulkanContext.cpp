@@ -48,7 +48,12 @@ VulkanContext::VulkanContext(std::shared_ptr<WindowManager> windowManager,
 }
 
 VulkanContext::~VulkanContext() {
-    cleanup();
+    // Clean up in reverse order of creation
+    memoryManager_.reset();  // This will call VulkanMemoryManager's destructor
+    deviceManager_.reset();  // This will call DeviceManager's destructor
+    cleanupSurface();
+    cleanupDebugMessenger();
+    vkDestroyInstance(vkInstance_, nullptr);
 }
 
 void VulkanContext::cleanup() {
@@ -70,9 +75,10 @@ void VulkanContext::initDeviceManager(const std::vector<const char*>& deviceExte
     if (surface_ == VK_NULL_HANDLE && windowManager_) {
         std::cout << "Warning: Initializing DeviceManager without a VkSurfaceKHR, graphics/present queues may not be available." << std::endl;
     }
-    deviceManager_ = std::make_unique<DeviceManager>(vkInstance_, surface_, deviceExtensions);
-    deviceManager_->pickPhysicalDevice();
-    deviceManager_->createLogicalDevice(validationLayers_, enabledFeatures);
+    deviceManager_ = std::make_unique<DeviceManager>(vkInstance_, surface_, deviceExtensions, enabledFeatures);
+    
+    // Initialize memory manager after device is created
+    memoryManager_ = std::make_unique<VulkanMemoryManager>(getDevice(), getPhysicalDevice());
 }
 
 const QueueFamilyIndices& VulkanContext::getQueueFamilyIndices() const {

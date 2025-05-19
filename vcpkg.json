@@ -1,0 +1,19 @@
+{
+    "name": "cpp-vulkan-hip-engine",
+    "version": "0.1.0",
+    "dependencies": [
+        "vulkan",
+        "glfw3",
+        "glm",
+        "imgui",
+        "spdlog",
+        "vulkan-memory-allocator"
+    ],
+    "builtin-baseline": "2024-02-14",
+    "overrides": [
+        {
+            "name": "vulkan",
+            "version": "1.3.268.0"
+        }
+    ]
+} 

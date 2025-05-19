@@ -14,11 +14,10 @@
 // Project includes
 #include "Vertex.h"
 #include "VulkanContext.h"
-#include "MemoryPool.h"
 #include "WindowManager.h"
 
 // Forward declarations
-class MemoryPool;
+class VulkanMemoryManager;
 
 /**
  * @brief Uniform buffer object for shader transformation matrices
@@ -179,7 +178,7 @@ public:
      */
     void endSingleTimeCommands(VkCommandBuffer commandBuffer);
 
-    MemoryPool* getMemoryPool() const { return memoryPool_.get(); }
+    VulkanMemoryManager* getMemoryManager() const { return vulkanContext_->getMemoryManager(); }
 
     /**
      * @brief Create an index buffer for the vertices
@@ -216,7 +215,44 @@ private:
     VkQueue computeQueue_;
     VkPipelineLayout pipelineLayout_;
     VkPipeline graphicsPipeline_;
-    std::unique_ptr<MemoryPool> memoryPool_;
+
+    // Command pools
+    VkCommandPool graphicsCommandPool_ = VK_NULL_HANDLE;
+    VkCommandPool computeCommandPool_ = VK_NULL_HANDLE;
+
+    // Swap chain resources
+    VkSwapchainKHR swapChain_ = VK_NULL_HANDLE;
+    std::vector<VkImage> swapChainImages_;
+    std::vector<VkImageView> swapChainImageViews_;
+    std::vector<VkFramebuffer> swapChainFramebuffers_;
+    VkFormat swapChainImageFormat_;
+    VkExtent2D swapChainExtent_;
+    VkRenderPass renderPass_ = VK_NULL_HANDLE;
+
+    // Depth and color resources
+    VkImage depthImage_ = VK_NULL_HANDLE;
+    VkDeviceMemory depthImageMemory_ = VK_NULL_HANDLE;
+    VkImageView depthImageView_ = VK_NULL_HANDLE;
+    VkImage colorImage_ = VK_NULL_HANDLE;
+    VkDeviceMemory colorImageMemory_ = VK_NULL_HANDLE;
+    VkImageView colorImageView_ = VK_NULL_HANDLE;
+
+    // Command buffers and synchronization
+    std::vector<VkCommandBuffer> commandBuffers_;
+    std::vector<VkSemaphore> imageAvailableSemaphores_;
+    std::vector<VkSemaphore> renderFinishedSemaphores_;
+    std::vector<VkFence> inFlightFences_;
+    uint32_t currentFrame_ = 0;
+    bool framebufferResized_ = false;
+
+    // Descriptor resources
+    VkDescriptorSetLayout descriptorSetLayout_ = VK_NULL_HANDLE;
+    VkDescriptorPool descriptorPool_ = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> descriptorSets_;
+
+    // Texture resources
+    VkImageView textureImageView_ = VK_NULL_HANDLE;
+    VkSampler textureSampler_ = VK_NULL_HANDLE;
 
     // Vulkan handles
     VkPipelineLayout pipelineLayout;
@@ -256,31 +292,6 @@ private:
     VkDeviceMemory indexBufferMemory_;
     std::vector<Vertex> vertices_;
     std::vector<uint32_t> indices_;
-
-    // Swap chain resources
-    VkSwapchainKHR swapChain;
-    std::vector<VkImage> swapChainImages;
-    std::vector<VkImageView> swapChainImageViews;
-    std::vector<VkFramebuffer> swapChainFramebuffers;
-    VkFormat swapChainImageFormat;
-    VkExtent2D swapChainExtent;
-    VkRenderPass renderPass;
-
-    // Depth and color resources
-    VkImage depthImage;
-    VkDeviceMemory depthImageMemory;
-    VkImageView depthImageView;
-    VkImage colorImage;
-    VkDeviceMemory colorImageMemory;
-    VkImageView colorImageView;
-
-    // Command buffers and synchronization
-    std::vector<VkCommandBuffer> commandBuffers;
-    std::vector<VkSemaphore> imageAvailableSemaphores;
-    std::vector<VkSemaphore> renderFinishedSemaphores;
-    std::vector<VkFence> inFlightFences;
-    uint32_t currentFrame;
-    bool framebufferResized;
 
     // Vertex and index buffers
     std::vector<Vertex> vertices;

@@ -125,4 +125,87 @@ This project uses the following tools for code quality:
 - **clang-tidy**: Advanced static analysis
 - **cppcheck**: General static analysis
 
-Configuration for these tools is in `.clang-format`, `.clang-tidy`, and `cppcheck.suppress` at the project root. 
+Configuration for these tools is in `.clang-format`, `.clang-tidy`, and `cppcheck.suppress` at the project root.
+
+## Setup with vcpkg
+
+1. Install vcpkg:
+```powershell
+git clone https://github.com/Microsoft/vcpkg.git
+cd vcpkg
+./bootstrap-vcpkg.bat
+```
+
+2. Set up vcpkg environment variable (in PowerShell):
+```powershell
+$env:VCPKG_ROOT = "C:\path\to\vcpkg"  # Adjust path as needed
+```
+
+3. Build the project:
+```powershell
+mkdir build
+cd build
+cmake ..
+cmake --build . --config Release
+```
+
+## Dependencies (managed by vcpkg)
+
+- Vulkan SDK
+- GLFW3
+- GLM
+- Dear ImGui
+- spdlog
+- Vulkan Memory Allocator (VMA)
+
+## Controls
+
+- WASD: Camera movement
+- Mouse: Look around
+- E: Toggle placement mode
+- Left Click: Place voxel
+- Right Click: Remove voxel
+- Space: Toggle pause
+
+## Building from Source
+
+1. Clone the repository:
+```powershell
+git clone https://github.com/yourusername/cpp-vulkan-hip-engine.git
+cd cpp-vulkan-hip-engine
+```
+
+2. Follow the vcpkg setup instructions above
+
+3. Build the project:
+```powershell
+mkdir build
+cd build
+cmake ..
+cmake --build . --config Release
+```
+
+## Project Structure
+
+```
+cpp-vulkan-hip-engine/
+├── src/                    # Source files
+├── shaders/               # GLSL shaders
+├── include/              # Header files
+├── tests/               # Test files
+├── CMakeLists.txt      # CMake configuration
+├── vcpkg.json         # vcpkg manifest
+└── README.md         # This file
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details. 

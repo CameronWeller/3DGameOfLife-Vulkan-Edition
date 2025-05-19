@@ -1,0 +1,76 @@
+Project Evolution & Roadmap
+=========================
+
+Current State
+------------
++------------------+     +------------------+     +------------------+
+|  Basic Vulkan    |---->|  VMA Integration |---->|  Graphics        |
+|  Setup           |     |                  |     |  Pipeline        |
++------------------+     +------------------+     +------------------+
+        |                        |                        |
+        v                        v                        v
++------------------+     +------------------+     +------------------+
+|  Window          |     |  Resource        |     |  Command         |
+|  Management      |     |  Management      |     |  Management      |
++------------------+     +------------------+     +------------------+
+
+Short-term Goals
+---------------
++------------------+     +------------------+     +------------------+
+|  Compute         |---->|  Multi-threading |---->|  Pipeline        |
+|  Pipeline        |     |  Support         |     |  Derivatives     |
++------------------+     +------------------+     +------------------+
+        |                        |                        |
+        v                        v                        v
++------------------+     +------------------+     +------------------+
+|  Memory          |     |  Resource        |     |  Command         |
+|  Defragmentation |     |  Streaming       |     |  Buffer Reuse    |
++------------------+     +------------------+     +------------------+
+
+Medium-term Goals
+----------------
++------------------+     +------------------+     +------------------+
+|  Ray Tracing     |---->|  Mesh Shaders    |---->|  Variable Rate   |
+|  Pipeline        |     |                  |     |  Shading         |
++------------------+     +------------------+     +------------------+
+        |                        |                        |
+        v                        v                        v
++------------------+     +------------------+     +------------------+
+|  Async Compute   |     |  Pipeline        |     |  Multi-pass      |
+|  Integration     |     |  State Objects   |     |  Rendering       |
++------------------+     +------------------+     +------------------+
+
+Long-term Vision
+---------------
++------------------+     +------------------+     +------------------+
+|  Cross-platform  |---->|  High-level      |---->|  Scene Graph     |
+|  Abstraction     |     |  Rendering API   |     |  System          |
++------------------+     +------------------+     +------------------+
+        |                        |                        |
+        v                        v                        v
++------------------+     +------------------+     +------------------+
+|  Material        |     |  Lighting        |     |  Post-processing |
+|  System          |     |  System          |     |  Pipeline        |
++------------------+     +------------------+     +------------------+
+
+Key Focus Areas:
+---------------
+1. Performance Optimization
+   - Memory management
+   - Command buffer reuse
+   - Pipeline state caching
+
+2. Feature Expansion
+   - Modern Vulkan features
+   - Cross-platform support
+   - High-level abstractions
+
+3. Developer Experience
+   - Better documentation
+   - Debug tools
+   - Validation layers
+
+4. Future Technologies
+   - Ray tracing
+   - Mesh shaders
+   - Variable rate shading 

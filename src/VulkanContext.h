@@ -6,6 +6,7 @@
 #include <memory>
 #include "DeviceManager.h"
 #include "WindowManager.h"
+#include "VulkanMemoryManager.h"
 
 // Forward declaration for PFN_vkCreateDebugUtilsMessengerEXT and PFN_vkDestroyDebugUtilsMessengerEXT
 // Or include vulkan_core.h if it's guaranteed to have them, but usually it's safer to load them explicitly.
@@ -33,6 +34,7 @@ public:
     VkQueue getPresentQueue() const { return deviceManager_ ? deviceManager_->getPresentQueue() : VK_NULL_HANDLE; }
     VkQueue getComputeQueue() const { return deviceManager_ ? deviceManager_->getComputeQueue() : VK_NULL_HANDLE; }
     const QueueFamilyIndices& getQueueFamilyIndices() const;
+    VulkanMemoryManager* getMemoryManager() const { return memoryManager_.get(); }
 
     const std::vector<const char*>& getValidationLayers() const { return validationLayers_; }
     bool areValidationLayersEnabled() const { return !validationLayers_.empty(); }
@@ -65,6 +67,7 @@ private:
     VkSurfaceKHR surface_ = VK_NULL_HANDLE;
     
     std::unique_ptr<DeviceManager> deviceManager_;
+    std::unique_ptr<VulkanMemoryManager> memoryManager_;
 
     const std::vector<const char*>& requiredInstanceExtensions_;
     const std::vector<const char*>& validationLayers_;

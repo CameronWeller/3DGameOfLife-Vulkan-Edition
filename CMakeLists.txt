@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.10)
 cmake_policy(VERSION 3.10)
+
+# Set vcpkg toolchain file if it exists
+if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        CACHE STRING "")
+endif()
+
 project(CPPVulkanHIPEngine LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -22,6 +29,11 @@ endif()
 # Find required packages
 find_package(Vulkan REQUIRED)
 find_package(HIP QUIET)  # Make HIP optional
+find_package(glfw3 REQUIRED)
+find_package(glm REQUIRED)
+find_package(imgui REQUIRED)
+find_package(spdlog REQUIRED)
+find_package(vulkan-memory-allocator REQUIRED)
 
 # Add GLFW
 include(FetchContent)
@@ -60,9 +72,9 @@ file(MAKE_DIRECTORY ${SHADER_OUTPUT_DIR})
 set(SHADER_SPV_FILES "")
 
 # Function to compile shaders
-function(compile_shader SHADER_NAME)
-    set(SHADER_PATH ${SHADER_DIR}/${SHADER_NAME})
-    set(OUTPUT_PATH ${SHADER_OUTPUT_DIR}/${SHADER_NAME}.spv)
+function(compile_shader SHADER_PATH)
+    get_filename_component(SHADER_NAME ${SHADER_PATH} NAME_WE)
+    set(OUTPUT_PATH "${SHADER_OUTPUT_DIR}/${SHADER_NAME}.spv")
     
     add_custom_command(
         OUTPUT ${OUTPUT_PATH}
@@ -76,54 +88,49 @@ function(compile_shader SHADER_NAME)
 endfunction()
 
 # Compile all shaders
-compile_shader(basic.vert)
-compile_shader(basic.frag)
-compile_shader(game_of_life_3d.comp)
-compile_shader(population_reduction.comp)
+file(GLOB SHADER_FILES "${SHADER_DIR}/*.glsl")
+foreach(SHADER ${SHADER_FILES})
+    compile_shader(${SHADER})
+endforeach()
 
-# Add source files
-add_executable(vulkan-engine
+# Add executable
+add_executable(${PROJECT_NAME} 
     src/main.cpp
     src/VulkanEngine.cpp
-    src/VulkanEngine.h
-    src/QueueFamilyIndices.h # Header only, but good to list
-    src/DeviceManager.cpp
-    src/DeviceManager.h
     src/VulkanContext.cpp
-    src/VulkanContext.h
-    # ... other existing src files like Grid3D.cpp, Vertex.h etc. ...
-    src/Grid3D.cpp
-    src/Grid3D.h
-    src/Vertex.h 
-    # Ensure all necessary .h files that are part of the library are also listed or handled by include_directories
-    ${SHADER_SPV_FILES}
+    src/WindowManager.cpp
+    src/UI.cpp
+    src/Camera.cpp
+    src/RayCaster.cpp
+    src/VulkanMemoryManager.cpp
 )
 
-target_include_directories(vulkan-engine PRIVATE 
-    ${Vulkan_INCLUDE_DIRS}
-    ${CMAKE_CURRENT_SOURCE_DIR}/src # Make sure this covers new subdirectories if any
-    ${glm_SOURCE_DIR}
-    ${SHADER_OUTPUT_DIR}
-)
-
-target_link_libraries(vulkan-engine PRIVATE 
-    ${Vulkan_LIBRARIES}
+# Link libraries
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    Vulkan::Vulkan
     glfw
-    glm
+    glm::glm
+    imgui::imgui
+    spdlog::spdlog
+    vulkan-memory-allocator::vulkan-memory-allocator
 )
 
-# Only link HIP if it was found
-if(HIP_FOUND)
-    target_link_libraries(vulkan-engine PRIVATE HIP::hip)
-    target_compile_definitions(vulkan-engine PRIVATE WITH_HIP)
-endif()
+# Include directories
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 
-# Post-build copy of shaders for Windows
+# Add shader files to the build
+add_custom_target(shaders DEPENDS ${SHADER_SPV_FILES})
+add_dependencies(${PROJECT_NAME} shaders)
+
+# Copy shaders to build directory on Windows
 if(WIN32)
-    add_custom_command(TARGET vulkan-engine POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:vulkan-engine>/shaders/"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHADER_OUTPUT_DIR}" "$<TARGET_FILE_DIR:vulkan-engine>/shaders/"
-        COMMENT "Copying shader files to output directory"
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${SHADER_OUTPUT_DIR}
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders
     )
 endif()
 
