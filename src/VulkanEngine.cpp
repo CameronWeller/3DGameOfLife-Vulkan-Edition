@@ -960,7 +960,7 @@ void VulkanEngine::createVertexBuffer() {
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
     );
     vertexBuffer_ = vertexBufferAlloc.buffer;
-    vertexBufferMemory_ = vertexBufferAlloc.allocation;
+    vertexBufferAllocation_ = vertexBufferAlloc.allocation;
 
     // Copy data
     copyBuffer(stagingBuffer.buffer, vertexBuffer_, bufferSize);
@@ -993,7 +993,7 @@ void VulkanEngine::createIndexBuffer() {
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
     );
     indexBuffer_ = indexBufferAlloc.buffer;
-    indexBufferMemory_ = indexBufferAlloc.allocation;
+    indexBufferAllocation_ = indexBufferAlloc.allocation;
 
     // Copy data
     copyBuffer(stagingBuffer.buffer, indexBuffer_, bufferSize);
