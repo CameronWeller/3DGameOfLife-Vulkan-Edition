@@ -5,23 +5,23 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <mutex>
+
+struct BufferAllocation {
+    VkBuffer buffer;
+    VmaAllocation allocation;
+    VmaAllocationInfo allocationInfo;
+};
+
+struct StagingBuffer {
+    VkBuffer buffer;
+    VmaAllocation allocation;
+    VmaAllocationInfo allocationInfo;
+    size_t size;
+};
 
 class VulkanMemoryManager {
 public:
-    struct BufferAllocation {
-        VkBuffer buffer;
-        VmaAllocation allocation;
-        VkDeviceSize size;
-        bool inUse;
-    };
-
-    struct StagingBuffer {
-        VkBuffer buffer;
-        VmaAllocation allocation;
-        VkDeviceSize size;
-        bool inUse;
-    };
-
     struct ImageAllocation {
         VkImage image;
         VmaAllocation allocation;
@@ -53,8 +53,8 @@ public:
     void generateMipmaps(VkImage image, VkFormat imageFormat, int32_t texWidth, int32_t texHeight, uint32_t mipLevels);
     
     // Staging buffer management
-    StagingBuffer getStagingBuffer(VkDeviceSize size);
-    void returnStagingBuffer(const StagingBuffer& staging);
+    StagingBuffer getStagingBuffer(size_t size);
+    void returnStagingBuffer(const StagingBuffer& buffer);
 
     // Memory type finding
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
@@ -62,6 +62,8 @@ public:
     // Getters
     VmaAllocator getAllocator() const { return allocator_; }
     VkDevice getDevice() const { return device_; }
+
+    void cleanup();
 
 private:
     VkDevice device_;
@@ -71,11 +73,14 @@ private:
     VkQueue graphicsQueue_;
     
     std::vector<BufferAllocation> bufferPool_;
-    std::vector<StagingBuffer> stagingPool_;
+    std::vector<StagingBuffer> stagingBuffers_;
+    std::mutex stagingBuffersMutex_;
     VkDeviceSize maxStagingSize_;
 
     void createAllocator();
     void destroyAllocator();
     VkCommandBuffer beginSingleTimeCommands();
     void endSingleTimeCommands(VkCommandBuffer commandBuffer);
+
+    void cleanupStagingBuffers();
 }; 

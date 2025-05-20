@@ -150,12 +150,16 @@ function Build-Project {
 
 # Main execution
 try {
-    # Check for administrator privileges
+    # Check if running as administrator
     $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin) {
-        Write-Log "Please run this script as Administrator" -Level "ERROR"
-        exit 1
+        Write-Host "Please run this script as Administrator"
+        exit
     }
+
+    # Check if PowerShell is installed
+    $psVersion = $PSVersionTable.PSVersion
+    Write-Host "PowerShell version: $psVersion"
 
     # Initialize log file
     if (Test-Path "setup.log") {

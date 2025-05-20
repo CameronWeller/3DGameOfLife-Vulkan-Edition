@@ -1,6 +1,16 @@
 #include "Logger.h"
 #include <iostream>
 
+Logger::Logger() {
+    // Enable all categories by default
+    enabledCategories_.insert(LogCategory::GENERAL);
+    enabledCategories_.insert(LogCategory::VULKAN);
+    enabledCategories_.insert(LogCategory::WINDOW);
+    enabledCategories_.insert(LogCategory::DEVICE);
+    enabledCategories_.insert(LogCategory::MEMORY);
+    enabledCategories_.insert(LogCategory::RENDERING);
+}
+
 Logger& Logger::getInstance() {
     static Logger instance;
     return instance;
@@ -30,13 +40,13 @@ void Logger::init(const std::string& logFilePath) {
     }
 
     initialized_ = true;
-    log(LogLevel::INFO, "Logger initialized");
+    log(LogLevel::INFO, LogCategory::GENERAL, "Logger initialized");
 }
 
 void Logger::cleanup() {
     std::lock_guard<std::mutex> lock(logMutex_);
     if (initialized_) {
-        log(LogLevel::INFO, "Logger shutting down");
+        log(LogLevel::INFO, LogCategory::GENERAL, "Logger shutting down");
         logFile_.close();
         initialized_ = false;
     }
@@ -46,11 +56,15 @@ Logger::~Logger() {
     cleanup();
 }
 
-void Logger::log(LogLevel level, const std::string& message) {
+void Logger::log(LogLevel level, LogCategory category, const std::string& message) {
+    if (!shouldLog(level, category)) {
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(logMutex_);
     
     std::stringstream ss;
-    ss << getTimestamp() << " [" << getLevelString(level) << "] " << message << std::endl;
+    ss << getTimestamp() << " [" << getCategoryString(category) << "] [" << getLevelString(level) << "] " << message << std::endl;
     
     // Always output to console
     std::cerr << ss.str();
@@ -58,22 +72,14 @@ void Logger::log(LogLevel level, const std::string& message) {
     // Write to file if initialized
     if (initialized_) {
         writeToFile(ss.str());
+        if (flushOnLog_) {
+            logFile_.flush();
+        }
     }
 }
 
 void Logger::logVulkanValidation(LogLevel level, const std::string& message) {
-    std::lock_guard<std::mutex> lock(logMutex_);
-    
-    std::stringstream ss;
-    ss << getTimestamp() << " [VULKAN] [" << getLevelString(level) << "] " << message << std::endl;
-    
-    // Always output to console
-    std::cerr << ss.str();
-    
-    // Write to file if initialized
-    if (initialized_) {
-        writeToFile(ss.str());
-    }
+    log(level, LogCategory::VULKAN, message);
 }
 
 std::string Logger::getTimestamp() {
@@ -94,9 +100,25 @@ std::string Logger::getLevelString(LogLevel level) {
     }
 }
 
+std::string Logger::getCategoryString(LogCategory category) {
+    switch (category) {
+        case LogCategory::GENERAL: return "GENERAL";
+        case LogCategory::VULKAN: return "VULKAN";
+        case LogCategory::WINDOW: return "WINDOW";
+        case LogCategory::DEVICE: return "DEVICE";
+        case LogCategory::MEMORY: return "MEMORY";
+        case LogCategory::RENDERING: return "RENDERING";
+        default: return "UNKNOWN";
+    }
+}
+
+bool Logger::shouldLog(LogLevel level, LogCategory category) const {
+    return static_cast<int>(level) >= static_cast<int>(minimumLogLevel_) &&
+           enabledCategories_.find(category) != enabledCategories_.end();
+}
+
 void Logger::writeToFile(const std::string& message) {
     if (logFile_.is_open()) {
         logFile_ << message;
-        logFile_.flush();
     }
 } 

@@ -18,6 +18,7 @@
 #include <iomanip>
 #include <chrono>
 #include <atomic>
+#include <mutex>
 
 // Project includes
 #include "Vertex.h"
@@ -388,6 +389,33 @@ public:
     static constexpr auto AUTO_SAVE_INTERVAL = std::chrono::minutes(5);
     static constexpr const char* AUTO_SAVE_PREFIX = "autosave_";
 
+    // Save management members
+    static constexpr size_t MAX_AUTO_SAVES = 5;  // Keep last 5 auto-saves
+    static constexpr const char* MANUAL_SAVE_PREFIX = "save_";
+    std::mutex saveMutex_;  // Protect save operations
+
+    // Helper methods
+    void performAutoSave();
+    void updateLoadingState(const std::string& status, float progress);
+    bool isAutoSaveDue() const;
+    void cleanupOldAutoSaves();
+    void performManualSave();
+    std::string generateSaveFileName(const char* prefix) const;
+
+    // Loading screen members
+    bool isLoading_ = false;
+    float loadingElapsed_ = 0.0f;
+    std::future<bool> loadingFuture_;
+    VoxelData loadedVoxelData_;
+    std::atomic<float> loadingProgress_{0.0f};
+    std::string loadingStatus_{"Loading..."};
+    std::mutex loadingMutex_;  // Protect loading state access
+    std::atomic<bool> shouldCancelLoading_{false};  // Flag for cancellation
+
+    // Helper methods
+    void cancelLoading();
+    bool isCancelling() const { return shouldCancelLoading_; }
+
 private:
     static VulkanEngine* instance_;
     std::shared_ptr<WindowManager> windowManager_;
@@ -496,13 +524,12 @@ private:
     };
     std::vector<ComputePipelineInfo> computePipelines_;
 
-    // Loading screen members
-    bool isLoading_ = false;
-    float loadingElapsed_ = 0.0f;
-    std::future<bool> loadingFuture_;
-    VoxelData loadedVoxelData_;
-    std::atomic<float> loadingProgress_{0.0f};
-    std::string loadingStatus_{"Loading..."};
+    // Auto-save members
+    bool autoSaveEnabled_ = true;
+    std::chrono::steady_clock::time_point lastAutoSave_;
+    static constexpr auto AUTO_SAVE_INTERVAL = std::chrono::minutes(5);
+    static constexpr const char* AUTO_SAVE_PREFIX = "autosave_";
+    std::mutex autoSaveMutex_;  // Protect auto-save state access
 
     EngineStateMachine stateMachine_;
     void initializeStateMachine();
@@ -596,6 +623,28 @@ private:
 
     std::vector<const char*> getRequiredInstanceExtensions();
     void applyEnabledDeviceFeatures(VkPhysicalDeviceFeatures& features);
+
+    // Helper methods
+    void performAutoSave();
+    void updateLoadingState(const std::string& status, float progress);
+    bool isAutoSaveDue() const;
+    void cleanupOldAutoSaves();
+    void performManualSave();
+    std::string generateSaveFileName(const char* prefix) const;
+
+    // Voxel rendering resources
+    VkBuffer voxelVertexBuffer_ = VK_NULL_HANDLE;
+    VmaAllocation voxelVertexBufferAllocation_ = VK_NULL_HANDLE;
+    VkBuffer voxelIndexBuffer_ = VK_NULL_HANDLE;
+    VmaAllocation voxelIndexBufferAllocation_ = VK_NULL_HANDLE;
+    std::vector<Vertex> voxelVertices_;
+    std::vector<uint32_t> voxelIndices_;
+
+    // Helper methods
+    void createVoxelBuffers();
+    void updateVoxelBuffers();
+    void createVoxelVertexData(const VoxelData& voxelData);
+    void cleanupVoxelBuffers();
 
 #ifdef _MSC_VER
 #pragma message("If you see an error about vk_mem_alloc.h, ensure VMA is installed via vcpkg and your includePath is set to vcpkg/installed/<triplet>/include.")

@@ -91,10 +91,26 @@
 - Added error handling for auto-save operations
 - Added console logging for auto-save status
 
+[2024-03-21] Save Management Improvements
+- Added manual save hotkey (F5)
+- Implemented auto-save cleanup (keeps last 5 auto-saves)
+- Added mutex protection for save operations
+- Added timestamp-based save filenames
+- Added console logging for save operations
+- Refactored save filename generation
+
+[2024-03-21] Loading Cancellation Implementation
+- Added loading cancellation support with atomic flag
+- Added cancel button to loading screen
+- Added cancellation checks during loading phases
+- Added proper state cleanup after cancellation
+- Added user feedback during cancellation
+- Added thread-safe cancellation handling
+
 Next Steps:
-- Add loading cancellation support
-- Add save file thumbnails
-- Implement auto-save functionality
-- Add settings menu for save preferences
-- Add save file cleanup (remove old auto-saves)
-- Add manual save hotkey 
+- Add save preferences in settings menu:
+  * Auto-save interval configuration
+  * Maximum auto-saves to keep
+  * Save file compression options
+  * Save file backup options
+  * Custom save directory 

@@ -8,6 +8,7 @@
 #include <fstream>
 #include <chrono>
 #include <iomanip>
+#include <mutex>
 
 // Add after the includes
 static std::ofstream validationLogFile;
@@ -31,46 +32,25 @@ VKAPI_ATTR VkBool32 VKAPI_CALL VulkanContext::debugCallback(
     const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
     void* pUserData) {
     
-    initializeValidationLog();
-
-    std::stringstream ss;
-    ss << "[" << std::put_time(std::localtime(&std::time(nullptr)), "%Y-%m-%d %H:%M:%S") << "] ";
-
-    // Add severity level
+    LogLevel level;
     switch (messageSeverity) {
         case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
-            ss << "[VERBOSE] ";
+            level = LogLevel::VERBOSE;
             break;
         case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
-            ss << "[INFO] ";
+            level = LogLevel::INFO;
             break;
         case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
-            ss << "[WARNING] ";
+            level = LogLevel::WARNING;
             break;
         case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
-            ss << "[ERROR] ";
+            level = LogLevel::ERROR;
             break;
         default:
-            ss << "[UNKNOWN] ";
+            level = LogLevel::INFO;
     }
 
-    // Add message type
-    if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT)
-        ss << "[GENERAL] ";
-    if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT)
-        ss << "[VALIDATION] ";
-    if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)
-        ss << "[PERFORMANCE] ";
-
-    ss << pCallbackData->pMessage << std::endl;
-
-    // Write to log file
-    validationLogFile << ss.str();
-    validationLogFile.flush();
-
-    // Also output to console for immediate feedback
-    std::cerr << ss.str();
-
+    Logger::getInstance().logVulkanValidation(level, pCallbackData->pMessage);
     return VK_FALSE;
 }
 
@@ -143,9 +123,11 @@ const QueueFamilyIndices& VulkanContext::getQueueFamilyIndices() const {
 }
 
 void VulkanContext::createInstance() {
+    std::lock_guard<std::mutex> lock(contextMutex_);
+    
     if (areValidationLayersEnabled()) {
         if (!checkValidationLayerSupport()) {
-            std::cerr << "Warning: Validation layers requested but not available. Disabling validation layers." << std::endl;
+            Logger::getInstance().log(LogLevel::WARNING, "Validation layers requested but not available. Disabling validation layers.");
             validationLayers_.clear();
         }
     }
@@ -187,11 +169,16 @@ void VulkanContext::createInstance() {
     }
 
     if (vkCreateInstance(&createInfo, nullptr, &vkInstance_) != VK_SUCCESS) {
+        Logger::getInstance().log(LogLevel::ERROR, "Failed to create Vulkan instance!");
         throw std::runtime_error("Failed to create Vulkan instance!");
     }
+    
+    Logger::getInstance().log(LogLevel::INFO, "Vulkan instance created successfully");
 }
 
 void VulkanContext::setupDebugMessenger() {
+    std::lock_guard<std::mutex> lock(contextMutex_);
+    
     if (!areValidationLayersEnabled() || vkInstance_ == VK_NULL_HANDLE) return;
 
     VkDebugUtilsMessengerCreateInfoEXT createInfo{};
@@ -208,8 +195,11 @@ void VulkanContext::setupDebugMessenger() {
     createInfo.pUserData = nullptr;
 
     if (CreateDebugUtilsMessengerEXT(vkInstance_, &createInfo, nullptr, &debugMessenger_) != VK_SUCCESS) {
+        Logger::getInstance().log(LogLevel::ERROR, "Failed to set up debug messenger!");
         throw std::runtime_error("Failed to set up debug messenger!");
     }
+    
+    Logger::getInstance().log(LogLevel::INFO, "Debug messenger set up successfully");
 }
 
 void VulkanContext::createSurface() {

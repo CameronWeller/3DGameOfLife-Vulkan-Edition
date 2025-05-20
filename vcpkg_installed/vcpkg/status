@@ -1,0 +1,136 @@
+Package: vcpkg-cmake-config
+Version: 2024-05-23
+Architecture: x64-windows
+Multi-Arch: same
+Abi: c61a09da342e1d74da6191524e2f56a892797e8ebe875e184b90b92ead000b82
+Status: install ok installed
+
+Package: vcpkg-cmake
+Version: 2024-04-23
+Architecture: x64-windows
+Multi-Arch: same
+Abi: e5ae292711bbeb9ab638a06ea1f3216ad3e4044276b5d8d9309a9f810f8a2c67
+Status: install ok installed
+
+Package: glfw3
+Version: 3.4
+Port-Version: 1
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: d063fcb4b58c2a18c518b84bab5754c35626151a86420eef9c175f397f1021a3
+Description: GLFW is a free, Open Source, multi-platform library for OpenGL, OpenGL ES and Vulkan application development. It provides a simple, platform-independent API for creating windows, contexts and surfaces, reading input, handling events, etc.
+Status: install ok installed
+
+Package: glm
+Version: 1.0.1
+Port-Version: 3
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 99541e2f31300f5f353b9c15101cc1c8aba9af99e6fe749809e159d132fb123b
+Description: OpenGL Mathematics (GLM)
+Status: install ok installed
+
+Package: imgui
+Version: 1.91.9
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 2b44ad5f5911a8f0f8e5a9f54ab203b5a84a4512fdb38d3c467c11106ed2296c
+Description: Bloat-free Immediate Mode Graphical User interface for C++ with minimal dependencies.
+Status: install ok installed
+
+Package: fmt
+Version: 11.0.2
+Port-Version: 1
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 92e154a2bec999abbee540a67a6367a49de6af9a423a28056d4cb29551151111
+Description: {fmt} is an open-source formatting library providing a fast and safe alternative to C stdio and C++ iostreams.
+Status: install ok installed
+
+Package: spdlog
+Version: 1.15.3
+Depends: fmt, vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: f118ce30fdc5a463b67a80358e4b5e83bf56d647d48f5ba26bb9be33015ebc29
+Description: Very fast, header-only/compiled, C++ logging library.
+Status: install ok installed
+
+Package: vulkan-headers
+Version: 1.4.304.1
+Port-Version: 1
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 5fcbcc62303e7877dcf0b7f4c19907187272674b89331a5ebff8b0b6f428b75b
+Description: Vulkan header files and API registry
+Status: install ok installed
+
+Package: vulkan-utility-libraries
+Version: 1.4.304.1
+Depends: vcpkg-cmake, vcpkg-cmake-config, vulkan-headers
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 48efc696e0f9a55c4325a364857f3e2dd3b074964fa3a4d23315291e0432a883
+Description: Utility libraries for Vulkan developers
+Status: install ok installed
+
+Package: spirv-headers
+Version: 1.4.304.1
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: c970f4df620f9a0451c4db4ae21f6610039f7574238c49bf9dab200cb66c2684
+Description: Machine-readable files for the SPIR-V Registry
+Status: install ok installed
+
+Package: spirv-tools
+Version: 1.4.304.1
+Depends: spirv-headers, vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: dabb447ffb7f8f2895771bd10ad01746689e5a7826dd9335b132f7312d0dc5b3
+Description: API and commands for processing SPIR-V modules
+Status: install ok installed
+
+Package: spirv-reflect
+Version: 1.4.304.1
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 6379c704cc7990a34f7cdfc492333c439e3abad5cb731ce0931e952755c696a5
+Description: SPIRV-Reflect is a lightweight library that provides a C/C++ reflection API for SPIR-V shader bytecode in Vulkan applications.
+Status: install ok installed
+
+Package: spirv-cross
+Version: 1.4.304.1
+Depends: spirv-headers, vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 60cacb63480351730f9c2e082abeb28616175c300e6684f825d2bcfaa94ab0ce
+Description: SPIRV-Cross is a practical tool and library for performing reflection on SPIR-V and disassembling SPIR-V back to high level languages.
+Status: install ok installed
+
+Package: robin-hood-hashing
+Version: 3.11.5
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 339d095267fc4b98297d6eb7d5124ac811cfe35d78353cbc16d396d317bdd293
+Description: Fast & memory efficient hashtable based on robin hood hashing for C++11/14/17/20
+Status: install ok installed
+
+Package: mimalloc
+Version: 2.2.3
+Port-Version: 1
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: b9ee9ad931722139a9ed88a6b2448a34ba82bd927b2185e47301ec0e9166ce39
+Description: Compact general purpose allocator with excellent performance
+Status: install ok installed
+

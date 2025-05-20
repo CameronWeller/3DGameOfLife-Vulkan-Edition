@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.20)
 cmake_policy(VERSION 3.10)
 
 # Set vcpkg toolchain file if it exists
@@ -9,7 +9,7 @@ if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     list(APPEND CMAKE_PREFIX_PATH "$ENV{VCPKG_ROOT}/installed/x64-windows")
 endif()
 
-project(CPPVulkanHIPEngine LANGUAGES CXX)
+project(cpp-vulkan-hip-engine LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -83,6 +83,8 @@ add_executable(${PROJECT_NAME}
     src/Camera.cpp
     src/RayCaster.cpp
     src/VulkanMemoryManager.cpp
+    src/SaveManager.cpp
+    src/Logger.cpp
 )
 
 # Link libraries
@@ -93,12 +95,18 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     imgui::imgui
     spdlog::spdlog
     GPUOpen::VulkanMemoryAllocator
+    vma
 )
 
 # Include directories
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${Vulkan_INCLUDE_DIRS}
+    ${GLFW_INCLUDE_DIRS}
+    ${GLM_INCLUDE_DIRS}
+    ${IMGUI_DIR}
+    ${VMA_DIR}/include
 )
 
 # Add shader files to the build

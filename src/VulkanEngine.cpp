@@ -267,11 +267,18 @@ void VulkanEngine::drawFrame() {
 
     // Check for auto-save after pause
     if (currentState_ == App::State::Menu && autoSaveEnabled_) {
-        auto now = std::chrono::steady_clock::now();
-        if (now - lastAutoSave_ >= AUTO_SAVE_INTERVAL) {
+        if (isAutoSaveDue()) {
+            std::lock_guard<std::mutex> lock(saveMutex_);
             performAutoSave();
-            lastAutoSave_ = now;
+            cleanupOldAutoSaves();
+            lastAutoSave_ = std::chrono::steady_clock::now();
         }
+    }
+
+    // Check for manual save hotkey (F5)
+    if (glfwGetKey(windowManager_->getWindow(), GLFW_KEY_F5) == GLFW_PRESS) {
+        std::lock_guard<std::mutex> lock(saveMutex_);
+        performManualSave();
     }
 }
 
@@ -393,6 +400,15 @@ void VulkanEngine::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t i
                            &descriptorSets_[currentFrame_], 0, nullptr);
 
     vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices_.size()), 1, 0, 0, 0);
+
+    // After binding the pipeline and descriptor sets, add voxel rendering
+    if (voxelVertexBuffer_ != VK_NULL_HANDLE && voxelIndexBuffer_ != VK_NULL_HANDLE) {
+        VkBuffer vertexBuffers[] = {voxelVertexBuffer_};
+        VkDeviceSize offsets[] = {0};
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+        vkCmdBindIndexBuffer(commandBuffer, voxelIndexBuffer_, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(voxelIndices_.size()), 1, 0, 0, 0);
+    }
 
     vkCmdEndRenderPass(commandBuffer);
 
@@ -534,6 +550,9 @@ std::vector<char> VulkanEngine::readFile(const std::string& filename) {
 
 void VulkanEngine::cleanup() {
     vkDeviceWaitIdle(vulkanContext_->getDevice());
+
+    // Clean up voxel buffers
+    cleanupVoxelBuffers();
 
     // Clean up VMA resources
     if (vulkanContext_ && vulkanContext_->getMemoryManager()) {
@@ -1246,7 +1265,35 @@ void VulkanEngine::drawSavePicker() {
 }
 
 void VulkanEngine::newProject() {
-    // TODO: Implement new project initialization
+    // Create a new empty VoxelData instance
+    loadedVoxelData_ = VoxelData();
+    
+    // Add some default voxels to demonstrate functionality
+    Voxel defaultVoxel;
+    defaultVoxel.position = glm::vec3(0.0f, 0.0f, 0.0f);
+    defaultVoxel.color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f); // Red
+    defaultVoxel.type = 0;
+    defaultVoxel.active = true;
+    loadedVoxelData_.addVoxel(defaultVoxel);
+
+    // Add a few more voxels in a pattern
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            if (x == 0 && y == 0) continue; // Skip center (already added)
+            Voxel voxel;
+            voxel.position = glm::vec3(x * 0.5f, y * 0.5f, 0.0f);
+            voxel.color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f); // Green
+            voxel.type = 1;
+            voxel.active = true;
+            loadedVoxelData_.addVoxel(voxel);
+        }
+    }
+
+    // Create vertex buffers for the voxels
+    createVoxelBuffers();
+
+    // Transition to running state
+    currentState_ = App::State::Running;
 }
 
 void VulkanEngine::loadLastSave() {
@@ -1257,39 +1304,50 @@ void VulkanEngine::loadLastSave() {
 }
 
 void VulkanEngine::loadSave(const std::string& filename) {
+    std::lock_guard<std::mutex> lock(loadingMutex_);
     if (isLoading_) return;
+    
     isLoading_ = true;
     loadingElapsed_ = 0.0f;
     loadingProgress_ = 0.0f;
     loadingStatus_ = "Loading save file...";
+    shouldCancelLoading_ = false;
     currentState_ = App::State::Loading;
 
     loadingFuture_ = std::async(std::launch::async, [this, filename]() {
         try {
             // Phase 1: Read file (25%)
-            loadingStatus_ = "Reading save file...";
-            loadingProgress_ = 0.25f;
+            updateLoadingState("Reading save file...", 0.25f);
+            if (shouldCancelLoading_) {
+                updateLoadingState("Loading cancelled", 0.0f);
+                return false;
+            }
             
             VoxelData temp;
             bool ok = saveManager_->loadSaveFile(filename, temp);
             if (!ok) {
-                loadingStatus_ = "Failed to load save file";
+                updateLoadingState("Failed to load save file", 0.0f);
                 return false;
             }
 
             // Phase 2: Process voxel data (50%)
-            loadingStatus_ = "Processing voxel data...";
-            loadingProgress_ = 0.75f;
+            updateLoadingState("Processing voxel data...", 0.75f);
+            if (shouldCancelLoading_) {
+                updateLoadingState("Loading cancelled", 0.0f);
+                return false;
+            }
             
-            loadedVoxelData_ = std::move(temp);
+            {
+                std::lock_guard<std::mutex> lock(loadingMutex_);
+                loadedVoxelData_ = std::move(temp);
+            }
 
             // Phase 3: Complete (100%)
-            loadingStatus_ = "Complete!";
-            loadingProgress_ = 1.0f;
+            updateLoadingState("Complete!", 1.0f);
             return true;
         }
         catch (const std::exception& e) {
-            loadingStatus_ = std::string("Error: ") + e.what();
+            updateLoadingState(std::string("Error: ") + e.what(), 0.0f);
             return false;
         }
     });
@@ -1314,12 +1372,29 @@ void VulkanEngine::drawLoading() {
     ImGui::Begin("Loading", nullptr,
                  ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar);
 
-    ImGui::Text("%s", loadingStatus_.c_str());
+    std::string status;
+    float progress;
+    {
+        std::lock_guard<std::mutex> lock(loadingMutex_);
+        status = loadingStatus_;
+        progress = loadingProgress_;
+    }
+    
+    ImGui::Text("%s", status.c_str());
 
     if (loadingFuture_.valid() && loadingFuture_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-        bool success = loadingFuture_.get();
+        bool success = false;
+        try {
+            success = loadingFuture_.get();
+        } catch (const std::exception& e) {
+            std::cerr << "Loading failed: " << e.what() << std::endl;
+            success = false;
+        }
+
+        std::lock_guard<std::mutex> lock(loadingMutex_);
         if (success) {
-            // TODO: Integrate loadedVoxelData_ into engine world
+            // Create vertex buffers for the loaded voxel data
+            createVoxelBuffers();
             currentState_ = App::State::Running;
         } else {
             currentState_ = App::State::Menu;
@@ -1327,10 +1402,291 @@ void VulkanEngine::drawLoading() {
         isLoading_ = false;
     }
 
-    ImGui::ProgressBar(loadingProgress_, ImVec2(-1.0f, 0.0f));
+    ImGui::ProgressBar(progress, ImVec2(-1.0f, 0.0f));
 
     ImGui::End();
 
     ImGui::Render();
     renderImguiDrawData();
+}
+
+void VulkanEngine::updateLoadingState(const std::string& status, float progress) {
+    std::lock_guard<std::mutex> lock(loadingMutex_);
+    loadingStatus_ = status;
+    loadingProgress_ = progress;
+}
+
+void VulkanEngine::cancelLoading() {
+    std::lock_guard<std::mutex> lock(loadingMutex_);
+    if (!isLoading_) return;
+    
+    shouldCancelLoading_ = true;
+    updateLoadingState("Cancelling...", loadingProgress_);
+}
+
+bool VulkanEngine::isAutoSaveDue() const {
+    std::lock_guard<std::mutex> lock(autoSaveMutex_);
+    if (!autoSaveEnabled_) return false;
+    auto now = std::chrono::steady_clock::now();
+    return (now - lastAutoSave_) >= AUTO_SAVE_INTERVAL;
+}
+
+void VulkanEngine::performAutoSave() {
+    try {
+        std::string filename = generateSaveFileName(AUTO_SAVE_PREFIX);
+        if (saveManager_->saveCurrentState(filename, loadedVoxelData_)) {
+            std::cout << "Auto-save completed: " << filename << std::endl;
+        } else {
+            std::cerr << "Auto-save failed: " << filename << std::endl;
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Auto-save error: " << e.what() << std::endl;
+    }
+}
+
+void VulkanEngine::cleanupOldAutoSaves() {
+    try {
+        auto saves = saveManager_->getSaveFiles();
+        std::vector<std::string> autoSaves;
+        
+        // Collect auto-save filenames
+        for (const auto& save : saves) {
+            if (save.filename.find(AUTO_SAVE_PREFIX) == 0) {
+                autoSaves.push_back(save.filename);
+            }
+        }
+
+        // Sort by filename (which includes timestamp)
+        std::sort(autoSaves.begin(), autoSaves.end());
+
+        // Remove oldest auto-saves if we have too many
+        while (autoSaves.size() > MAX_AUTO_SAVES) {
+            saveManager_->deleteSaveFile(autoSaves.front());
+            autoSaves.erase(autoSaves.begin());
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error cleaning up auto-saves: " << e.what() << std::endl;
+    }
+}
+
+void VulkanEngine::performManualSave() {
+    try {
+        std::string filename = generateSaveFileName(MANUAL_SAVE_PREFIX);
+        if (saveManager_->saveCurrentState(filename, loadedVoxelData_)) {
+            std::cout << "Manual save completed: " << filename << std::endl;
+        } else {
+            std::cerr << "Manual save failed: " << filename << std::endl;
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Manual save error: " << e.what() << std::endl;
+    }
+}
+
+std::string VulkanEngine::generateSaveFileName(const char* prefix) const {
+    auto now = std::chrono::system_clock::now();
+    auto time = std::chrono::system_clock::to_time_t(now);
+    std::stringstream ss;
+    ss << prefix << std::put_time(std::localtime(&time), "%Y%m%d_%H%M%S");
+    return ss.str();
+}
+
+void VulkanEngine::renderImguiDrawData() {
+    ImDrawData* drawData = ImGui::GetDrawData();
+    if (!drawData) return;
+
+    // Get current command buffer
+    VkCommandBuffer commandBuffer = commandBuffers_[currentFrame_];
+
+    // Begin command buffer
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    // Begin render pass
+    VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = renderPass_;
+    renderPassInfo.framebuffer = swapChainFramebuffers_[currentFrame_];
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = swapChainExtent_;
+
+    std::array<VkClearValue, 2> clearValues{};
+    clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+    clearValues[1].depthStencil = {1.0f, 0};
+
+    renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+    renderPassInfo.pClearValues = clearValues.data();
+
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    // Record ImGui draw commands
+    ImGui_ImplVulkan_RenderDrawData(drawData, commandBuffer);
+
+    // End render pass
+    vkCmdEndRenderPass(commandBuffer);
+
+    // End command buffer
+    vkEndCommandBuffer(commandBuffer);
+
+    // Submit command buffer
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    vkQueueSubmit(vulkanContext_->getGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(vulkanContext_->getGraphicsQueue());
+}
+
+void VulkanEngine::createVoxelBuffers() {
+    // Create vertex data for voxels
+    createVoxelVertexData(loadedVoxelData_);
+
+    // Create vertex buffer
+    VkDeviceSize vertexBufferSize = sizeof(Vertex) * voxelVertices_.size();
+    auto memoryManager = vulkanContext_->getMemoryManager();
+    if (!memoryManager) {
+        throw std::runtime_error("Memory manager not available for voxel buffer creation");
+    }
+
+    // Create staging buffer for vertices
+    auto vertexStagingBuffer = memoryManager->getStagingBuffer(vertexBufferSize);
+    void* vertexData;
+    vmaMapMemory(memoryManager->getAllocator(), vertexStagingBuffer.allocation, &vertexData);
+    memcpy(vertexData, voxelVertices_.data(), vertexBufferSize);
+    vmaUnmapMemory(memoryManager->getAllocator(), vertexStagingBuffer.allocation);
+
+    // Create vertex buffer
+    auto vertexBufferAlloc = memoryManager->allocateBuffer(
+        vertexBufferSize,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
+    voxelVertexBuffer_ = vertexBufferAlloc.buffer;
+    voxelVertexBufferAllocation_ = vertexBufferAlloc.allocation;
+
+    // Copy vertex data
+    copyBuffer(vertexStagingBuffer.buffer, voxelVertexBuffer_, vertexBufferSize);
+
+    // Create index buffer
+    VkDeviceSize indexBufferSize = sizeof(uint32_t) * voxelIndices_.size();
+    auto indexStagingBuffer = memoryManager->getStagingBuffer(indexBufferSize);
+    void* indexData;
+    vmaMapMemory(memoryManager->getAllocator(), indexStagingBuffer.allocation, &indexData);
+    memcpy(indexData, voxelIndices_.data(), indexBufferSize);
+    vmaUnmapMemory(memoryManager->getAllocator(), indexStagingBuffer.allocation);
+
+    // Create index buffer
+    auto indexBufferAlloc = memoryManager->allocateBuffer(
+        indexBufferSize,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
+    voxelIndexBuffer_ = indexBufferAlloc.buffer;
+    voxelIndexBufferAllocation_ = indexBufferAlloc.allocation;
+
+    // Copy index data
+    copyBuffer(indexStagingBuffer.buffer, voxelIndexBuffer_, indexBufferSize);
+
+    // Return staging buffers
+    memoryManager->returnStagingBuffer(vertexStagingBuffer);
+    memoryManager->returnStagingBuffer(indexStagingBuffer);
+}
+
+void VulkanEngine::createVoxelVertexData(const VoxelData& voxelData) {
+    voxelVertices_.clear();
+    voxelIndices_.clear();
+
+    // Create a cube for each voxel
+    for (const auto& voxel : voxelData.getVoxels()) {
+        if (!voxel.active) continue;
+
+        // Calculate cube vertices
+        glm::vec3 pos = voxel.position;
+        glm::vec3 color = glm::vec3(voxel.color);
+        float size = 0.5f; // Half-size of the cube
+
+        // Add vertices for the cube
+        uint32_t baseIndex = static_cast<uint32_t>(voxelVertices_.size());
+
+        // Front face
+        voxelVertices_.push_back({{pos.x - size, pos.y - size, pos.z + size}, color, {0.0f, 0.0f}});
+        voxelVertices_.push_back({{pos.x + size, pos.y - size, pos.z + size}, color, {1.0f, 0.0f}});
+        voxelVertices_.push_back({{pos.x + size, pos.y + size, pos.z + size}, color, {1.0f, 1.0f}});
+        voxelVertices_.push_back({{pos.x - size, pos.y + size, pos.z + size}, color, {0.0f, 1.0f}});
+
+        // Back face
+        voxelVertices_.push_back({{pos.x - size, pos.y - size, pos.z - size}, color, {1.0f, 0.0f}});
+        voxelVertices_.push_back({{pos.x - size, pos.y + size, pos.z - size}, color, {1.0f, 1.0f}});
+        voxelVertices_.push_back({{pos.x + size, pos.y + size, pos.z - size}, color, {0.0f, 1.0f}});
+        voxelVertices_.push_back({{pos.x + size, pos.y - size, pos.z - size}, color, {0.0f, 0.0f}});
+
+        // Add indices for the cube
+        // Front face
+        voxelIndices_.push_back(baseIndex + 0);
+        voxelIndices_.push_back(baseIndex + 1);
+        voxelIndices_.push_back(baseIndex + 2);
+        voxelIndices_.push_back(baseIndex + 2);
+        voxelIndices_.push_back(baseIndex + 3);
+        voxelIndices_.push_back(baseIndex + 0);
+
+        // Back face
+        voxelIndices_.push_back(baseIndex + 4);
+        voxelIndices_.push_back(baseIndex + 5);
+        voxelIndices_.push_back(baseIndex + 6);
+        voxelIndices_.push_back(baseIndex + 6);
+        voxelIndices_.push_back(baseIndex + 7);
+        voxelIndices_.push_back(baseIndex + 4);
+
+        // Top face
+        voxelIndices_.push_back(baseIndex + 3);
+        voxelIndices_.push_back(baseIndex + 2);
+        voxelIndices_.push_back(baseIndex + 6);
+        voxelIndices_.push_back(baseIndex + 6);
+        voxelIndices_.push_back(baseIndex + 5);
+        voxelIndices_.push_back(baseIndex + 3);
+
+        // Bottom face
+        voxelIndices_.push_back(baseIndex + 0);
+        voxelIndices_.push_back(baseIndex + 4);
+        voxelIndices_.push_back(baseIndex + 7);
+        voxelIndices_.push_back(baseIndex + 7);
+        voxelIndices_.push_back(baseIndex + 1);
+        voxelIndices_.push_back(baseIndex + 0);
+
+        // Right face
+        voxelIndices_.push_back(baseIndex + 1);
+        voxelIndices_.push_back(baseIndex + 7);
+        voxelIndices_.push_back(baseIndex + 6);
+        voxelIndices_.push_back(baseIndex + 6);
+        voxelIndices_.push_back(baseIndex + 2);
+        voxelIndices_.push_back(baseIndex + 1);
+
+        // Left face
+        voxelIndices_.push_back(baseIndex + 0);
+        voxelIndices_.push_back(baseIndex + 3);
+        voxelIndices_.push_back(baseIndex + 5);
+        voxelIndices_.push_back(baseIndex + 5);
+        voxelIndices_.push_back(baseIndex + 4);
+        voxelIndices_.push_back(baseIndex + 0);
+    }
+}
+
+void VulkanEngine::cleanupVoxelBuffers() {
+    if (vulkanContext_ && vulkanContext_->getMemoryManager()) {
+        auto vma = vulkanContext_->getMemoryManager()->getAllocator();
+        
+        if (voxelVertexBuffer_ != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(vma, voxelVertexBuffer_, voxelVertexBufferAllocation_);
+            voxelVertexBuffer_ = VK_NULL_HANDLE;
+        }
+        if (voxelIndexBuffer_ != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(vma, voxelIndexBuffer_, voxelIndexBufferAllocation_);
+            voxelIndexBuffer_ = VK_NULL_HANDLE;
+        }
+    }
 } 
