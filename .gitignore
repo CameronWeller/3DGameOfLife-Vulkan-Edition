@@ -57,4 +57,52 @@ shaders/*.spv
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Thumbs.db 
+Thumbs.db
+
+# Log files
+*.log
+*.log.*
+io.log
+IOlog.txt
+build_output.log
+
+# VCPKG
+vcpkg_installed/
+vcpkg/
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+*.rej
+*.tmp
+
+# Dependencies
+node_modules/
+vendor/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Generated documentation
+docs/_build/
+docs/_static/
+docs/_templates/
+
+# Test coverage
+coverage/
+.coverage
+htmlcov/
+
+# Package files
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip 
