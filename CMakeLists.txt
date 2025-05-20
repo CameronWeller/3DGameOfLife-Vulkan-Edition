@@ -1,14 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 cmake_policy(VERSION 3.10)
 
-# Set vcpkg toolchain file if it exists
-if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
-    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
-        CACHE STRING "")
-    # Add vcpkg installed directory to prefix path
-    list(APPEND CMAKE_PREFIX_PATH "$ENV{VCPKG_ROOT}/installed/x64-windows")
-endif()
-
 project(cpp-vulkan-hip-engine LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -33,9 +25,9 @@ find_package(Vulkan REQUIRED)
 find_package(HIP QUIET)  # Make HIP optional
 find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
-find_package(imgui REQUIRED)
 find_package(spdlog REQUIRED)
-find_package(VulkanMemoryAllocator REQUIRED)
+find_package(VulkanMemoryAllocator CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 # Find glslc compiler
 find_program(GLSLC_EXECUTABLE glslc HINTS ${Vulkan_GLSLC_EXECUTABLE} ENV VULKAN_SDK PATH_SUFFIXES bin)
@@ -54,14 +46,14 @@ set(SHADER_SPV_FILES "")
 
 # Function to compile shaders
 function(compile_shader SHADER_PATH)
-    get_filename_component(SHADER_NAME ${SHADER_PATH} NAME_WE)
-    set(OUTPUT_PATH "${SHADER_OUTPUT_DIR}/${SHADER_NAME}.spv")
+    get_filename_component(SHADER_FILENAME ${SHADER_PATH} NAME)
+    set(OUTPUT_PATH "${SHADER_OUTPUT_DIR}/${SHADER_FILENAME}.spv")
     
     add_custom_command(
         OUTPUT ${OUTPUT_PATH}
         COMMAND ${GLSLC_EXECUTABLE} -o ${OUTPUT_PATH} ${SHADER_PATH}
         DEPENDS ${SHADER_PATH}
-        COMMENT "Compiling shader ${SHADER_NAME}"
+        COMMENT "Compiling shader ${SHADER_FILENAME}"
     )
     
     list(APPEND SHADER_SPV_FILES ${OUTPUT_PATH})
@@ -69,7 +61,12 @@ function(compile_shader SHADER_PATH)
 endfunction()
 
 # Compile all shaders
-file(GLOB SHADER_FILES "${SHADER_DIR}/*.glsl")
+file(GLOB SHADER_FILES 
+    "${SHADER_DIR}/*.glsl"
+    "${SHADER_DIR}/*.vert"
+    "${SHADER_DIR}/*.frag"
+    "${SHADER_DIR}/*.comp"
+)
 foreach(SHADER ${SHADER_FILES})
     compile_shader(${SHADER})
 endforeach()
@@ -92,10 +89,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Vulkan::Vulkan
     glfw
     glm::glm
-    imgui::imgui
     spdlog::spdlog
     GPUOpen::VulkanMemoryAllocator
-    vma
+    nlohmann_json::nlohmann_json
 )
 
 # Include directories
@@ -105,8 +101,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${Vulkan_INCLUDE_DIRS}
     ${GLFW_INCLUDE_DIRS}
     ${GLM_INCLUDE_DIRS}
-    ${IMGUI_DIR}
-    ${VMA_DIR}/include
+    $<TARGET_PROPERTY:nlohmann_json::nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>
 )
 
 # Add shader files to the build

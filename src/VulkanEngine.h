@@ -20,6 +20,11 @@
 #include <atomic>
 #include <mutex>
 
+// ImGui includes
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_vulkan.h"
+
 // Project includes
 #include "Vertex.h"
 #include "VulkanContext.h"
@@ -28,8 +33,13 @@
 #include "AppState.h"
 #include "SaveManager.h"
 
+namespace VulkanHIP {
+
 // Forward declarations
 class VulkanMemoryManager;
+class VulkanContext;
+class WindowManager;
+class DeviceManager;
 
 /**
  * @brief RAII wrapper for Vulkan resources
@@ -69,35 +79,10 @@ private:
     T resource_;
 };
 
-// Resource deleters
-struct PipelineDeleter {
-    void operator()(VkPipeline pipeline) const {
-        if (pipeline != VK_NULL_HANDLE) {
-            vkDestroyPipeline(VulkanEngine::getInstance()->getVulkanContext()->getDevice(), pipeline, nullptr);
-        }
-    }
-};
-
-struct PipelineLayoutDeleter {
-    void operator()(VkPipelineLayout layout) const {
-        if (layout != VK_NULL_HANDLE) {
-            vkDestroyPipelineLayout(VulkanEngine::getInstance()->getVulkanContext()->getDevice(), layout, nullptr);
-        }
-    }
-};
-
-struct ShaderModuleDeleter {
-    void operator()(VkShaderModule module) const {
-        if (module != VK_NULL_HANDLE) {
-            vkDestroyShaderModule(VulkanEngine::getInstance()->getVulkanContext()->getDevice(), module, nullptr);
-        }
-    }
-};
-
 // Type aliases for RAII resources
-using Pipeline = VulkanResource<VkPipeline, PipelineDeleter>;
-using PipelineLayout = VulkanResource<VkPipelineLayout, PipelineLayoutDeleter>;
-using ShaderModule = VulkanResource<VkShaderModule, ShaderModuleDeleter>;
+using Pipeline = VulkanResource<VkPipeline, struct PipelineDeleter>;
+using PipelineLayout = VulkanResource<VkPipelineLayout, struct PipelineLayoutDeleter>;
+using ShaderModule = VulkanResource<VkShaderModule, struct ShaderModuleDeleter>;
 
 /**
  * @brief Uniform buffer object for shader transformation matrices
@@ -203,19 +188,15 @@ public:
 
     void update() {
         if (currentState_ != App::State::None) {
-            // Check for state transitions
+            states_[currentState_].update();
             for (const auto& [nextState, condition] : transitions_[currentState_]) {
                 if (condition()) {
                     setState(nextState);
                     break;
                 }
             }
-            // Update current state
-            states_[currentState_].update();
         }
     }
-
-    App::State getCurrentState() const { return currentState_; }
 
 private:
     struct StateHandlers {
@@ -416,6 +397,36 @@ public:
     void cancelLoading();
     bool isCancelling() const { return shouldCancelLoading_; }
 
+    /**
+     * @brief Initialize ImGui
+     */
+    void initImGui();
+
+    /**
+     * @brief Cleanup ImGui resources
+     */
+    void cleanupImGui();
+
+    /**
+     * @brief Begin ImGui frame
+     */
+    void beginImGuiFrame();
+
+    /**
+     * @brief End ImGui frame
+     */
+    void endImGuiFrame();
+
+    /**
+     * @brief Create ImGui descriptor pool
+     */
+    void createImGuiDescriptorPool();
+
+    /**
+     * @brief Cleanup ImGui descriptor pool
+     */
+    void cleanupImGuiDescriptorPool();
+
 private:
     static VulkanEngine* instance_;
     std::shared_ptr<WindowManager> windowManager_;
@@ -524,13 +535,6 @@ private:
     };
     std::vector<ComputePipelineInfo> computePipelines_;
 
-    // Auto-save members
-    bool autoSaveEnabled_ = true;
-    std::chrono::steady_clock::time_point lastAutoSave_;
-    static constexpr auto AUTO_SAVE_INTERVAL = std::chrono::minutes(5);
-    static constexpr const char* AUTO_SAVE_PREFIX = "autosave_";
-    std::mutex autoSaveMutex_;  // Protect auto-save state access
-
     EngineStateMachine stateMachine_;
     void initializeStateMachine();
 
@@ -624,14 +628,6 @@ private:
     std::vector<const char*> getRequiredInstanceExtensions();
     void applyEnabledDeviceFeatures(VkPhysicalDeviceFeatures& features);
 
-    // Helper methods
-    void performAutoSave();
-    void updateLoadingState(const std::string& status, float progress);
-    bool isAutoSaveDue() const;
-    void cleanupOldAutoSaves();
-    void performManualSave();
-    std::string generateSaveFileName(const char* prefix) const;
-
     // Voxel rendering resources
     VkBuffer voxelVertexBuffer_ = VK_NULL_HANDLE;
     VmaAllocation voxelVertexBufferAllocation_ = VK_NULL_HANDLE;
@@ -646,7 +642,38 @@ private:
     void createVoxelVertexData(const VoxelData& voxelData);
     void cleanupVoxelBuffers();
 
+    // ImGui members
+    VkDescriptorPool imguiDescriptorPool_;
+    bool imguiInitialized_ = false;
+
 #ifdef _MSC_VER
 #pragma message("If you see an error about vk_mem_alloc.h, ensure VMA is installed via vcpkg and your includePath is set to vcpkg/installed/<triplet>/include.")
 #endif
-}; 
+};
+
+// Resource deleters
+struct PipelineDeleter {
+    void operator()(VkPipeline pipeline) const {
+        if (pipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(VulkanEngine::getInstance()->getVulkanContext()->getDevice(), pipeline, nullptr);
+        }
+    }
+};
+
+struct PipelineLayoutDeleter {
+    void operator()(VkPipelineLayout layout) const {
+        if (layout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(VulkanEngine::getInstance()->getVulkanContext()->getDevice(), layout, nullptr);
+        }
+    }
+};
+
+struct ShaderModuleDeleter {
+    void operator()(VkShaderModule module) const {
+        if (module != VK_NULL_HANDLE) {
+            vkDestroyShaderModule(VulkanEngine::getInstance()->getVulkanContext()->getDevice(), module, nullptr);
+        }
+    }
+};
+
+} // namespace VulkanHIP 

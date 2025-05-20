@@ -1,35 +1,44 @@
 #include "VulkanEngine.h"
+#include "WindowManager.h"
+#include "Logger.h"
 #include <iostream>
 #include <stdexcept>
 #include <chrono>
 #include <thread>
 #include <GLFW/glfw3.h>
 
-// Forward declaration of callback function
-void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
-
 // Global control flags
 bool g_shouldClose = false;
 
 int main() {
     try {
+        // Initialize logger
+        Logger::getInstance().init();
+        Logger::getInstance().log(LogLevel::INFO, LogCategory::GENERAL, "Starting application");
+
         // Initialize Vulkan engine
         VulkanEngine engine;
         engine.init();
         
         // Set up key callback
-        GLFWwindow* window = engine.getWindowManager()->getWindow();
-        glfwSetKeyCallback(window, keyCallback);
+        engine.getWindowManager()->setKeyCallback([](int key, int scancode, int action, int mods) {
+            if (action != GLFW_PRESS) return;
+            
+            switch (key) {
+                case GLFW_KEY_ESCAPE:
+                    g_shouldClose = true;
+                    break;
+            }
+        });
         
-        std::cout << "Controls:\n"
-                  << "  ESC - Exit\n" << std::endl;
+        Logger::getInstance().log(LogLevel::INFO, LogCategory::GENERAL, "Controls:\n  ESC - Exit");
         
         // Main render loop
         auto lastFrameTime = std::chrono::high_resolution_clock::now();
         
-        while (!g_shouldClose && !glfwWindowShouldClose(window)) {
+        while (!g_shouldClose && !engine.getWindowManager()->shouldClose()) {
             // Handle input and window events
-            glfwPollEvents();
+            engine.getWindowManager()->pollEvents();
             
             // Render frame
             engine.drawFrame();
@@ -49,20 +58,10 @@ int main() {
         // Wait for device idle before cleanup
         vkDeviceWaitIdle(engine.getVulkanContext()->getDevice());
         
+        Logger::getInstance().log(LogLevel::INFO, LogCategory::GENERAL, "Application shutting down");
         return 0;
     } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+        Logger::getInstance().log(LogLevel::ERROR, LogCategory::GENERAL, std::string("Error: ") + e.what());
         return 1;
-    }
-}
-
-// Callback function for keyboard input
-void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-    if (action != GLFW_PRESS) return;
-    
-    switch (key) {
-        case GLFW_KEY_ESCAPE:
-            g_shouldClose = true;
-            break;
     }
 } 

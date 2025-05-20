@@ -30,6 +30,14 @@ struct QueueFamilyIndices {
     }
 
     /**
+     * @brief Check if all required queues were found
+     * @return True if all required queues are available
+     */
+    bool isComplete() const {
+        return isCompleteGraphicsPresent();
+    }
+
+    /**
      * @brief Check if a compute queue family was found
      * @return True if compute queue family is available
      */

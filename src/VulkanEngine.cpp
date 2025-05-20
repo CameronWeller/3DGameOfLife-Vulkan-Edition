@@ -17,6 +17,8 @@
 #include "WindowManager.h"
 #include "SaveManager.h"
 
+namespace VulkanHIP {
+
 // Initialize the static instance pointer
 VulkanEngine* VulkanEngine::instance_ = nullptr;
 
@@ -144,6 +146,9 @@ void VulkanEngine::init() {
     // Create sync objects
     createSyncObjects();
 
+    // Initialize ImGui
+    initImGui();
+
     std::cout << "VulkanEngine core context initialized." << std::endl;
 }
 
@@ -218,6 +223,19 @@ void VulkanEngine::drawFrame() {
     vkResetCommandBuffer(commandBuffers_[currentFrame_], 0);
     recordCommandBuffer(commandBuffers_[currentFrame_], imageIndex);
 
+    // Begin ImGui frame
+    beginImGuiFrame();
+
+    // Draw ImGui windows
+    drawMenu();
+    drawSavePicker();
+    if (isLoading_) {
+        drawLoading();
+    }
+
+    // End ImGui frame
+    endImGuiFrame();
+
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
@@ -246,7 +264,6 @@ void VulkanEngine::drawFrame() {
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = swapChains;
     presentInfo.pImageIndices = &imageIndex;
-    presentInfo.pResults = nullptr;
 
     result = vkQueuePresentKHR(vulkanContext_->getPresentQueue(), &presentInfo);
 
@@ -258,28 +275,6 @@ void VulkanEngine::drawFrame() {
     }
 
     currentFrame_ = (currentFrame_ + 1) % MAX_FRAMES_IN_FLIGHT;
-
-    // Handle ESC key to return to menu
-    if (glfwGetKey(windowManager_->getWindow(), GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-        currentState_ = App::State::Menu;
-        return;
-    }
-
-    // Check for auto-save after pause
-    if (currentState_ == App::State::Menu && autoSaveEnabled_) {
-        if (isAutoSaveDue()) {
-            std::lock_guard<std::mutex> lock(saveMutex_);
-            performAutoSave();
-            cleanupOldAutoSaves();
-            lastAutoSave_ = std::chrono::steady_clock::now();
-        }
-    }
-
-    // Check for manual save hotkey (F5)
-    if (glfwGetKey(windowManager_->getWindow(), GLFW_KEY_F5) == GLFW_PRESS) {
-        std::lock_guard<std::mutex> lock(saveMutex_);
-        performManualSave();
-    }
 }
 
 void VulkanEngine::waitForComputeCompletion() {
@@ -376,38 +371,19 @@ void VulkanEngine::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t i
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline_);
 
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(swapChainExtent_.width);
-    viewport.height = static_cast<float>(swapChainExtent_.height);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = swapChainExtent_;
-    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-
     VkBuffer vertexBuffers[] = {vertexBuffer_};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
     vkCmdBindIndexBuffer(commandBuffer, indexBuffer_, 0, VK_INDEX_TYPE_UINT32);
 
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, 
-                           &descriptorSets_[currentFrame_], 0, nullptr);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descriptorSets_[currentFrame_], 0, nullptr);
 
     vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices_.size()), 1, 0, 0, 0);
 
-    // After binding the pipeline and descriptor sets, add voxel rendering
-    if (voxelVertexBuffer_ != VK_NULL_HANDLE && voxelIndexBuffer_ != VK_NULL_HANDLE) {
-        VkBuffer vertexBuffers[] = {voxelVertexBuffer_};
-        VkDeviceSize offsets[] = {0};
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-        vkCmdBindIndexBuffer(commandBuffer, voxelIndexBuffer_, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(voxelIndices_.size()), 1, 0, 0, 0);
+    // Record ImGui draw commands
+    if (imguiInitialized_) {
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
     }
 
     vkCmdEndRenderPass(commandBuffer);
@@ -551,65 +527,29 @@ std::vector<char> VulkanEngine::readFile(const std::string& filename) {
 void VulkanEngine::cleanup() {
     vkDeviceWaitIdle(vulkanContext_->getDevice());
 
-    // Clean up voxel buffers
-    cleanupVoxelBuffers();
+    // Cleanup ImGui
+    cleanupImGui();
 
-    // Clean up VMA resources
-    if (vulkanContext_ && vulkanContext_->getMemoryManager()) {
-        auto vma = vulkanContext_->getMemoryManager()->getAllocator();
-        
-        // Destroy buffers with VMA
-        if (vertexBuffer_ != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(vma, vertexBuffer_, vertexBufferAllocation_);
-        }
-        if (indexBuffer_ != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(vma, indexBuffer_, indexBufferAllocation_);
-        }
-        if (uniformBuffers_[0] != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(vma, uniformBuffers_[0], uniformBufferAllocations_[0]);
-        }
-        if (uniformBuffers_[1] != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(vma, uniformBuffers_[1], uniformBufferAllocations_[1]);
-        }
-        
-        // Destroy images with VMA
-        if (depthImage_ != VK_NULL_HANDLE) {
-            vmaDestroyImage(vma, depthImage_, depthImageAllocation_);
-        }
-        if (colorImage_ != VK_NULL_HANDLE) {
-            vmaDestroyImage(vma, colorImage_, colorImageAllocation_);
-        }
-    }
-
-    // Clean up swap chain and related resources
+    // Cleanup swap chain
     cleanupSwapChain();
 
-    // Clean up other resources
+    // Cleanup descriptor set layout
     if (descriptorSetLayout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(vulkanContext_->getDevice(), descriptorSetLayout_, nullptr);
-    }
-    if (descriptorPool_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(vulkanContext_->getDevice(), descriptorPool_, nullptr);
-    }
-    if (graphicsPipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(vulkanContext_->getDevice(), graphicsPipeline_, nullptr);
-    }
-    if (pipelineLayout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(vulkanContext_->getDevice(), pipelineLayout_, nullptr);
-    }
-    if (renderPass_ != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(vulkanContext_->getDevice(), renderPass_, nullptr);
+        descriptorSetLayout_ = VK_NULL_HANDLE;
     }
 
-    // Clean up command pools
+    // Cleanup command pools
     if (graphicsCommandPool_ != VK_NULL_HANDLE) {
         vkDestroyCommandPool(vulkanContext_->getDevice(), graphicsCommandPool_, nullptr);
+        graphicsCommandPool_ = VK_NULL_HANDLE;
     }
     if (computeCommandPool_ != VK_NULL_HANDLE) {
         vkDestroyCommandPool(vulkanContext_->getDevice(), computeCommandPool_, nullptr);
+        computeCommandPool_ = VK_NULL_HANDLE;
     }
 
-    // Clean up synchronization objects
+    // Cleanup sync objects
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         if (imageAvailableSemaphores_[i] != VK_NULL_HANDLE) {
             vkDestroySemaphore(vulkanContext_->getDevice(), imageAvailableSemaphores_[i], nullptr);
@@ -625,15 +565,11 @@ void VulkanEngine::cleanup() {
         }
     }
 
-    // Clean up compute pipelines
-    for (const auto& pipelineInfo : computePipelines_) {
-        vkDestroyPipeline(vulkanContext_->getDevice(), pipelineInfo.pipeline, nullptr);
-        vkDestroyPipelineLayout(vulkanContext_->getDevice(), pipelineInfo.layout, nullptr);
-    }
-    computePipelines_.clear();
-
-    // Clean up Vulkan context
+    // Cleanup Vulkan context
     vulkanContext_.reset();
+
+    // Cleanup window manager
+    windowManager_.reset();
 }
 
 // Placeholder for framebufferResizeCallback - will be handled by WindowManager
@@ -836,19 +772,20 @@ VkExtent2D VulkanEngine::chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabi
 SwapChainSupportDetails VulkanEngine::querySwapChainSupport(VkPhysicalDevice device) const {
     SwapChainSupportDetails details;
 
+    // Get surface capabilities
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, vulkanContext_->getSurface(), &details.capabilities);
 
+    // Get surface formats
     uint32_t formatCount;
     vkGetPhysicalDeviceSurfaceFormatsKHR(device, vulkanContext_->getSurface(), &formatCount, nullptr);
-
     if (formatCount != 0) {
         details.formats.resize(formatCount);
         vkGetPhysicalDeviceSurfaceFormatsKHR(device, vulkanContext_->getSurface(), &formatCount, details.formats.data());
     }
 
+    // Get present modes
     uint32_t presentModeCount;
     vkGetPhysicalDeviceSurfacePresentModesKHR(device, vulkanContext_->getSurface(), &presentModeCount, nullptr);
-
     if (presentModeCount != 0) {
         details.presentModes.resize(presentModeCount);
         vkGetPhysicalDeviceSurfacePresentModesKHR(device, vulkanContext_->getSurface(), &presentModeCount, details.presentModes.data());
@@ -1326,7 +1263,8 @@ void VulkanEngine::loadSave(const std::string& filename) {
             VoxelData temp;
             bool ok = saveManager_->loadSaveFile(filename, temp);
             if (!ok) {
-                updateLoadingState("Failed to load save file", 0.0f);
+                std::string error = saveManager_->getLastError();
+                updateLoadingState("Failed to load save file: " + error, 0.0f);
                 return false;
             }
 
@@ -1345,6 +1283,10 @@ void VulkanEngine::loadSave(const std::string& filename) {
             // Phase 3: Complete (100%)
             updateLoadingState("Complete!", 1.0f);
             return true;
+        }
+        catch (const SaveManager::SaveError& e) {
+            updateLoadingState(std::string("Save error: ") + e.what(), 0.0f);
+            return false;
         }
         catch (const std::exception& e) {
             updateLoadingState(std::string("Error: ") + e.what(), 0.0f);
@@ -1437,11 +1379,14 @@ void VulkanEngine::performAutoSave() {
         if (saveManager_->saveCurrentState(filename, loadedVoxelData_)) {
             std::cout << "Auto-save completed: " << filename << std::endl;
         } else {
-            std::cerr << "Auto-save failed: " << filename << std::endl;
+            std::cerr << "Auto-save failed: " << saveManager_->getLastError() << std::endl;
         }
     }
-    catch (const std::exception& e) {
+    catch (const SaveManager::SaveError& e) {
         std::cerr << "Auto-save error: " << e.what() << std::endl;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Unexpected auto-save error: " << e.what() << std::endl;
     }
 }
 
@@ -1462,12 +1407,17 @@ void VulkanEngine::cleanupOldAutoSaves() {
 
         // Remove oldest auto-saves if we have too many
         while (autoSaves.size() > MAX_AUTO_SAVES) {
-            saveManager_->deleteSaveFile(autoSaves.front());
+            if (!saveManager_->deleteSaveFile(autoSaves.front())) {
+                std::cerr << "Failed to delete old auto-save: " << saveManager_->getLastError() << std::endl;
+            }
             autoSaves.erase(autoSaves.begin());
         }
     }
-    catch (const std::exception& e) {
+    catch (const SaveManager::SaveError& e) {
         std::cerr << "Error cleaning up auto-saves: " << e.what() << std::endl;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Unexpected error cleaning up auto-saves: " << e.what() << std::endl;
     }
 }
 
@@ -1477,11 +1427,14 @@ void VulkanEngine::performManualSave() {
         if (saveManager_->saveCurrentState(filename, loadedVoxelData_)) {
             std::cout << "Manual save completed: " << filename << std::endl;
         } else {
-            std::cerr << "Manual save failed: " << filename << std::endl;
+            std::cerr << "Manual save failed: " << saveManager_->getLastError() << std::endl;
         }
     }
-    catch (const std::exception& e) {
+    catch (const SaveManager::SaveError& e) {
         std::cerr << "Manual save error: " << e.what() << std::endl;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Unexpected manual save error: " << e.what() << std::endl;
     }
 }
 
@@ -1689,4 +1642,244 @@ void VulkanEngine::cleanupVoxelBuffers() {
             voxelIndexBuffer_ = VK_NULL_HANDLE;
         }
     }
-} 
+}
+
+void VulkanEngine::createGraphicsPipeline() {
+    VkDevice device = vulkanContext_->getDevice();
+
+    // Load shaders
+    auto vertShaderCode = readFile("shaders/basic.vert.spv");
+    auto fragShaderCode = readFile("shaders/basic.frag.spv");
+    ShaderModule vertShaderModule(createShaderModule(vertShaderCode));
+    ShaderModule fragShaderModule(createShaderModule(fragShaderCode));
+
+    VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
+    vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vertShaderStageInfo.module = vertShaderModule;
+    vertShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
+    fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragShaderStageInfo.module = fragShaderModule;
+    fragShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+
+    // Vertex input
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    
+    auto bindingDescription = Vertex::getBindingDescription();
+    auto attributeDescriptions = Vertex::getAttributeDescriptions();
+    
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+
+    // Input assembly
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    // Viewport and scissor (dynamic)
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.pViewports = nullptr; // Dynamic
+    viewportState.scissorCount = 1;
+    viewportState.pScissors = nullptr; // Dynamic
+
+    // Rasterizer
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_FALSE;
+
+    // Multisampling
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.sampleShadingEnable = VK_FALSE;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    // Depth and stencil
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;
+
+    // Color blending
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttachment.blendEnable = VK_FALSE;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending{};
+    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.logicOpEnable = VK_FALSE;
+    colorBlending.attachmentCount = 1;
+    colorBlending.pAttachments = &colorBlendAttachment;
+
+    // Dynamic state
+    std::vector<VkDynamicState> dynamicStates = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR
+    };
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+    // Pipeline layout
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout_;
+
+    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create pipeline layout!");
+    }
+
+    // Graphics pipeline
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 2;
+    pipelineInfo.pStages = shaderStages;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &multisampling;
+    pipelineInfo.pDepthStencilState = &depthStencil;
+    pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.layout = pipelineLayout_;
+    pipelineInfo.renderPass = renderPass_;
+    pipelineInfo.subpass = 0;
+    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+    pipelineInfo.basePipelineIndex = -1;
+
+    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create graphics pipeline!");
+    }
+}
+
+void VulkanEngine::initImGui() {
+    // Create descriptor pool for ImGui
+    createImGuiDescriptorPool();
+
+    // Setup ImGui context
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+
+    // Setup ImGui style
+    ImGui::StyleColorsDark();
+
+    // Setup Platform/Renderer backends
+    ImGui_ImplGlfw_InitForVulkan(windowManager_->getWindow(), true);
+    ImGui_ImplVulkan_InitInfo init_info = {};
+    init_info.Instance = vulkanContext_->getInstance();
+    init_info.PhysicalDevice = vulkanContext_->getPhysicalDevice();
+    init_info.Device = vulkanContext_->getDevice();
+    init_info.QueueFamily = queueFamilyIndices_.graphicsFamily.value();
+    init_info.Queue = vulkanContext_->getGraphicsQueue();
+    init_info.PipelineCache = VK_NULL_HANDLE;
+    init_info.DescriptorPool = imguiDescriptorPool_;
+    init_info.Subpass = 0;
+    init_info.MinImageCount = 2;
+    init_info.ImageCount = MAX_FRAMES_IN_FLIGHT;
+    init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    init_info.Allocator = nullptr;
+    init_info.CheckVkResultFn = nullptr;
+    ImGui_ImplVulkan_Init(&init_info, renderPass_);
+
+    // Upload fonts
+    VkCommandBuffer command_buffer = beginSingleTimeCommands();
+    ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
+    endSingleTimeCommands(command_buffer);
+    ImGui_ImplVulkan_DestroyFontUploadObjects();
+
+    imguiInitialized_ = true;
+}
+
+void VulkanEngine::cleanupImGui() {
+    if (imguiInitialized_) {
+        ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+        cleanupImGuiDescriptorPool();
+        imguiInitialized_ = false;
+    }
+}
+
+void VulkanEngine::beginImGuiFrame() {
+    if (imguiInitialized_) {
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+    }
+}
+
+void VulkanEngine::endImGuiFrame() {
+    if (imguiInitialized_) {
+        ImGui::Render();
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffers_[currentFrame_]);
+
+        // Update and Render additional Platform Windows
+        if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+            ImGui::UpdatePlatformWindows();
+            ImGui::RenderPlatformWindowsDefault();
+        }
+    }
+}
+
+void VulkanEngine::createImGuiDescriptorPool() {
+    VkDescriptorPoolSize pool_sizes[] = {
+        { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+        { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+    };
+
+    VkDescriptorPoolCreateInfo pool_info = {};
+    pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    pool_info.maxSets = 1000;
+    pool_info.poolSizeCount = std::size(pool_sizes);
+    pool_info.pPoolSizes = pool_sizes;
+
+    if (vkCreateDescriptorPool(vulkanContext_->getDevice(), &pool_info, nullptr, &imguiDescriptorPool_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create ImGui descriptor pool!");
+    }
+}
+
+void VulkanEngine::cleanupImGuiDescriptorPool() {
+    if (imguiDescriptorPool_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(vulkanContext_->getDevice(), imguiDescriptorPool_, nullptr);
+        imguiDescriptorPool_ = VK_NULL_HANDLE;
+    }
+}
+
+} // namespace VulkanHIP

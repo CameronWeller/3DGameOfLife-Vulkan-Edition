@@ -9,6 +9,8 @@
 #include "WindowManager.h"
 #include "VulkanMemoryManager.h"
 #include "Logger.h"
+#include "QueueFamilyIndices.h"
+#include "SwapChainSupportDetails.h"
 #include <optional>
 
 // Forward declaration for PFN_vkCreateDebugUtilsMessengerEXT and PFN_vkDestroyDebugUtilsMessengerEXT
@@ -16,126 +18,73 @@
 // typedef VkResult (VKAPI_PTR *PFN_vkCreateDebugUtilsMessengerEXT)(VkInstance, const VkDebugUtilsMessengerCreateInfoEXT*, const VkAllocationCallbacks*, VkDebugUtilsMessengerEXT*);
 // typedef void (VKAPI_PTR *PFN_vkDestroyDebugUtilsMessengerEXT)(VkInstance, VkDebugUtilsMessengerEXT, const VkAllocationCallbacks*);
 
+namespace VulkanHIP {
+
 class VulkanContext {
 public:
-    VulkanContext(std::shared_ptr<WindowManager> windowManager, 
-                 const std::vector<const char*>& requiredInstanceExtensions,
-                 const std::vector<const char*>& validationLayers);
-    ~VulkanContext();
-
-    VulkanContext(const VulkanContext&) = delete;
-    VulkanContext& operator=(const VulkanContext&) = delete;
-
-    void initDeviceManager(const std::vector<const char*>& deviceExtensions, const VkPhysicalDeviceFeatures& enabledFeatures);
-
-    // Thread-safe getters
-    VkInstance getInstance() const { 
-        std::lock_guard<std::mutex> lock(contextMutex_);
-        return vkInstance_; 
-    }
-    VkSurfaceKHR getSurface() const { 
-        std::lock_guard<std::mutex> lock(contextMutex_);
-        return surface_; 
-    }
-    DeviceManager* getDeviceManager() const { 
-        std::lock_guard<std::mutex> lock(contextMutex_);
-        return deviceManager_.get(); 
-    }
-    VkDevice getDevice() const { 
-        std::lock_guard<std::mutex> lock(contextMutex_);
-        return deviceManager_ ? deviceManager_->getDevice() : VK_NULL_HANDLE; 
-    }
-    VkPhysicalDevice getPhysicalDevice() const { 
-        std::lock_guard<std::mutex> lock(contextMutex_);
-        return deviceManager_ ? deviceManager_->getPhysicalDevice() : VK_NULL_HANDLE; 
-    }
-    VkQueue getGraphicsQueue() const { 
-        std::lock_guard<std::mutex> lock(contextMutex_);
-        return deviceManager_ ? deviceManager_->getGraphicsQueue() : VK_NULL_HANDLE; 
-    }
-    VkQueue getPresentQueue() const { 
-        std::lock_guard<std::mutex> lock(contextMutex_);
-        return deviceManager_ ? deviceManager_->getPresentQueue() : VK_NULL_HANDLE; 
-    }
-    VkQueue getComputeQueue() const { 
-        std::lock_guard<std::mutex> lock(contextMutex_);
-        return deviceManager_ ? deviceManager_->getComputeQueue() : VK_NULL_HANDLE; 
-    }
-    const QueueFamilyIndices& getQueueFamilyIndices() const;
-    VulkanMemoryManager* getMemoryManager() const { 
-        std::lock_guard<std::mutex> lock(contextMutex_);
-        return memoryManager_.get(); 
+    static VulkanContext& getInstance() {
+        static VulkanContext instance;
+        return instance;
     }
 
-    const std::vector<const char*>& getValidationLayers() const { 
-        std::lock_guard<std::mutex> lock(contextMutex_);
-        return validationLayers_; 
-    }
-    bool areValidationLayersEnabled() const { 
-        std::lock_guard<std::mutex> lock(contextMutex_);
-        return !validationLayers_.empty(); 
-    }
+    void init(const std::vector<const char*>& requiredExtensions);
+    void cleanup();
+
+    // Getters
+    VkInstance getVkInstance() const { return vkInstance_; }
+    VkPhysicalDevice getPhysicalDevice() const { return physicalDevice_; }
+    VkDevice getDevice() const { return device_; }
+    VkSurfaceKHR getSurface() const { return surface_; }
+    VkQueue getGraphicsQueue() const { return graphicsQueue_; }
+    VkQueue getPresentQueue() const { return presentQueue_; }
+    VkQueue getComputeQueue() const { return computeQueue_; }
+    QueueFamilyIndices getQueueFamilyIndices() const { return queueFamilyIndices_; }
+    VulkanMemoryManager& getMemoryManager() { return *memoryManager_; }
+
+    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) const;
+    void createSurface();
+    void destroySurface();
+    VkSurfaceKHR createWindowSurface() const;
 
     static uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
-    void initVulkan(GLFWwindow* window);
-    void cleanup();
-
-    VkCommandPool getCommandPool() const { return commandPool_; }
-
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) const;
-    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) const;
 
 private:
-    void createInstance();
+    VulkanContext();
+    ~VulkanContext();
+
+    void createInstance(const std::vector<const char*>& requiredExtensions);
     void setupDebugMessenger();
-    void createSurface(GLFWwindow* window);
-    void cleanupSurface();
-    void cleanupDebugMessenger();
-
+    void pickPhysicalDevice();
+    void createLogicalDevice();
     bool checkValidationLayerSupport() const;
+    bool checkDeviceExtensionSupport(VkPhysicalDevice device) const;
+    bool isDeviceSuitable(VkPhysicalDevice device) const;
+    void initDeviceManager();
 
-    // From VulkanEngine, made static or member of VulkanContext
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
         VkDebugUtilsMessageTypeFlagsEXT messageType,
         const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
         void* pUserData);
-    
-    // Helper functions for loading debug messenger functions (moved from VulkanEngine.cpp)
-    static VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
-    static void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator);
 
     mutable std::mutex contextMutex_;
-    std::shared_ptr<WindowManager> windowManager_;
     VkInstance vkInstance_ = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT debugMessenger_ = VK_NULL_HANDLE;
-    VkSurfaceKHR surface_ = VK_NULL_HANDLE;
-    
-    std::unique_ptr<DeviceManager> deviceManager_;
-    std::unique_ptr<VulkanMemoryManager> memoryManager_;
-
-    std::vector<const char*> requiredInstanceExtensions_;
-    std::vector<const char*> validationLayers_;
-
     VkPhysicalDevice physicalDevice_ = VK_NULL_HANDLE;
-    VkDevice device_;
-    VkQueue graphicsQueue_;
-    VkQueue presentQueue_;
-    VkCommandPool commandPool_;
+    VkDevice device_ = VK_NULL_HANDLE;
+    VkSurfaceKHR surface_ = VK_NULL_HANDLE;
+    VkQueue graphicsQueue_ = VK_NULL_HANDLE;
+    VkQueue presentQueue_ = VK_NULL_HANDLE;
+    VkQueue computeQueue_ = VK_NULL_HANDLE;
+    QueueFamilyIndices queueFamilyIndices_;
+    std::vector<const char*> validationLayers_ = { "VK_LAYER_KHRONOS_validation" };
+    std::vector<const char*> deviceExtensions_ = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+    std::unique_ptr<VulkanMemoryManager> memoryManager_;
+    std::unique_ptr<DeviceManager> deviceManager_;
 };
 
-struct QueueFamilyIndices {
-    std::optional<uint32_t> graphicsFamily;
-    std::optional<uint32_t> presentFamily;
+} // namespace VulkanHIP
 
-    bool isComplete() const {
-        return graphicsFamily.has_value() && presentFamily.has_value();
-    }
-};
-
-struct SwapChainSupportDetails {
-    VkSurfaceCapabilitiesKHR capabilities;
-    std::vector<VkSurfaceFormatKHR> formats;
-    std::vector<VkPresentModeKHR> presentModes;
-}; 
+// ... existing code ... 

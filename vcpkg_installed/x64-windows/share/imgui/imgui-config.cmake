@@ -42,7 +42,7 @@ if (OFF OR OFF OR OFF)
     find_dependency(SDL3 CONFIG)
 endif()
 
-if (OFF)
+if (ON)
     find_dependency(Vulkan)
 endif()
 

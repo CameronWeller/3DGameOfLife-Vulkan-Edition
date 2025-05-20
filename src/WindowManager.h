@@ -3,73 +3,102 @@
 #include <GLFW/glfw3.h>
 #include <string>
 #include <functional>
+#include "ThreadSafe.h"
+
+namespace VulkanHIP {
 
 class WindowManager {
 public:
+    struct WindowConfig {
+        int width = 800;
+        int height = 600;
+        std::string title = "Vulkan Window";
+        bool resizable = true;
+        bool fullscreen = false;
+    };
+
+    static WindowManager& getInstance() {
+        static WindowManager instance;
+        return instance;
+    }
+
     WindowManager();
     ~WindowManager();
 
-    bool init(int width, int height, const std::string& title);
+    void init(const WindowConfig& config);
     void cleanup();
 
-    GLFWwindow* getWindow() const { return window_; }
-    bool shouldClose() const { return glfwWindowShouldClose(window_); }
-    void pollEvents() { glfwPollEvents(); }
-    void waitEvents() { glfwWaitEvents(); }
+    // Vulkan surface creation
+    VkSurfaceKHR createSurface(VkInstance instance) const;
+    void destroySurface(VkInstance instance, VkSurfaceKHR surface) const;
 
-    void setFramebufferSizeCallback(std::function<void(int, int)> callback);
-    void setKeyCallback(std::function<void(int, int, int, int)> callback);
-    void setMouseButtonCallback(std::function<void(int, int, int)> callback);
-    void setCursorPosCallback(std::function<void(double, double)> callback);
-    void setScrollCallback(std::function<void(double, double)> callback);
+    // Helper for VulkanContext compatibility
+    VkSurfaceKHR createWindowSurface() const;
 
-    void getFramebufferSize(int* width, int* height) const {
-        glfwGetFramebufferSize(window_, width, height);
+    // Window state queries
+    bool shouldClose() const;
+    bool isMinimized() const;
+    void getFramebufferSize(int* width, int* height) const;
+    void getWindowSize(int* width, int* height) const;
+    void pollEvents() const;
+    void waitEvents() const;
+
+    // Window manipulation
+    void setWindowTitle(const std::string& title);
+    void setWindowSize(int width, int height);
+    void setWindowPos(int x, int y);
+    void setWindowShouldClose(bool value);
+    void setInputMode(int mode, int value);
+    void setCursorMode(int mode);
+
+    // Input queries
+    bool getKey(int key) const;
+    bool getMouseButton(int button) const;
+    void getCursorPos(double* xpos, double* ypos) const;
+    bool isKeyPressed(int key) const;
+
+    // Callback setters
+    void setFramebufferResizeCallback(std::function<void(int, int)> callback) {
+        framebufferResizeCallback_.setCallback(callback);
     }
 
-    void setWindowTitle(const std::string& title) {
-        glfwSetWindowTitle(window_, title.c_str());
+    void setKeyCallback(std::function<void(int, int, int, int)> callback) {
+        keyCallback_.setCallback(callback);
     }
 
-    void setWindowSize(int width, int height) {
-        glfwSetWindowSize(window_, width, height);
+    void setMouseButtonCallback(std::function<void(int, int, int)> callback) {
+        mouseButtonCallback_.setCallback(callback);
     }
 
-    void setWindowPos(int x, int y) {
-        glfwSetWindowPos(window_, x, y);
+    void setCursorPosCallback(std::function<void(double, double)> callback) {
+        cursorPosCallback_.setCallback(callback);
     }
 
-    void setWindowShouldClose(bool value) {
-        glfwSetWindowShouldClose(window_, value);
+    void setScrollCallback(std::function<void(double, double)> callback) {
+        scrollCallback_.setCallback(callback);
     }
 
-    void setInputMode(int mode, int value) {
-        glfwSetInputMode(window_, mode, value);
-    }
-
-    bool getKey(int key) const {
-        return glfwGetKey(window_, key) == GLFW_PRESS;
-    }
-
-    bool getMouseButton(int button) const {
-        return glfwGetMouseButton(window_, button) == GLFW_PRESS;
-    }
-
-    void getCursorPos(double* xpos, double* ypos) const {
-        glfwGetCursorPos(window_, xpos, ypos);
-    }
+    // Window access
+    GLFWwindow* getWindow() const { return window_.get(); }
 
 private:
-    GLFWwindow* window_ = nullptr;
-    std::function<void(int, int)> framebufferSizeCallback_;
-    std::function<void(int, int, int, int)> keyCallback_;
-    std::function<void(int, int, int)> mouseButtonCallback_;
-    std::function<void(double, double)> cursorPosCallback_;
-    std::function<void(double, double)> scrollCallback_;
+    ThreadSafeValue<WindowConfig> config_;
+    ThreadSafeValue<GLFWwindow*> window_;
+    ThreadSafeValue<bool> glfwInitialized_{false};
 
-    static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
+    ThreadSafeCallback<int, int> framebufferResizeCallback_;
+    ThreadSafeCallback<int, int, int, int> keyCallback_;
+    ThreadSafeCallback<int, int, int> mouseButtonCallback_;
+    ThreadSafeCallback<double, double> cursorPosCallback_;
+    ThreadSafeCallback<double, double> scrollCallback_;
+
+    static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
     static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
     static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos);
     static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
-}; 
+
+    void setupCallbacks();
+};
+
+} // namespace VulkanHIP 

@@ -1,3 +1,11 @@
+# IOlog.txt - Persistent Log File
+# This file is used to track important project or build information.
+# DO NOT DELETE THIS FILE.
+# If you need to clear its contents, keep the file and its header.
+# If you need to rotate logs, archive the old log but keep IOlog.txt present in the repository.
+
+# Log entries below this line:
+
 a# IOlog - Interaction and Operation Log
 Last Updated: [Current Date]
 

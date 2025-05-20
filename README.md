@@ -22,26 +22,39 @@ A modern C++ engine that combines Vulkan for graphics and AMD's HIP for compute 
 - GLFW 3.3.8 and GLM 0.9.9.8 (automatically fetched by CMake)
 - AMD HIP (optional, for compute operations)
 
-## Building the Project
+## Quick Start
 
-### Native Windows Build (Recommended)
-
-```batch
-# Build the project with Visual Studio 2022
-scripts\build_windows.bat
+1. Clone the repository:
+```powershell
+git clone https://github.com/yourusername/cpp-vulkan-hip-engine.git
+cd cpp-vulkan-hip-engine
 ```
 
-The executable will be created at `build\Release\vulkan-engine.exe`
+2. Run the setup script:
+```powershell
+# Normal setup
+.\scripts\setup\main.ps1
 
-### Using Docker (Alternative)
+# Or with admin privileges (recommended for first-time setup)
+.\scripts\setup\main.ps1 -Admin
 
-```bash
-# Build the Docker image
-docker-compose build
-
-# Run the application
-docker-compose run --rm vulkan-engine
+# To clean and rebuild from scratch
+.\scripts\setup\main.ps1 -Clean
 ```
+
+3. Build the project:
+```powershell
+# Build in Release mode (default)
+.\scripts\build\main.ps1
+
+# Or build in Debug mode
+.\scripts\build\main.ps1 -Debug
+
+# Clean and rebuild
+.\scripts\build\main.ps1 -Clean
+```
+
+The executable will be created at `build\Release\vulkan-engine.exe` (or `build\Debug\vulkan-engine.exe` for debug builds).
 
 ## Project Structure
 
@@ -51,20 +64,33 @@ docker-compose run --rm vulkan-engine
 ├── Dockerfile              # Docker configuration
 ├── docker-compose.yml      # Docker Compose configuration
 ├── README.md               # This file
-├── scripts/                # Build and setup scripts
-│   ├── build_windows.bat   # Native Windows build script
-│   ├── setup_windows.bat   # Windows setup script (for Docker alternative)
-│   └── ...                 # Other utility scripts
+├── io.log                  # Persistent log file, never delete (see below)
+├── scripts/                # Project scripts
+│   ├── setup/         # Environment and dependency setup scripts (PowerShell, Bash, Batch)
+│   ├── build/         # Build scripts and helpers for compiling the project
+│   ├── environment/   # Scripts for fixing or configuring the developer environment
+│   ├── docker/        # Docker-related scripts for containerized builds and runs
+│   └── quality/       # Code quality, linting, and static analysis scripts
 ├── shaders/                # Shader source files
-│   ├── basic.vert          # Basic vertex shader
-│   ├── basic.frag          # Basic fragment shader
+│   ├── basic.vert         # Basic vertex shader
+│   ├── basic.frag         # Basic fragment shader
 │   ├── game_of_life_3d.comp    # 3D Game of Life compute shader
 │   └── population_reduction.comp # Population reduction compute shader
 └── src/                    # Source code
-    ├── main.cpp            # Application entry point
-    ├── VulkanEngine.cpp    # Vulkan engine implementation
-    └── VulkanEngine.h      # Vulkan engine header
+    ├── main.cpp           # Application entry point
+    ├── VulkanEngine.cpp   # Vulkan engine implementation
+    └── VulkanEngine.h     # Vulkan engine header
 ```
+
+## Persistent Log File: io.log
+
+The file `io.log` is a persistent log file used for tracking important project or build information. **Do not delete or ignore this file.**
+
+- It is intentionally tracked by git and excluded from `.gitignore`.
+- If you need to clear its contents, keep the file and its header, do not remove the file itself.
+- If you need to rotate logs, archive the old log but keep `io.log` present in the repository.
+
+This ensures important logs are always available for debugging and project history.
 
 ## Shader Compilation
 
@@ -77,7 +103,10 @@ The project uses `glslc` from the Vulkan SDK to compile shaders to SPIR-V format
 1. Install Visual Studio 2022 with C++ development tools
 2. Install Vulkan SDK 1.3 or higher
 3. Clone this repository
-4. Run `scripts\build_windows.bat` to build the project
+4. Run the setup script:
+```powershell
+.\scripts\setup\main.ps1 -Admin
+```
 
 ### Adding New Shaders
 

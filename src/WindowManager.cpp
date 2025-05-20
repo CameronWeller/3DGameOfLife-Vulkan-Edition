@@ -3,8 +3,25 @@
 #include <stdexcept>
 #include "WindowManager.h"
 #include "Logger.h"
+#include "VulkanContext.h"
 
-WindowManager::WindowManager() {}
+namespace VulkanHIP {
+
+static Logger logger;
+
+WindowManager& WindowManager::getInstance() {
+    static WindowManager instance;
+    return instance;
+}
+
+WindowManager::WindowManager() : window_(nullptr) {
+    if (!glfwInit()) {
+        throw std::runtime_error("Failed to initialize GLFW!");
+    }
+
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+}
 
 WindowManager::~WindowManager() {
     cleanup();
@@ -14,7 +31,7 @@ void WindowManager::init(const WindowConfig& config) {
     config_.set(config);
 
     if (!glfwInit()) {
-        Logger::getInstance().log(LogLevel::ERROR, LogCategory::WINDOW, "Failed to initialize GLFW!");
+        logger.log(Logger::LogLevel::Error, "Failed to initialize GLFW!");
         throw std::runtime_error("Failed to initialize GLFW!");
     }
     glfwInitialized_.set(true);
@@ -31,7 +48,7 @@ void WindowManager::init(const WindowConfig& config) {
     );
 
     if (!newWindow) {
-        Logger::getInstance().log(LogLevel::ERROR, LogCategory::WINDOW, "Failed to create GLFW window!");
+        logger.log(Logger::LogLevel::Error, "Failed to create GLFW window!");
         glfwTerminate();
         glfwInitialized_.set(false);
         throw std::runtime_error("Failed to create GLFW window!");
@@ -49,7 +66,7 @@ void WindowManager::init(const WindowConfig& config) {
     glfwSetCursorPosCallback(newWindow, cursorPosCallback);
     glfwSetScrollCallback(newWindow, scrollCallback);
 
-    Logger::getInstance().log(LogLevel::INFO, LogCategory::WINDOW, "Window created successfully");
+    logger.log(Logger::LogLevel::Info, "Window created successfully");
 }
 
 void WindowManager::cleanup() {
@@ -66,13 +83,13 @@ void WindowManager::cleanup() {
 VkSurfaceKHR WindowManager::createSurface(VkInstance instance) const {
     GLFWwindow* window = window_.get();
     if (!window) {
-        Logger::getInstance().log(LogLevel::ERROR, LogCategory::WINDOW, "Cannot create surface: Window is null!");
+        logger.log(Logger::LogLevel::Error, "Cannot create surface: Window is null!");
         throw std::runtime_error("Cannot create surface: Window is null!");
     }
 
     VkSurfaceKHR surface;
     if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
-        Logger::getInstance().log(LogLevel::ERROR, LogCategory::WINDOW, "Failed to create window surface!");
+        logger.log(Logger::LogLevel::Error, "Failed to create window surface!");
         throw std::runtime_error("Failed to create window surface!");
     }
     return surface;
@@ -104,6 +121,38 @@ void WindowManager::getWindowSize(int* width, int* height) const {
 
 void WindowManager::pollEvents() const {
     glfwPollEvents();
+}
+
+void WindowManager::setWindowTitle(const std::string& title) {
+    glfwSetWindowTitle(window_.get(), title.c_str());
+}
+
+void WindowManager::setWindowSize(int width, int height) {
+    glfwSetWindowSize(window_.get(), width, height);
+}
+
+void WindowManager::setWindowPos(int x, int y) {
+    glfwSetWindowPos(window_.get(), x, y);
+}
+
+void WindowManager::setWindowShouldClose(bool value) {
+    glfwSetWindowShouldClose(window_.get(), value);
+}
+
+void WindowManager::setInputMode(int mode, int value) {
+    glfwSetInputMode(window_.get(), mode, value);
+}
+
+bool WindowManager::getKey(int key) const {
+    return glfwGetKey(window_.get(), key) == GLFW_PRESS;
+}
+
+bool WindowManager::getMouseButton(int button) const {
+    return glfwGetMouseButton(window_.get(), button) == GLFW_PRESS;
+}
+
+void WindowManager::getCursorPos(double* xpos, double* ypos) const {
+    glfwGetCursorPos(window_.get(), xpos, ypos);
 }
 
 void WindowManager::framebufferResizeCallback(GLFWwindow* window, int width, int height) {
@@ -139,4 +188,81 @@ void WindowManager::scrollCallback(GLFWwindow* window, double xoffset, double yo
     if (windowManager) {
         windowManager->scrollCallback_.invoke(xoffset, yoffset);
     }
-} 
+}
+
+void WindowManager::setupCallbacks() {
+    glfwSetFramebufferSizeCallback(window_, [](GLFWwindow* window, int width, int height) {
+        auto windowManager = static_cast<WindowManager*>(glfwGetWindowUserPointer(window));
+        if (windowManager->framebufferResizeCallback_) {
+            windowManager->framebufferResizeCallback_(width, height);
+        }
+    });
+
+    glfwSetKeyCallback(window_, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
+        auto windowManager = static_cast<WindowManager*>(glfwGetWindowUserPointer(window));
+        if (windowManager->keyCallback_) {
+            windowManager->keyCallback_(key, scancode, action, mods);
+        }
+    });
+
+    glfwSetMouseButtonCallback(window_, [](GLFWwindow* window, int button, int action, int mods) {
+        auto windowManager = static_cast<WindowManager*>(glfwGetWindowUserPointer(window));
+        if (windowManager->mouseButtonCallback_) {
+            windowManager->mouseButtonCallback_(button, action, mods);
+        }
+    });
+
+    glfwSetCursorPosCallback(window_, [](GLFWwindow* window, double xpos, double ypos) {
+        auto windowManager = static_cast<WindowManager*>(glfwGetWindowUserPointer(window));
+        if (windowManager->cursorPosCallback_) {
+            windowManager->cursorPosCallback_(xpos, ypos);
+        }
+    });
+
+    glfwSetScrollCallback(window_, [](GLFWwindow* window, double xoffset, double yoffset) {
+        auto windowManager = static_cast<WindowManager*>(glfwGetWindowUserPointer(window));
+        if (windowManager->scrollCallback_) {
+            windowManager->scrollCallback_(xoffset, yoffset);
+        }
+    });
+}
+
+void WindowManager::setFramebufferResizeCallback(FramebufferResizeCallback callback) {
+    framebufferResizeCallback_ = callback;
+}
+
+void WindowManager::setKeyCallback(KeyCallback callback) {
+    keyCallback_ = callback;
+}
+
+void WindowManager::setMouseButtonCallback(MouseButtonCallback callback) {
+    mouseButtonCallback_ = callback;
+}
+
+void WindowManager::setCursorPosCallback(CursorPosCallback callback) {
+    cursorPosCallback_ = callback;
+}
+
+void WindowManager::setScrollCallback(ScrollCallback callback) {
+    scrollCallback_ = callback;
+}
+
+void WindowManager::waitEvents() {
+    glfwWaitEvents();
+}
+
+VkSurfaceKHR WindowManager::createWindowSurface() const {
+    // Use VulkanContext to get the current instance
+    VkInstance instance = VulkanHIP::VulkanContext::getInstance().getVkInstance();
+    return createSurface(instance);
+}
+
+bool WindowManager::isKeyPressed(int key) const {
+    return glfwGetKey(window_, key) == GLFW_PRESS;
+}
+
+void WindowManager::setCursorMode(int mode) {
+    glfwSetInputMode(window_, GLFW_CURSOR, mode);
+}
+
+} // namespace VulkanHIP 

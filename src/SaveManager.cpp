@@ -1,115 +1,170 @@
 #include "SaveManager.h"
+#include <filesystem>
 #include <fstream>
 #include <chrono>
-#include <iomanip>
+#include <ctime>
 #include <sstream>
+#include <iomanip>
+#include <algorithm>
+#include <stdexcept>
 #include <nlohmann/json.hpp>
 
-using json = nlohmann::json;
+namespace fs = std::filesystem;
+
+namespace VulkanHIP {
 
 SaveManager::SaveManager() {
-    // Set default save directory to %LOCALAPPDATA%/cpp-vulkan-hip-engine/saves
-    auto appData = std::filesystem::path(std::getenv("LOCALAPPDATA"));
-    saveDirectory_ = appData / "cpp-vulkan-hip-engine" / "saves";
-    createSaveDirectory();
+    try {
+        // Get the user's home directory
+        const char* homeDir = getenv("USERPROFILE");
+        if (!homeDir) {
+            homeDir = getenv("HOME");
+        }
+        if (!homeDir) {
+            throw SaveError(SaveError::Type::Unknown, "Could not determine home directory");
+        }
+
+        // Create the saves directory
+        saveDirectory_ = fs::path(homeDir) / "VulkanEngine" / "saves";
+        if (!createSaveDirectory()) {
+            throw SaveError(SaveError::Type::FileAccessDenied, 
+                          "Failed to create save directory: " + saveDirectory_.string());
+        }
+    } catch (const SaveError& e) {
+        handleSaveError(e);
+        throw;
+    } catch (const std::exception& e) {
+        throw SaveError(SaveError::Type::Unknown, std::string("Unexpected error: ") + e.what());
+    }
 }
 
-SaveManager::~SaveManager() = default;
+SaveManager::~SaveManager() {
+    try {
+        // Cleanup old autosaves on exit
+        cleanupOldAutoSaves(5); // Keep last 5 autosaves
+    } catch (...) {
+        // Log error but don't throw from destructor
+    }
+}
+
+void SaveManager::handleSaveError(const SaveError& error) {
+    setLastError(error.details);
+    switch (error.type) {
+        case SaveError::Type::FileNotFound:
+            std::cerr << "File not found: " << error.details << std::endl;
+            break;
+        case SaveError::Type::FileAccessDenied:
+            std::cerr << "Access denied: " << error.details << std::endl;
+            break;
+        case SaveError::Type::FileCorrupted:
+            std::cerr << "File corrupted: " << error.details << std::endl;
+            break;
+        case SaveError::Type::InvalidData:
+            std::cerr << "Invalid data: " << error.details << std::endl;
+            break;
+        case SaveError::Type::OutOfMemory:
+            std::cerr << "Out of memory: " << error.details << std::endl;
+            break;
+        default:
+            std::cerr << "Unknown error: " << error.details << std::endl;
+    }
+}
 
 bool SaveManager::saveCurrentState(const std::string& filename, const VoxelData& voxelData) {
+    if (filename.empty()) {
+        setLastError("Invalid filename");
+        return false;
+    }
+
     try {
-        auto savePath = saveDirectory_ / filename;
-        if (!savePath.has_extension()) {
-            savePath.replace_extension(".json");
+        std::string path = (saveDirectory_ / filename).string();
+        std::ofstream file(path, std::ios::binary);
+        if (!file) {
+            throw SaveError(SaveError::Type::FileAccessDenied, 
+                          "Failed to open file for writing: " + path);
         }
 
-        // Create save data structure
-        json saveData = {
-            {"version", "1.0"},
-            {"timestamp", std::chrono::system_clock::now().time_since_epoch().count()},
-            {"voxelCount", voxelData.getVoxelCount()},
-            {"camera", {
-                {"position", {0.0f, 0.0f, 0.0f}},
-                {"rotation", {0.0f, 0.0f, 0.0f}}
-            }},
-            {"voxels", voxelData.toJson()["voxels"]}
-        };
-
-        // Write to file
-        std::ofstream file(savePath);
-        if (!file.is_open()) {
-            return false;
+        // Write voxel data
+        file.write(reinterpret_cast<const char*>(&voxelData), sizeof(VoxelData));
+        if (file.fail()) {
+            file.close();
+            fs::remove(path); // Clean up failed save
+            throw SaveError(SaveError::Type::FileCorrupted, 
+                          "Failed to write voxel data to file: " + path);
         }
-        file << saveData.dump(4);
-        file.close();
 
         lastSaveFile_ = filename;
+        clearLastError();
         return true;
-    }
-    catch (const std::exception&) {
+    } catch (const SaveError& e) {
+        handleSaveError(e);
+        return false;
+    } catch (const std::exception& e) {
+        handleSaveError(SaveError(SaveError::Type::Unknown, 
+                                std::string("Unexpected error during save: ") + e.what()));
         return false;
     }
 }
 
 bool SaveManager::loadSaveFile(const std::string& filename, VoxelData& voxelData) {
+    if (filename.empty()) {
+        setLastError("Invalid filename");
+        return false;
+    }
+
     try {
-        auto savePath = saveDirectory_ / filename;
-        if (!savePath.has_extension()) {
-            savePath.replace_extension(".json");
+        std::string path = (saveDirectory_ / filename).string();
+        std::ifstream file(path, std::ios::binary);
+        if (!file) {
+            throw SaveError(SaveError::Type::FileNotFound, 
+                          "Failed to open save file: " + path);
         }
 
-        if (!std::filesystem::exists(savePath)) {
-            return false;
-        }
-
-        std::ifstream file(savePath);
-        if (!file.is_open()) {
-            return false;
-        }
-
-        json saveData;
-        file >> saveData;
-        file.close();
-
-        // Validate save file structure
-        if (!saveData.contains("version") || !saveData.contains("voxels")) {
-            return false;
-        }
-
-        // Load voxel data
-        auto loadedVoxelData = VoxelData::fromJson(saveData);
-        if (!loadedVoxelData) {
-            return false;
-        }
-
-        // Copy voxels to the provided voxelData
-        voxelData.clear();
-        for (const auto& voxel : loadedVoxelData->getVoxels()) {
-            voxelData.addVoxel(voxel);
+        // Read voxel data
+        file.read(reinterpret_cast<char*>(&voxelData), sizeof(VoxelData));
+        if (file.fail()) {
+            throw SaveError(SaveError::Type::FileCorrupted, 
+                          "Failed to read voxel data from file: " + path);
         }
 
         lastSaveFile_ = filename;
+        clearLastError();
         return true;
-    }
-    catch (const std::exception&) {
+    } catch (const SaveError& e) {
+        handleSaveError(e);
+        return false;
+    } catch (const std::exception& e) {
+        handleSaveError(SaveError(SaveError::Type::Unknown, 
+                                std::string("Unexpected error during load: ") + e.what()));
         return false;
     }
 }
 
 bool SaveManager::deleteSaveFile(const std::string& filename) {
     try {
-        auto savePath = saveDirectory_ / filename;
-        if (!savePath.has_extension()) {
-            savePath.replace_extension(".json");
+        std::string path = (saveDirectory_ / filename).string();
+        if (!fs::exists(path)) {
+            throw SaveError(SaveError::Type::FileNotFound, 
+                          "Save file does not exist: " + path);
         }
 
-        if (!std::filesystem::exists(savePath)) {
-            return false;
+        if (!fs::remove(path)) {
+            throw SaveError(SaveError::Type::FileAccessDenied, 
+                          "Failed to delete save file: " + path);
         }
 
-        return std::filesystem::remove(savePath);
-    }
-    catch (const std::exception&) {
+        if (lastSaveFile_ == filename) {
+            lastSaveFile_.clear();
+        }
+
+        clearLastError();
+        return true;
+    } catch (const SaveError& e) {
+        handleSaveError(e);
+        return false;
+    } catch (const std::exception& e) {
+        handleSaveError(SaveError(SaveError::Type::Unknown, 
+                                std::string("Unexpected error during delete: ") + e.what()));
         return false;
     }
 }
@@ -117,13 +172,18 @@ bool SaveManager::deleteSaveFile(const std::string& filename) {
 std::vector<App::SaveInfo> SaveManager::getSaveFiles() {
     std::vector<App::SaveInfo> saves;
     try {
-        for (const auto& entry : std::filesystem::directory_iterator(saveDirectory_)) {
-            if (entry.path().extension() == ".json") {
-                saves.push_back(createSaveInfo(entry.path()));
+        for (const auto& entry : fs::directory_iterator(saveDirectory_)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".save") {
+                if (validateSaveFile(entry.path())) {
+                    saves.push_back(createSaveInfo(entry.path()));
+                }
             }
         }
-    }
-    catch (const std::exception&) {
+        std::sort(saves.begin(), saves.end(),
+            [](const App::SaveInfo& a, const App::SaveInfo& b) {
+                return a.timestamp > b.timestamp;
+            });
+    } catch (const std::exception&) {
         // Return empty vector on error
     }
     return saves;
@@ -135,11 +195,15 @@ std::string SaveManager::getLastSaveFile() const {
 
 bool SaveManager::hasSaveFiles() const {
     try {
-        return !std::filesystem::is_empty(saveDirectory_);
+        for (const auto& entry : fs::directory_iterator(saveDirectory_)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".save") {
+                return true;
+            }
+        }
+    } catch (const std::exception&) {
+        // Return false on error
     }
-    catch (const std::exception&) {
-        return false;
-    }
+    return false;
 }
 
 void SaveManager::setSaveDirectory(const std::filesystem::path& path) {
@@ -153,61 +217,121 @@ std::filesystem::path SaveManager::getSaveDirectory() const {
 
 bool SaveManager::createSaveDirectory() {
     try {
-        if (!std::filesystem::exists(saveDirectory_)) {
-            return std::filesystem::create_directories(saveDirectory_);
-        }
+        fs::create_directories(saveDirectory_);
         return true;
-    }
-    catch (const std::exception&) {
+    } catch (...) {
         return false;
     }
 }
 
 bool SaveManager::validateSaveFile(const std::filesystem::path& path) const {
     try {
-        std::ifstream file(path);
-        if (!file.is_open()) {
+        if (!fs::exists(path) || !fs::is_regular_file(path)) {
             return false;
         }
 
-        json saveData;
-        file >> saveData;
-        file.close();
+        std::ifstream file(path, std::ios::binary);
+        if (!file) {
+            return false;
+        }
 
-        return saveData.contains("version") && saveData.contains("voxels");
-    }
-    catch (const std::exception&) {
+        // Check file size
+        file.seekg(0, std::ios::end);
+        size_t size = file.tellg();
+        if (size != sizeof(VoxelData)) {
+            return false;
+        }
+
+        // Check file permissions
+        auto perms = fs::status(path).permissions();
+        if ((perms & fs::perms::owner_read) == fs::perms::none) {
+            return false;
+        }
+
+        return true;
+    } catch (const std::exception&) {
         return false;
     }
 }
 
 App::SaveInfo SaveManager::createSaveInfo(const std::filesystem::path& path) const {
     App::SaveInfo info;
-    info.filename = path.filename().string();
-    info.displayName = path.stem().string();
-    info.lastModified = std::chrono::clock_cast<std::chrono::system_clock>(
-        std::filesystem::last_write_time(path)
-    );
-    
     try {
-        std::ifstream file(path);
-        if (file.is_open()) {
-            json saveData;
-            file >> saveData;
-            info.voxelCount = saveData.value("voxelCount", 0);
-        }
+        info.filename = path.filename().string();
+        auto lastWriteTime = fs::last_write_time(path);
+        // Convert last_write_time to time_t (portable way)
+        auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+            lastWriteTime - decltype(lastWriteTime)::clock::now() + std::chrono::system_clock::now()
+        );
+        info.timestamp = sctp;
+        info.size = fs::file_size(path);
+        info.created = true;
+    } catch (const std::exception&) {
+        info.filename = path.filename().string();
+        info.timestamp = {};
+        info.size = 0;
+        info.created = false;
     }
-    catch (const std::exception&) {
-        info.voxelCount = 0;
-    }
-
     return info;
 }
 
 std::string SaveManager::generateSaveFileName() const {
     auto now = std::chrono::system_clock::now();
     auto time = std::chrono::system_clock::to_time_t(now);
+    std::tm tm;
+#ifdef _WIN32
+    localtime_s(&tm, &time);
+#else
+    localtime_r(&time, &tm);
+#endif
+
     std::stringstream ss;
-    ss << "save_" << std::put_time(std::localtime(&time), "%Y%m%d_%H%M%S");
+    ss << "save_" << std::put_time(&tm, "%Y%m%d_%H%M%S") << ".save";
     return ss.str();
-} 
+}
+
+std::string SaveManager::getSavePath(const std::string& filename) const {
+    return (saveDirectory_ / filename).string();
+}
+
+std::vector<std::string> SaveManager::listSaves() const {
+    std::vector<std::string> saves;
+    try {
+        for (const auto& entry : fs::directory_iterator(saveDirectory_)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".save") {
+                saves.push_back(entry.path().filename().string());
+            }
+        }
+    } catch (const std::exception&) {
+        // Return empty vector on error
+    }
+    return saves;
+}
+
+void SaveManager::cleanupOldAutoSaves(int maxAutoSaves) {
+    try {
+        std::vector<fs::directory_entry> autoSaves;
+        for (const auto& entry : fs::directory_iterator(saveDirectory_)) {
+            if (entry.is_regular_file() && 
+                entry.path().extension() == ".save" && 
+                entry.path().filename().string().find("autosave_") == 0) {
+                autoSaves.push_back(entry);
+            }
+        }
+
+        // Sort by last write time, newest first
+        std::sort(autoSaves.begin(), autoSaves.end(),
+            [](const auto& a, const auto& b) {
+                return fs::last_write_time(a) > fs::last_write_time(b);
+            });
+
+        // Remove old autosaves
+        for (size_t i = maxAutoSaves; i < autoSaves.size(); ++i) {
+            fs::remove(autoSaves[i]);
+        }
+    } catch (const std::exception&) {
+        // Log error but don't throw
+    }
+}
+
+} // namespace VulkanHIP 

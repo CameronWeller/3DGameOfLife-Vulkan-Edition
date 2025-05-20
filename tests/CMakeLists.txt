@@ -9,12 +9,12 @@ find_package(HIP QUIET)
 
 # Add test executable
 add_executable(engine_tests
-    test_main.cpp
-    test_vulkan_engine.cpp
-    test_memory_pool.cpp
-    test_shader_compilation.cpp
-    test_vulkan_integration.cpp
-    mocks/VulkanMock.cpp
+    VulkanEngineTest.cpp
+    MemoryTest.cpp
+    UtilityTest.cpp
+    PipelineTest.cpp
+    SwapchainTest.cpp
+    QueueFamilyTest.cpp
 )
 
 target_include_directories(engine_tests PRIVATE
@@ -26,8 +26,6 @@ target_include_directories(engine_tests PRIVATE
 target_link_libraries(engine_tests PRIVATE
     GTest::GTest
     GTest::Main
-    GTest::gmock
-    GTest::gmock_main
     ${Vulkan_LIBRARIES}
     Threads::Threads
 )

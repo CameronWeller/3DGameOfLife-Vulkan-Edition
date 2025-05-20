@@ -6,6 +6,8 @@
 #include <string>
 #include "QueueFamilyIndices.h"
 
+namespace VulkanHIP {
+
 class DeviceManager {
 public:
     DeviceManager(VkInstance instance, VkSurfaceKHR surface, const std::vector<const char*>& requiredDeviceExtensions);
@@ -43,4 +45,6 @@ private:
     std::vector<const char*> requiredDeviceExtensions_;
     VkPhysicalDeviceFeatures supportedFeatures_;
     VkPhysicalDeviceProperties deviceProperties_;
-}; 
+};
+
+} // namespace VulkanHIP 

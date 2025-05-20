@@ -3,10 +3,12 @@
 #include <string>
 #include <vector>
 #include <chrono>
+#include <filesystem>
 
 namespace App {
 
 enum class State {
+    None,           // Initial/No state
     Menu,           // Main menu state
     Running,        // Game/simulation running
     SavePicker,     // Save file selection
@@ -20,6 +22,9 @@ struct SaveInfo {
     std::chrono::system_clock::time_point lastModified;
     size_t voxelCount;
     std::string thumbnailPath;  // Optional: path to save preview image
+    std::chrono::system_clock::time_point timestamp;
+    size_t size;
+    bool created;
 };
 
 struct MenuState {

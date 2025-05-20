@@ -62,8 +62,9 @@ Thumbs.db
 # Log files
 *.log
 *.log.*
-io.log
-IOlog.txt
+# io.log is a persistent log file and should never be deleted or ignored (see README)
+# !io.log
+# !IOlog.txt
 build_output.log
 
 # VCPKG

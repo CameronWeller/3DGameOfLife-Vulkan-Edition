@@ -3,6 +3,8 @@
 #include "../src/VulkanContext.h"
 #include <memory>
 
+using namespace VulkanHIP;
+
 class VulkanEngineTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -86,8 +88,8 @@ TEST_F(VulkanEngineTest, CleanupTest) {
 
 // Test memory manager creation
 TEST_F(VulkanEngineTest, MemoryManagerCreationTest) {
-    auto engine = VulkanEngine::getInstance();
-    ASSERT_NE(engine, nullptr);
+    engine = std::make_unique<VulkanEngine>();
+    engine->init();
     EXPECT_NE(engine->getMemoryManager(), nullptr);
 }
 
