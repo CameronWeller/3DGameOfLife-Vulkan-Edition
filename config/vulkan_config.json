@@ -3,14 +3,33 @@
         "enabled": true,
         "layers": [
             "VK_LAYER_KHRONOS_validation"
-        ]
+        ],
+        "flags": {
+            "shader_validation": true,
+            "core_validation": true,
+            "threading_validation": true,
+            "object_lifetime_validation": true,
+            "parameter_validation": true
+        },
+        "severity": {
+            "verbose": true,
+            "info": true,
+            "warning": true,
+            "error": true
+        },
+        "cache": {
+            "enabled": true,
+            "path": "validation_cache.bin",
+            "max_size_mb": 100
+        }
     },
     "device": {
         "extensions": [
             "VK_KHR_swapchain",
             "VK_KHR_maintenance1",
             "VK_EXT_descriptor_indexing",
-            "VK_KHR_buffer_device_address"
+            "VK_KHR_buffer_device_address",
+            "VK_EXT_validation_features"
         ],
         "features": {
             "samplerAnisotropy": true,
@@ -29,5 +48,10 @@
     "memory": {
         "stagingBufferSize": 1048576,
         "maxBufferPoolSize": 1073741824
+    },
+    "synchronization": {
+        "maxFramesInFlight": 2,
+        "enableValidationLayers": true,
+        "enableDebugUtils": true
     }
 } 

@@ -887,3 +887,124 @@ Status: 🔄 In Progress
     2. Add fallback to Visual Studio Build Tools path (`BuildTools` SKU)
     3. Re-run setup scripts after installing or locating a valid VS instance
 - Status: 🔄 In Progress 
+
+# Vulkan API Issues and Observations Log
+Date: [Current Date]
+
+## 1. Validation Layer Configuration Issues
+- Using Khronos validation layer (VK_LAYER_KHRONOS_validation)
+- Validation messages only printed to stderr
+- Missing proper validation message logging
+- No validation cache implementation
+- Debug callback implementation needs improvement
+
+## 2. Device Creation and Queue Management
+- Potential null queue issues in queue family selection
+- Missing queue capability verification
+- No error handling for missing device extensions
+- Queue family selection needs validation
+
+## 3. Memory Management
+- Potential memory leaks in validation layer setup
+- Missing validation cache creation/destruction
+- Debug messenger cleanup issues
+- Resource management needs improvement
+
+## 4. Error Handling
+- VK_CHECK macro only throws runtime errors
+- Missing specific validation error handling
+- No device lost scenario handling
+- Error reporting needs enhancement
+
+## 5. Configuration Issues
+- Validation enabled but no flags specified
+- Missing validation message severity configuration
+- No validation cache settings
+- Configuration file needs expansion
+
+## 6. Synchronization Issues
+- Queue family selection synchronization problems
+- Missing queue family ownership transfer handling
+- Validation layer operation synchronization issues
+- Need proper synchronization implementation
+
+## 7. Extension Management
+- No verification of required extensions
+- Missing optional extension fallbacks
+- Extension version compatibility issues
+- Extension management needs improvement
+
+## 8. Debug Utils Integration
+- Incomplete validation message capture
+- Missing message severity level handling
+- No validation cache integration
+- Debug utils implementation needs enhancement
+
+## Action Items
+1. Improve validation layer setup with proper logging
+2. Enhance error handling with specific error types
+3. Add queue family validation
+4. Expand configuration management
+5. Implement proper synchronization
+6. Add extension verification
+7. Improve debug utils integration
+8. Add validation cache support
+
+## Status
+- [x] Validation Layer Configuration
+- [x] Device Creation and Queue Management
+- [x] Memory Management
+- [x] Error Handling
+- [x] Configuration Issues
+- [x] Synchronization Issues
+- [x] Extension Management
+- [x] Debug Utils Integration
+
+## Progress Notes
+1. Validation Layer Configuration:
+   - Added proper logging with timestamps and severity levels
+   - Implemented thread-safe logging mechanism
+   - Added validation cache support
+   - Enhanced debug callback implementation
+
+2. Error Handling:
+   - Created custom error classes for different Vulkan errors
+   - Enhanced VK_CHECK macro with specific error types
+   - Added proper error message formatting
+   - Implemented error hierarchy
+
+3. Configuration Issues:
+   - Added detailed validation settings
+   - Implemented validation cache configuration
+   - Added synchronization settings
+   - Enhanced device extension configuration
+
+4. Debug Utils Integration:
+   - Added comprehensive message severity handling
+   - Implemented validation cache integration
+   - Enhanced debug messenger setup
+   - Added proper message formatting
+
+5. Device Creation and Queue Management:
+   - Added queue family validation
+   - Implemented queue capability verification
+   - Added error handling for missing extensions
+   - Enhanced queue family selection
+
+6. Memory Management:
+   - Added proper cleanup sequence
+   - Implemented validation cache support
+   - Enhanced debug messenger cleanup
+   - Added resource management improvements
+
+7. Synchronization Issues:
+   - Added queue family ownership transfer
+   - Implemented timeline semaphores
+   - Added proper synchronization primitives
+   - Enhanced queue synchronization
+
+8. Extension Management:
+   - Added extension verification
+   - Implemented optional extension fallbacks
+   - Added version compatibility checks
+   - Enhanced extension management system 

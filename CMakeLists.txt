@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
 cmake_policy(VERSION 3.10)
 
+# Vcpkg integration
+if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        CACHE STRING "Vcpkg toolchain file")
+endif()
+
 project(cpp-vulkan-hip-engine LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)

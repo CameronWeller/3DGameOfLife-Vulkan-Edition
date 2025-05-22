@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "../src/VulkanEngine.h"
 #include "../src/VulkanMemoryManager.h"
-#include <memory>
+#include <vector>
 
 using namespace VulkanHIP;
 
@@ -10,88 +10,201 @@ protected:
     void SetUp() override {
         engine = std::make_unique<VulkanEngine>();
         engine->init();
-        memoryManager = engine->getMemoryManager();
+        memoryManager = &engine->getMemoryManager();
     }
 
     void TearDown() override {
-        engine->cleanup();
+        engine.reset();
     }
 
     std::unique_ptr<VulkanEngine> engine;
     VulkanMemoryManager* memoryManager;
 };
 
-// Test buffer creation
-TEST_F(MemoryTest, BufferCreationTest) {
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = 1024;  // 1KB buffer
-    bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+TEST_F(MemoryTest, BufferCreation) {
+    const VkDeviceSize bufferSize = 1024;
+    auto allocation = memoryManager->createBuffer(
+        bufferSize,
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VMA_MEMORY_USAGE_CPU_TO_GPU
+    );
 
-    VkBuffer buffer;
-    EXPECT_EQ(vkCreateBuffer(engine->getVulkanContext()->getDevice(), &bufferInfo, nullptr, &buffer), VK_SUCCESS);
-    EXPECT_NE(buffer, VK_NULL_HANDLE);
+    EXPECT_NE(allocation.buffer, VK_NULL_HANDLE);
+    EXPECT_NE(allocation.allocation, nullptr);
+    EXPECT_EQ(allocation.size, bufferSize);
+    EXPECT_NE(allocation.mappedData, nullptr);
 
-    // Cleanup
-    vkDestroyBuffer(engine->getVulkanContext()->getDevice(), buffer, nullptr);
+    memoryManager->destroyBuffer(allocation);
 }
 
-// Test memory allocation through memory manager
-TEST_F(MemoryTest, MemoryManagerAllocationTest) {
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = 1024;
-    bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+TEST_F(MemoryTest, MemoryMapping) {
+    const VkDeviceSize bufferSize = 1024;
+    auto allocation = memoryManager->createBuffer(
+        bufferSize,
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VMA_MEMORY_USAGE_CPU_TO_GPU
+    );
 
-    VkBuffer buffer;
-    vkCreateBuffer(engine->getVulkanContext()->getDevice(), &bufferInfo, nullptr, &buffer);
-
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(engine->getVulkanContext()->getDevice(), buffer, &memRequirements);
-
-    VkDeviceMemory bufferMemory;
-    EXPECT_TRUE(memoryManager->allocateMemory(memRequirements, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, bufferMemory));
-    EXPECT_NE(bufferMemory, VK_NULL_HANDLE);
-
-    // Cleanup
-    memoryManager->freeMemory(bufferMemory);
-    vkDestroyBuffer(engine->getVulkanContext()->getDevice(), buffer, nullptr);
-}
-
-// Test memory mapping through memory manager
-TEST_F(MemoryTest, MemoryManagerMappingTest) {
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = 1024;
-    bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    VkBuffer buffer;
-    vkCreateBuffer(engine->getVulkanContext()->getDevice(), &bufferInfo, nullptr, &buffer);
-
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(engine->getVulkanContext()->getDevice(), buffer, &memRequirements);
-
-    VkDeviceMemory bufferMemory;
-    memoryManager->allocateMemory(memRequirements, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, bufferMemory);
-    vkBindBufferMemory(engine->getVulkanContext()->getDevice(), buffer, bufferMemory, 0);
-
-    // Test memory mapping
-    void* data;
-    EXPECT_TRUE(memoryManager->mapMemory(bufferMemory, 0, bufferInfo.size, 0, &data));
+    void* data = memoryManager->mapMemory(allocation);
     EXPECT_NE(data, nullptr);
 
-    // Write some test data
-    uint32_t* testData = static_cast<uint32_t*>(data);
-    testData[0] = 0x12345678;
+    // Write some data
+    std::vector<float> testData(256, 1.0f);
+    memcpy(data, testData.data(), testData.size() * sizeof(float));
 
-    memoryManager->unmapMemory(bufferMemory);
+    memoryManager->unmapMemory(allocation);
+    memoryManager->destroyBuffer(allocation);
+}
 
-    // Cleanup
-    memoryManager->freeMemory(bufferMemory);
-    vkDestroyBuffer(engine->getVulkanContext()->getDevice(), buffer, nullptr);
+TEST_F(MemoryTest, StagingBuffer) {
+    const VkDeviceSize bufferSize = 1024;
+    auto stagingBuffer = memoryManager->createStagingBuffer(bufferSize);
+
+    EXPECT_NE(stagingBuffer.buffer, VK_NULL_HANDLE);
+    EXPECT_NE(stagingBuffer.allocation, nullptr);
+    EXPECT_EQ(stagingBuffer.size, bufferSize);
+    EXPECT_NE(stagingBuffer.mappedData, nullptr);
+
+    // Write some data
+    std::vector<float> testData(256, 1.0f);
+    memcpy(stagingBuffer.mappedData, testData.data(), testData.size() * sizeof(float));
+
+    memoryManager->destroyStagingBuffer(stagingBuffer);
+}
+
+TEST_F(MemoryTest, BufferCopy) {
+    const VkDeviceSize bufferSize = 1024;
+    
+    // Create source buffer
+    auto srcAllocation = memoryManager->createBuffer(
+        bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VMA_MEMORY_USAGE_CPU_TO_GPU
+    );
+
+    // Create destination buffer
+    auto dstAllocation = memoryManager->createBuffer(
+        bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY
+    );
+
+    // Write data to source buffer
+    std::vector<float> testData(256, 1.0f);
+    memcpy(srcAllocation.mappedData, testData.data(), testData.size() * sizeof(float));
+
+    // Copy data
+    memoryManager->copyBuffer(srcAllocation, dstAllocation, bufferSize);
+
+    memoryManager->destroyBuffer(srcAllocation);
+    memoryManager->destroyBuffer(dstAllocation);
+}
+
+TEST_F(MemoryTest, ImageAllocation) {
+    const uint32_t width = 512;
+    const uint32_t height = 512;
+    auto imageAlloc = memoryManager->allocateImage(
+        width, height,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
+
+    EXPECT_NE(imageAlloc.image, VK_NULL_HANDLE);
+    EXPECT_NE(imageAlloc.allocation, nullptr);
+    EXPECT_EQ(imageAlloc.size, width * height * 4);
+    EXPECT_TRUE(imageAlloc.inUse);
+
+    memoryManager->freeImage(imageAlloc);
+}
+
+TEST_F(MemoryTest, ImageViewCreation) {
+    const uint32_t width = 512;
+    const uint32_t height = 512;
+    auto imageAlloc = memoryManager->allocateImage(
+        width, height,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
+
+    VkImageView imageView;
+    memoryManager->createImageView(
+        imageAlloc.image,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_ASPECT_COLOR_BIT,
+        imageView
+    );
+
+    EXPECT_NE(imageView, VK_NULL_HANDLE);
+
+    vkDestroyImageView(memoryManager->getDevice(), imageView, nullptr);
+    memoryManager->freeImage(imageAlloc);
+}
+
+TEST_F(MemoryTest, ImageLayoutTransition) {
+    const uint32_t width = 512;
+    const uint32_t height = 512;
+    auto imageAlloc = memoryManager->allocateImage(
+        width, height,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
+
+    // Test transition from UNDEFINED to TRANSFER_DST_OPTIMAL
+    memoryManager->transitionImageLayout(
+        imageAlloc.image,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+    );
+
+    // Test transition from TRANSFER_DST_OPTIMAL to SHADER_READ_ONLY_OPTIMAL
+    memoryManager->transitionImageLayout(
+        imageAlloc.image,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    );
+
+    memoryManager->freeImage(imageAlloc);
+}
+
+TEST_F(MemoryTest, BufferToImageCopy) {
+    const uint32_t width = 512;
+    const uint32_t height = 512;
+    const VkDeviceSize bufferSize = width * height * 4;
+
+    // Create staging buffer
+    auto stagingBuffer = memoryManager->createStagingBuffer(bufferSize);
+    std::vector<uint8_t> testData(bufferSize, 0xFF);
+    memcpy(stagingBuffer.mappedData, testData.data(), bufferSize);
+
+    // Create destination image
+    auto imageAlloc = memoryManager->allocateImage(
+        width, height,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
+
+    // Transition image layout and copy
+    memoryManager->transitionImageLayout(
+        imageAlloc.image,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+    );
+
+    memoryManager->copyBufferToImage(stagingBuffer.buffer, imageAlloc.image, width, height);
+
+    memoryManager->destroyStagingBuffer(stagingBuffer);
+    memoryManager->freeImage(imageAlloc);
 }
 
 int main(int argc, char **argv) {

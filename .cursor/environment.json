@@ -1,0 +1,27 @@
+{
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "terminals": [
+    {
+      "name": "Developer PowerShell",
+      "path": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\Launch-VsDevShell.ps1",
+      "args": ["-Arch", "x64", "-HostArch", "x64"]
+    }
+  ],
+  "settings": {
+    "cmake.configureOnOpen": true,
+    "cmake.buildDirectory": "${workspaceFolder}/build",
+    "cmake.generator": "Ninja",
+    "cmake.configureSettings": {
+      "CMAKE_TOOLCHAIN_FILE": "${env:VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "CMAKE_BUILD_TYPE": "Debug"
+    }
+  },
+  "extensions": [
+    "ms-vscode.cpptools",
+    "ms-vscode.cmake-tools",
+    "ms-vscode.vscode-settings-sync"
+  ]
+}

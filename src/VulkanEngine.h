@@ -102,14 +102,53 @@ struct SwapChainSupportDetails {
     std::vector<VkPresentModeKHR> presentModes;
 };
 
+class VulkanError : public std::runtime_error {
+public:
+    explicit VulkanError(VkResult result, const std::string& message)
+        : std::runtime_error(message), result_(result) {}
+    
+    VkResult getResult() const { return result_; }
+    
+private:
+    VkResult result_;
+};
+
+class ValidationError : public VulkanError {
+public:
+    explicit ValidationError(const std::string& message)
+        : VulkanError(VK_ERROR_VALIDATION_FAILED_EXT, "Validation Error: " + message) {}
+};
+
+class DeviceLostError : public VulkanError {
+public:
+    explicit DeviceLostError(const std::string& message)
+        : VulkanError(VK_ERROR_DEVICE_LOST, "Device Lost: " + message) {}
+};
+
+class OutOfMemoryError : public VulkanError {
+public:
+    explicit OutOfMemoryError(const std::string& message)
+        : VulkanError(VK_ERROR_OUT_OF_DEVICE_MEMORY, "Out of Memory: " + message) {}
+};
+
 /**
  * @brief Helper macros for Vulkan error checking
  */
 #define VK_CHECK(x) do { \
     VkResult err = x; \
     if (err) { \
-        std::cerr << "Vulkan error: " << err << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
-        throw std::runtime_error("Vulkan error: " + std::to_string(err)); \
+        std::string errorMsg = "Vulkan error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__); \
+        switch (err) { \
+            case VK_ERROR_VALIDATION_FAILED_EXT: \
+                throw ValidationError(errorMsg); \
+            case VK_ERROR_DEVICE_LOST: \
+                throw DeviceLostError(errorMsg); \
+            case VK_ERROR_OUT_OF_DEVICE_MEMORY: \
+            case VK_ERROR_OUT_OF_HOST_MEMORY: \
+                throw OutOfMemoryError(errorMsg); \
+            default: \
+                throw VulkanError(err, errorMsg); \
+        } \
     } \
 } while(0)
 
