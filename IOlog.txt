@@ -10,13 +10,13 @@ a# IOlog - Interaction and Operation Log
 Last Updated: [Current Date]
 
 ## Agent Registry
-### Level the Laborer
+### Bob the Builder
 - Role: Primary Development Assistant
 - Purpose: Assist with code development, debugging, and implementation tasks
 - Specialization: Code analysis, implementation, and problem-solving
 - Status: Active
 
-### Archy the Sleuth
+### Sherlock the Sleuth
 - Role: Bug and Build Problem Investigator
 - Purpose: Investigate and resolve build issues, track down bugs, and ensure system stability
 - Specialization: Build system analysis, bug tracking, and system diagnostics
