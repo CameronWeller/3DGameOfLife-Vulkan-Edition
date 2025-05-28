@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <algorithm>
 #include <stdexcept>
+#include <iostream>
 #include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;

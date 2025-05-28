@@ -6,10 +6,7 @@ param(
     
     [Parameter()]
     [ValidateSet("x64", "x86")]
-    [string]$BuildArch = "x64",
-    
-    [Parameter()]
-    [switch]$Verbose
+    [string]$BuildArch = "x64"
 )
 
 $ErrorActionPreference = "Stop"
@@ -134,6 +131,10 @@ function Setup-VisualStudioEnvironment {
     Write-VerboseOutput "Using Visual Studio at: $vsPath"
     Write-VerboseOutput "Using vcvarsall.bat at: $vcvarsPath"
 
+    # Diagnostic output
+    Write-Host "[DIAG] vsPath: $vsPath"
+    Write-Host "[DIAG] vcvarsPath: $vcvarsPath"
+    
     # Get the Visual Studio installation directory
     $vsInstallDir = $vsPath
     $vcInstallDir = Join-Path $vsInstallDir "VC"
@@ -143,26 +144,199 @@ function Setup-VisualStudioEnvironment {
     $env:VCINSTALLDIR = $vcInstallDir
     $env:VCPKG_VISUAL_STUDIO_PATH = $vsInstallDir
 
-    # Set up Visual Studio environment using PowerShell
-    $vsDevCmd = Join-Path $vsPath "Common7\Tools\Launch-VsDevShell.ps1"
+    # Capture environment variables from vcvarsall.bat
     $tempFile = [System.IO.Path]::GetTempFileName()
     try {
-        if (Test-Path $vsDevCmd) {
-            Write-VerboseOutput "Using Visual Studio Developer Shell..."
-            & $vsDevCmd -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
-            if ($LASTEXITCODE -ne 0) {
-                throw "Failed to initialize Visual Studio Developer Shell"
-            }
-        } else {
-            Write-VerboseOutput "Using vcvarsall.bat..."
-            # Fallback to using vcvarsall.bat through PowerShell
-            $cmdLine = "`"$vcvarsPath`" x64 > `"$tempFile`" 2>&1"
-            $process = Start-Process -FilePath "cmd.exe" -ArgumentList "/c $cmdLine" -NoNewWindow -Wait -PassThru
-            if ($process.ExitCode -ne 0) {
-                $errorOutput = Get-Content $tempFile
-                throw "Failed to set up Visual Studio environment: $errorOutput"
+        Write-VerboseOutput "Capturing Visual Studio environment variables..."
+        
+        # Create a batch file that calls vcvarsall and exports the environment
+        $batchFile = [System.IO.Path]::GetTempFileName() + ".bat"
+        $batchContent = "@echo off`r`ncall `"$vcvarsPath`" $BuildArch`r`nset`r`n"
+        Set-Content -Path $batchFile -Value $batchContent
+
+        # Diagnostics: print batch file and temp file paths and contents
+        Write-Host "[DIAG] batchFile: $batchFile"
+        Write-Host "[DIAG] tempFile: $tempFile"
+        Write-Host "[DIAG] batchFile contents:"
+        Get-Content $batchFile | ForEach-Object { Write-Host $_ }
+
+        # Execute the batch file and capture the environment variables
+        # Use Start-Process for better handling of paths with spaces
+        $cmdArgs = @("/c", "`"$batchFile`"")
+        Write-Host "[DIAG] Running: cmd.exe $($cmdArgs -join ' ') > $tempFile"
+        
+        $startInfo = @{
+            FilePath = "cmd.exe"
+            ArgumentList = $cmdArgs
+            RedirectStandardOutput = $tempFile
+            RedirectStandardError = "$tempFile.err"
+            NoNewWindow = $true
+            Wait = $true
+            PassThru = $true
+        }
+        
+        $process = Start-Process @startInfo
+        
+        if ($process.ExitCode -ne 0) {
+            $stderr = if (Test-Path "$tempFile.err") { Get-Content "$tempFile.err" -Raw } else { "No error output" }
+            Remove-Item "$tempFile.err" -ErrorAction SilentlyContinue
+            throw "Failed to set up Visual Studio environment: $stderr"
+        }
+        
+        Remove-Item "$tempFile.err" -ErrorAction SilentlyContinue
+        
+        # Parse the environment variables and apply them
+        Write-Host "[DIAG] Checking temp file size: $((Get-Item $tempFile).Length) bytes"
+        $envVars = @{}
+        Get-Content $tempFile | ForEach-Object {
+            if ($_ -match "^([^=]+)=(.*)$") {
+                $envVars[$matches[1]] = $matches[2]
             }
         }
+        
+        Write-Host "[DIAG] Found $($envVars.Count) environment variables"
+        
+        # Apply the environment variables to the current PowerShell session
+        Write-VerboseOutput "Applying Visual Studio environment variables..."
+        foreach ($key in $envVars.Keys) {
+            # Skip certain system variables that shouldn't be changed
+            if ($key -in @("PWD", "OLDPWD", "PS1", "HOME", "USER")) {
+                continue
+            }
+            
+            # Get current value
+            $currentValue = [Environment]::GetEnvironmentVariable($key, "Process")
+            $newValue = $envVars[$key]
+            
+            # Only update if the value has changed
+            if ($currentValue -ne $newValue) {
+                [Environment]::SetEnvironmentVariable($key, $newValue, "Process")
+                Write-VerboseOutput "Set $key"
+                
+                # Special handling for PATH
+                if ($key -eq "Path" -or $key -eq "PATH") {
+                    $env:Path = $newValue
+                    Write-Host "[DIAG] Updated PATH"
+                }
+            }
+        }
+        
+        # Update PATH in $env: as well
+        $env:Path = [Environment]::GetEnvironmentVariable("Path", "Process")
+        
+        # Check if cl.exe is now available
+        Write-Host "[DIAG] Checking for cl.exe..."
+        $clPath = Get-Command cl.exe -ErrorAction SilentlyContinue
+        if ($clPath) {
+            Write-Host "[DIAG] Found cl.exe at: $($clPath.Source)"
+        } else {
+            Write-Host "[DIAG] cl.exe not found in PATH"
+            Write-Host "[DIAG] Current PATH: $env:Path"
+            
+            # Try to find cl.exe in the Visual Studio installation
+            $msvcDir = Join-Path $vsPath "VC\Tools\MSVC"
+            if (Test-Path $msvcDir) {
+                $msvcVersions = Get-ChildItem $msvcDir -Directory | Sort-Object Name -Descending
+                if ($msvcVersions.Count -gt 0) {
+                    $latestMsvc = $msvcVersions[0].FullName
+                    $clExePath = Join-Path $latestMsvc "bin\Host$BuildArch\$BuildArch\cl.exe"
+                    if (Test-Path $clExePath) {
+                        Write-Host "[DIAG] Found cl.exe at: $clExePath"
+                        $binPath = Split-Path $clExePath -Parent
+                        $env:Path = "$binPath;$env:Path"
+                        [Environment]::SetEnvironmentVariable("Path", $env:Path, "Process")
+                        Write-Host "[DIAG] Added to PATH: $binPath"
+                    }
+                }
+            }
+        }
+        
+        # Ensure Windows SDK tools are available
+        Write-Host "[DIAG] Checking for Windows SDK tools..."
+        
+        # Find Windows SDK
+        $windowsKitsRoot = [Environment]::GetEnvironmentVariable("WindowsSdkDir", "Process")
+        if (-not $windowsKitsRoot) {
+            # Try common locations
+            $windowsKitsRoot = "${env:ProgramFiles(x86)}\Windows Kits\10"
+            if (-not (Test-Path $windowsKitsRoot)) {
+                $windowsKitsRoot = "C:\Program Files (x86)\Windows Kits\10"
+            }
+        }
+        
+        if (Test-Path $windowsKitsRoot) {
+            Write-Host "[DIAG] Found Windows Kits at: $windowsKitsRoot"
+            
+            # Find the latest Windows SDK version
+            $sdkVersionsPath = Join-Path $windowsKitsRoot "bin"
+            if (Test-Path $sdkVersionsPath) {
+                $sdkVersions = Get-ChildItem $sdkVersionsPath -Directory | Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } | Sort-Object Name -Descending
+                if ($sdkVersions.Count -gt 0) {
+                    $latestSdkVersion = $sdkVersions[0].Name
+                    Write-Host "[DIAG] Using Windows SDK version: $latestSdkVersion"
+                    
+                    # Add Windows SDK bin paths
+                    $sdkBinPath = Join-Path $windowsKitsRoot "bin\$latestSdkVersion\$BuildArch"
+                    if (Test-Path $sdkBinPath) {
+                        $env:Path = "$sdkBinPath;$env:Path"
+                        [Environment]::SetEnvironmentVariable("Path", $env:Path, "Process")
+                        Write-Host "[DIAG] Added Windows SDK tools to PATH: $sdkBinPath"
+                        
+                        # Verify mt.exe and rc.exe
+                        $mtExe = Join-Path $sdkBinPath "mt.exe"
+                        $rcExe = Join-Path $sdkBinPath "rc.exe"
+                        if (Test-Path $mtExe) {
+                            Write-Host "[DIAG] Found mt.exe at: $mtExe"
+                        } else {
+                            Write-Host "[DIAG] WARNING: mt.exe not found at expected location"
+                        }
+                        if (Test-Path $rcExe) {
+                            Write-Host "[DIAG] Found rc.exe at: $rcExe"
+                        } else {
+                            Write-Host "[DIAG] WARNING: rc.exe not found at expected location"
+                        }
+                        
+                        # Add Windows SDK library paths
+                        $sdkLibPath = Join-Path $windowsKitsRoot "Lib\$latestSdkVersion"
+                        if (Test-Path $sdkLibPath) {
+                            $libPaths = @(
+                                (Join-Path $sdkLibPath "um\$BuildArch"),
+                                (Join-Path $sdkLibPath "ucrt\$BuildArch"),
+                                (Join-Path $sdkLibPath "km\$BuildArch")
+                            )
+                            
+                            $existingLib = [Environment]::GetEnvironmentVariable("LIB", "Process")
+                            $newLib = ($libPaths + $existingLib) -join ";"
+                            [Environment]::SetEnvironmentVariable("LIB", $newLib, "Process")
+                            $env:LIB = $newLib
+                            
+                            Write-Host "[DIAG] Added Windows SDK library paths:"
+                            foreach ($libPath in $libPaths) {
+                                if (Test-Path $libPath) {
+                                    Write-Host "[DIAG]   ✓ $libPath"
+                                } else {
+                                    Write-Host "[DIAG]   ✗ $libPath (not found)"
+                                }
+                            }
+                        }
+                        
+                        # Also add MSVC library paths
+                        $msvcLibPath = Join-Path $latestMsvc "lib\$BuildArch"
+                        if (Test-Path $msvcLibPath) {
+                            $currentLib = [Environment]::GetEnvironmentVariable("LIB", "Process")
+                            $newLib = "$msvcLibPath;$currentLib"
+                            [Environment]::SetEnvironmentVariable("LIB", $newLib, "Process")
+                            $env:LIB = $newLib
+                            Write-Host "[DIAG] Added MSVC library path: $msvcLibPath"
+                        }
+                    }
+                }
+            }
+        } else {
+            Write-Host "[DIAG] WARNING: Windows Kits not found at expected location"
+        }
+        
+        Remove-Item $batchFile -Force -ErrorAction SilentlyContinue
     }
     catch {
         Write-Error $_.Exception.Message
@@ -179,14 +353,16 @@ function Setup-VisualStudioEnvironment {
 function Test-HipSdk {
     $hipSdk = $env:HIP_PATH
     if (-not $hipSdk) {
-        Write-Error "HIP_PATH environment variable not set. Please install HIP SDK."
-        return $false
+        Write-Warning "HIP_PATH environment variable not set. HIP SDK features will be disabled."
+        Write-Host "Continuing build without HIP/AMD GPU support..."
+        return $true  # Continue without HIP
     }
 
     $hipInclude = Join-Path $hipSdk "include"
     if (-not (Test-Path $hipInclude)) {
-        Write-Error "HIP SDK installation appears to be incomplete. Missing: $hipInclude"
-        return $false
+        Write-Warning "HIP SDK installation appears to be incomplete. Missing: $hipInclude"
+        Write-Host "Continuing build without HIP/AMD GPU support..."
+        return $true  # Continue without HIP
     }
 
     Write-VerboseOutput "HIP SDK found at: $hipSdk"
@@ -396,19 +572,44 @@ if (-not (Clean-BuildDirectory $buildDir)) {
 
 # Run CMake configuration with detailed error output
 Write-VerboseOutput "Configuring CMake..."
-$cmakeOutput = & {
-    $ErrorActionPreference = "Continue"
-    Push-Location $projectRoot
-    $output = cmake -B build -S . -G "Ninja" $cmakeVars 2>&1
-    $result = $LASTEXITCODE
-    Pop-Location
-    return $result, $output
-}
+Write-Host "Running CMake configuration..."
+Write-Host "CMake command: cmake -B build -S . -G `"Ninja`" $($cmakeVars -join ' ')"
 
-if ($cmakeOutput[0] -ne 0) {
-    Write-Error "CMake configuration failed. Full output:"
-    Write-Error $cmakeOutput[1]
-    exit 1
+Push-Location $projectRoot
+try {
+    # Run CMake and capture both output and error
+    $cmakeProcess = Start-Process -FilePath "cmake" `
+        -ArgumentList (@("-B", "build", "-S", ".", "-G", "Ninja") + $cmakeVars) `
+        -NoNewWindow -PassThru -Wait `
+        -RedirectStandardOutput "$env:TEMP\cmake_out.txt" `
+        -RedirectStandardError "$env:TEMP\cmake_err.txt"
+    
+    # Read output files
+    $cmakeStdOut = if (Test-Path "$env:TEMP\cmake_out.txt") { Get-Content "$env:TEMP\cmake_out.txt" -Raw } else { "" }
+    $cmakeStdErr = if (Test-Path "$env:TEMP\cmake_err.txt") { Get-Content "$env:TEMP\cmake_err.txt" -Raw } else { "" }
+    
+    # Display output
+    if ($cmakeStdOut) {
+        Write-Host "CMake Output:"
+        Write-Host $cmakeStdOut
+    }
+    
+    if ($cmakeStdErr) {
+        Write-Host "CMake Errors/Warnings:"
+        Write-Host $cmakeStdErr
+    }
+    
+    # Clean up temp files
+    Remove-Item "$env:TEMP\cmake_out.txt" -ErrorAction SilentlyContinue
+    Remove-Item "$env:TEMP\cmake_err.txt" -ErrorAction SilentlyContinue
+    
+    if ($cmakeProcess.ExitCode -ne 0) {
+        Write-Error "CMake configuration failed with exit code: $($cmakeProcess.ExitCode)"
+        exit 1
+    }
+}
+finally {
+    Pop-Location
 }
 
 # Build the project

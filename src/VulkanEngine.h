@@ -345,7 +345,7 @@ public:
      * @brief Get the current Vulkan instance
      * @return The current Vulkan instance
      */
-    VkInstance getVkInstance() const { return vulkanContext_->getInstance(); }
+    VkInstance getVkInstance() const { return vulkanContext_->getVkInstance(); }
     
     /**
      * @brief Draw a single frame
@@ -376,8 +376,18 @@ public:
      * @param commandBuffer The command buffer to submit
      */
     void endSingleTimeCommands(VkCommandBuffer commandBuffer);
+    
+    /**
+     * @brief Submit a compute command buffer
+     * @param commandBuffer The command buffer to submit
+     */
+    void submitComputeCommand(VkCommandBuffer commandBuffer);
 
-    VulkanMemoryManager* getMemoryManager() const { return vulkanContext_->getMemoryManager(); }
+    /**
+     * @brief Get the memory manager
+     * @return Reference to the memory manager
+     */
+    VulkanMemoryManager& getMemoryManager() const { return vulkanContext_->getMemoryManager(); }
 
     /**
      * @brief Create an index buffer for the vertices

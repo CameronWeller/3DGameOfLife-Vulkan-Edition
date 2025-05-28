@@ -106,4 +106,7 @@ htmlcov/
 *.jar
 *.rar
 *.tar
-*.zip 
+*.zip
+
+# Script cache directory
+scripts/cache/ 

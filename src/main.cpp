@@ -7,14 +7,16 @@
 #include <thread>
 #include <GLFW/glfw3.h>
 
+using namespace VulkanHIP;
+
 // Global control flags
 bool g_shouldClose = false;
 
 int main() {
     try {
         // Initialize logger
-        Logger::getInstance().init();
-        Logger::getInstance().log(LogLevel::INFO, LogCategory::GENERAL, "Starting application");
+        Logger logger;
+        logger.log(LogLevel::Info, "Starting application");
 
         // Initialize Vulkan engine
         VulkanEngine engine;
@@ -31,7 +33,7 @@ int main() {
             }
         });
         
-        Logger::getInstance().log(LogLevel::INFO, LogCategory::GENERAL, "Controls:\n  ESC - Exit");
+        logger.log(LogLevel::Info, "Controls:\n  ESC - Exit");
         
         // Main render loop
         auto lastFrameTime = std::chrono::high_resolution_clock::now();
@@ -58,10 +60,10 @@ int main() {
         // Wait for device idle before cleanup
         vkDeviceWaitIdle(engine.getVulkanContext()->getDevice());
         
-        Logger::getInstance().log(LogLevel::INFO, LogCategory::GENERAL, "Application shutting down");
+        logger.log(LogLevel::Info, "Application shutting down");
         return 0;
     } catch (const std::exception& e) {
-        Logger::getInstance().log(LogLevel::ERROR, LogCategory::GENERAL, std::string("Error: ") + e.what());
+        std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
 } 

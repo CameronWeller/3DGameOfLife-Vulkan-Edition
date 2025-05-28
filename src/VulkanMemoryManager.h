@@ -83,6 +83,11 @@ public:
     // Cleanup
     void cleanup();
 
+    // Compatibility stub
+    BufferAllocation allocateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage) {
+        return createBuffer(size, usage, memoryUsage);
+    }
+
 private:
     VkDevice device_;
     VkPhysicalDevice physicalDevice_;

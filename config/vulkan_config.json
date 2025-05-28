@@ -5,6 +5,10 @@
             "VK_LAYER_KHRONOS_validation"
         ],
         "flags": {
+            "gpu_assisted": true,
+            "best_practices": true,
+            "synchronization": true,
+            "debug_printf": false,
             "shader_validation": true,
             "core_validation": true,
             "threading_validation": true,
@@ -12,7 +16,7 @@
             "parameter_validation": true
         },
         "severity": {
-            "verbose": true,
+            "verbose": false,
             "info": true,
             "warning": true,
             "error": true

@@ -23,23 +23,11 @@
     }
   ],
   "features": {
-    "vulkan-validationlayers": {
-      "description": "Vulkan validation layers for debugging",
-      "dependencies": [
-        {
-          "name": "vulkan-validationlayers",
-          "platform": "windows"
-        }
-      ]
-    },
     "hip": {
       "description": "Enable HIP support",
       "dependencies": [
         "hip"
       ]
     }
-  },
-  "default-features": [
-    "vulkan-validationlayers"
-  ]
+  }
 }

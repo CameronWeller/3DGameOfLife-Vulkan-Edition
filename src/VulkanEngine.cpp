@@ -13,6 +13,11 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <limits>
+#include <nlohmann/json.hpp>
+#include <GLFW/glfw3.h>
+#include <imgui.h>
+#include <imgui_impl_vulkan.h>
+#include <imgui_impl_glfw.h>
 #include "VulkanContext.h"
 #include "WindowManager.h"
 #include "SaveManager.h"
@@ -79,77 +84,44 @@ VulkanEngine::~VulkanEngine() {
 
 // Initialize the engine
 void VulkanEngine::init() {
-    // Create window manager first
+    // Initialize window manager
     windowManager_ = std::make_shared<WindowManager>();
-    WindowManager::WindowConfig cfg{};
-    cfg.width = WIDTH;
-    cfg.height = HEIGHT;
-    cfg.title = WINDOW_TITLE;
-    cfg.resizable = true;
-    windowManager_->init(cfg);
+    WindowManager::WindowConfig config;
+    config.width = WIDTH;
+    config.height = HEIGHT;
+    config.title = WINDOW_TITLE;
+    windowManager_->init(config);
     
-    // Create Vulkan context with window manager
-    vulkanContext_ = std::make_unique<VulkanContext>(
-        windowManager_,
-        getRequiredInstanceExtensions(),
-        enableValidationLayers ? validationLayers_ : std::vector<const char*>()
+    // Initialize Vulkan context
+    vulkanContext_ = std::make_unique<VulkanContext>();
+    vulkanContext_->init(getRequiredInstanceExtensions());
+    
+    // Create surface
+    surface_ = windowManager_->createSurface(vulkanContext_->getVkInstance());
+    
+    // Initialize memory manager
+    memoryManager_ = std::make_unique<VulkanMemoryManager>(
+        vulkanContext_->getDevice(),
+        vulkanContext_->getPhysicalDevice()
     );
-
-    // Initialize device manager with required extensions and features
-    vulkanContext_->initDeviceManager(deviceExtensions_, enabledFeatures_);
-
-    // Get queue family indices
-    queueFamilyIndices_ = vulkanContext_->getQueueFamilyIndices();
-
+    
     // Create command pools
     createCommandPools();
-
-    // Create descriptor set layout
-    createDescriptorSetLayout();
-
-    // Create graphics pipeline
-    createGraphicsPipeline();
-
+    
     // Create swap chain
     createSwapChain();
-
-    // Create image views
     createImageViews();
-
-    // Create render pass
     createRenderPass();
-
-    // Create depth resources
-    createDepthResources();
-
-    // Create color resources
-    createColorResources();
-
-    // Create framebuffers
     createFramebuffers();
-
-    // Create vertex buffer
-    createVertexBuffer();
-
-    // Create uniform buffers
-    createUniformBuffers();
-
-    // Create descriptor pool
-    createDescriptorPool();
-
-    // Create descriptor sets
-    createDescriptorSets();
-
-    // Create command buffers
+    createDepthResources();
+    createColorResources();
+    createDescriptorSetLayout();
+    createGraphicsPipeline();
     createCommandBuffers();
-
-    // Create sync objects
     createSyncObjects();
-
+    
     // Initialize ImGui
     initImGui();
-
-    std::cout << "VulkanEngine core context initialized." << std::endl;
 }
 
 // Placeholder for the new applyEnabledDeviceFeatures
@@ -290,13 +262,17 @@ void VulkanEngine::submitComputeCommand(VkCommandBuffer commandBuffer) {
 
     // Wait for graphics queue to finish if needed
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-    if (graphicsQueue_ != computeQueue_) {
+    auto graphicsQueue = vulkanContext_->getGraphicsQueue();
+    auto computeQueue = vulkanContext_->getComputeQueue();
+    if (graphicsQueue != computeQueue) {
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores = &renderFinishedSemaphores_[currentFrame_];
         submitInfo.pWaitDstStageMask = &waitStage;
     }
 
-    VK_CHECK(vkQueueSubmit(computeQueue_, 1, &submitInfo, computeFences[currentFrame_]));
+    if (vkQueueSubmit(computeQueue, 1, &submitInfo, computeFences[currentFrame_]) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to submit compute command!");
+    }
 }
 
 void VulkanEngine::createCommandPools() {
@@ -878,12 +854,9 @@ void VulkanEngine::createFramebuffers() {
 
 void VulkanEngine::createDepthResources() {
     VkFormat depthFormat = findDepthFormat();
-    auto memoryManager = vulkanContext_->getMemoryManager();
-    if (!memoryManager) {
-        throw std::runtime_error("Memory manager not available for depth resource creation");
-    }
+    auto& memoryManager = vulkanContext_->getMemoryManager();
 
-    auto depthImageAlloc = memoryManager->allocateImage(
+    auto depthImageAlloc = memoryManager.allocateImage(
         swapChainExtent_.width,
         swapChainExtent_.height,
         depthFormat,
@@ -894,17 +867,14 @@ void VulkanEngine::createDepthResources() {
     depthImage_ = depthImageAlloc.image;
     depthImageAllocation_ = depthImageAlloc.allocation;
 
-    memoryManager->createImageView(depthImage_, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, depthImageView_);
+    memoryManager.createImageView(depthImage_, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, depthImageView_);
 }
 
 void VulkanEngine::createColorResources() {
     VkFormat colorFormat = swapChainImageFormat_;
-    auto memoryManager = vulkanContext_->getMemoryManager();
-    if (!memoryManager) {
-        throw std::runtime_error("Memory manager not available for color resource creation");
-    }
+    auto& memoryManager = vulkanContext_->getMemoryManager();
 
-    auto colorImageAlloc = memoryManager->allocateImage(
+    auto colorImageAlloc = memoryManager.allocateImage(
         swapChainExtent_.width,
         swapChainExtent_.height,
         colorFormat,
@@ -915,7 +885,7 @@ void VulkanEngine::createColorResources() {
     colorImage_ = colorImageAlloc.image;
     colorImageAllocation_ = colorImageAlloc.allocation;
 
-    memoryManager->createImageView(colorImage_, colorFormat, VK_IMAGE_ASPECT_COLOR_BIT, colorImageView_);
+    memoryManager.createImageView(colorImage_, colorFormat, VK_IMAGE_ASPECT_COLOR_BIT, colorImageView_);
 }
 
 VkFormat VulkanEngine::findDepthFormat() {
@@ -947,26 +917,19 @@ bool VulkanEngine::hasStencilComponent(VkFormat format) {
 
 void VulkanEngine::createVertexBuffer() {
     VkDeviceSize bufferSize = sizeof(vertices_[0]) * vertices_.size();
-
-    auto memoryManager = vulkanContext_->getMemoryManager();
-    if (!memoryManager) {
-        throw std::runtime_error("Memory manager not available for vertex buffer creation");
-    }
+    auto& memoryManager = vulkanContext_->getMemoryManager();
 
     // Create staging buffer
-    auto stagingBuffer = memoryManager->getStagingBuffer(bufferSize);
-
-    // Map and copy data
-    void* data;
-    vmaMapMemory(memoryManager->getAllocator(), stagingBuffer.allocation, &data);
+    auto stagingBuffer = memoryManager.createStagingBuffer(bufferSize);
+    void* data = memoryManager.mapStagingBuffer(stagingBuffer);
     memcpy(data, vertices_.data(), (size_t)bufferSize);
-    vmaUnmapMemory(memoryManager->getAllocator(), stagingBuffer.allocation);
+    memoryManager.unmapStagingBuffer(stagingBuffer);
 
     // Create vertex buffer
-    auto vertexBufferAlloc = memoryManager->allocateBuffer(
+    auto vertexBufferAlloc = memoryManager.createBuffer(
         bufferSize,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        VMA_MEMORY_USAGE_GPU_ONLY
     );
     vertexBuffer_ = vertexBufferAlloc.buffer;
     vertexBufferAllocation_ = vertexBufferAlloc.allocation;
@@ -974,32 +937,25 @@ void VulkanEngine::createVertexBuffer() {
     // Copy data
     copyBuffer(stagingBuffer.buffer, vertexBuffer_, bufferSize);
 
-    // Return staging buffer
-    memoryManager->returnStagingBuffer(stagingBuffer);
+    // Destroy staging buffer
+    memoryManager.destroyStagingBuffer(stagingBuffer);
 }
 
 void VulkanEngine::createIndexBuffer() {
     VkDeviceSize bufferSize = sizeof(indices_[0]) * indices_.size();
-
-    auto memoryManager = vulkanContext_->getMemoryManager();
-    if (!memoryManager) {
-        throw std::runtime_error("Memory manager not available for index buffer creation");
-    }
+    auto& memoryManager = vulkanContext_->getMemoryManager();
 
     // Create staging buffer
-    auto stagingBuffer = memoryManager->getStagingBuffer(bufferSize);
-
-    // Map and copy data
-    void* data;
-    vmaMapMemory(memoryManager->getAllocator(), stagingBuffer.allocation, &data);
+    auto stagingBuffer = memoryManager.createStagingBuffer(bufferSize);
+    void* data = memoryManager.mapStagingBuffer(stagingBuffer);
     memcpy(data, indices_.data(), (size_t)bufferSize);
-    vmaUnmapMemory(memoryManager->getAllocator(), stagingBuffer.allocation);
+    memoryManager.unmapStagingBuffer(stagingBuffer);
 
     // Create index buffer
-    auto indexBufferAlloc = memoryManager->allocateBuffer(
+    auto indexBufferAlloc = memoryManager.createBuffer(
         bufferSize,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        VMA_MEMORY_USAGE_GPU_ONLY
     );
     indexBuffer_ = indexBufferAlloc.buffer;
     indexBufferAllocation_ = indexBufferAlloc.allocation;
@@ -1007,34 +963,27 @@ void VulkanEngine::createIndexBuffer() {
     // Copy data
     copyBuffer(stagingBuffer.buffer, indexBuffer_, bufferSize);
 
-    // Return staging buffer
-    memoryManager->returnStagingBuffer(stagingBuffer);
+    // Destroy staging buffer
+    memoryManager.destroyStagingBuffer(stagingBuffer);
 }
 
 void VulkanEngine::createUniformBuffers() {
     VkDeviceSize bufferSize = sizeof(UniformBufferObject);
-
-    auto memoryManager = vulkanContext_->getMemoryManager();
-    if (!memoryManager) {
-        throw std::runtime_error("Memory manager not available for uniform buffer creation");
-    }
+    auto& memoryManager = vulkanContext_->getMemoryManager();
 
     uniformBuffers_.resize(MAX_FRAMES_IN_FLIGHT);
     uniformBufferAllocations_.resize(MAX_FRAMES_IN_FLIGHT);
     uniformBuffersMapped_.resize(MAX_FRAMES_IN_FLIGHT);
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        auto allocation = memoryManager->allocateBuffer(
+        auto allocation = memoryManager.createBuffer(
             bufferSize,
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+            VMA_MEMORY_USAGE_CPU_TO_GPU
         );
         uniformBuffers_[i] = allocation.buffer;
         uniformBufferAllocations_[i] = allocation.allocation;
-
-        void* data;
-        vmaMapMemory(memoryManager->getAllocator(), allocation.allocation, &data);
-        uniformBuffersMapped_[i] = data;
+        uniformBuffersMapped_[i] = memoryManager.mapMemory(allocation);
     }
 }
 
@@ -1175,7 +1124,7 @@ void VulkanEngine::drawMenu() {
     if (showSavePicker_) drawSavePicker();
 
     ImGui::Render();
-    renderImguiDrawData();
+    // ImGui rendering handled in drawFrame
 }
 
 void VulkanEngine::drawSavePicker() {
@@ -1296,8 +1245,9 @@ void VulkanEngine::loadSave(const std::string& filename) {
 }
 
 void VulkanEngine::saveCurrent() {
-    std::string filename = saveManager_->generateSaveFileName();
-    saveManager_->saveCurrentState(filename);
+    std::string filename = generateSaveFileName("save_");
+    // If SaveManager::saveCurrentState requires more arguments, pass them here
+    saveManager_->saveCurrentState(filename, loadedVoxelData_);
 }
 
 void VulkanEngine::setAppState(App::State newState) {
@@ -1349,7 +1299,7 @@ void VulkanEngine::drawLoading() {
     ImGui::End();
 
     ImGui::Render();
-    renderImguiDrawData();
+    // ImGui rendering handled in drawFrame
 }
 
 void VulkanEngine::updateLoadingState(const std::string& status, float progress) {
@@ -1367,7 +1317,7 @@ void VulkanEngine::cancelLoading() {
 }
 
 bool VulkanEngine::isAutoSaveDue() const {
-    std::lock_guard<std::mutex> lock(autoSaveMutex_);
+    std::lock_guard<std::mutex> lock(saveMutex_);
     if (!autoSaveEnabled_) return false;
     auto now = std::chrono::steady_clock::now();
     return (now - lastAutoSave_) >= AUTO_SAVE_INTERVAL;
@@ -1446,55 +1396,6 @@ std::string VulkanEngine::generateSaveFileName(const char* prefix) const {
     return ss.str();
 }
 
-void VulkanEngine::renderImguiDrawData() {
-    ImDrawData* drawData = ImGui::GetDrawData();
-    if (!drawData) return;
-
-    // Get current command buffer
-    VkCommandBuffer commandBuffer = commandBuffers_[currentFrame_];
-
-    // Begin command buffer
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(commandBuffer, &beginInfo);
-
-    // Begin render pass
-    VkRenderPassBeginInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass = renderPass_;
-    renderPassInfo.framebuffer = swapChainFramebuffers_[currentFrame_];
-    renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent = swapChainExtent_;
-
-    std::array<VkClearValue, 2> clearValues{};
-    clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-    clearValues[1].depthStencil = {1.0f, 0};
-
-    renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
-    renderPassInfo.pClearValues = clearValues.data();
-
-    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-    // Record ImGui draw commands
-    ImGui_ImplVulkan_RenderDrawData(drawData, commandBuffer);
-
-    // End render pass
-    vkCmdEndRenderPass(commandBuffer);
-
-    // End command buffer
-    vkEndCommandBuffer(commandBuffer);
-
-    // Submit command buffer
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
-
-    vkQueueSubmit(vulkanContext_->getGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(vulkanContext_->getGraphicsQueue());
-}
-
 void VulkanEngine::createVoxelBuffers() {
     // Create vertex data for voxels
     createVoxelVertexData(loadedVoxelData_);
@@ -1507,17 +1408,16 @@ void VulkanEngine::createVoxelBuffers() {
     }
 
     // Create staging buffer for vertices
-    auto vertexStagingBuffer = memoryManager->getStagingBuffer(vertexBufferSize);
-    void* vertexData;
-    vmaMapMemory(memoryManager->getAllocator(), vertexStagingBuffer.allocation, &vertexData);
+    auto vertexStagingBuffer = memoryManager->createStagingBuffer(vertexBufferSize);
+    void* vertexData = memoryManager->mapStagingBuffer(vertexStagingBuffer);
     memcpy(vertexData, voxelVertices_.data(), vertexBufferSize);
-    vmaUnmapMemory(memoryManager->getAllocator(), vertexStagingBuffer.allocation);
+    memoryManager->unmapStagingBuffer(vertexStagingBuffer);
 
     // Create vertex buffer
-    auto vertexBufferAlloc = memoryManager->allocateBuffer(
+    auto vertexBufferAlloc = memoryManager->createBuffer(
         vertexBufferSize,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        VMA_MEMORY_USAGE_GPU_ONLY
     );
     voxelVertexBuffer_ = vertexBufferAlloc.buffer;
     voxelVertexBufferAllocation_ = vertexBufferAlloc.allocation;
@@ -1527,17 +1427,16 @@ void VulkanEngine::createVoxelBuffers() {
 
     // Create index buffer
     VkDeviceSize indexBufferSize = sizeof(uint32_t) * voxelIndices_.size();
-    auto indexStagingBuffer = memoryManager->getStagingBuffer(indexBufferSize);
-    void* indexData;
-    vmaMapMemory(memoryManager->getAllocator(), indexStagingBuffer.allocation, &indexData);
+    auto indexStagingBuffer = memoryManager->createStagingBuffer(indexBufferSize);
+    void* indexData = memoryManager->mapStagingBuffer(indexStagingBuffer);
     memcpy(indexData, voxelIndices_.data(), indexBufferSize);
-    vmaUnmapMemory(memoryManager->getAllocator(), indexStagingBuffer.allocation);
+    memoryManager->unmapStagingBuffer(indexStagingBuffer);
 
     // Create index buffer
-    auto indexBufferAlloc = memoryManager->allocateBuffer(
+    auto indexBufferAlloc = memoryManager->createBuffer(
         indexBufferSize,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        VMA_MEMORY_USAGE_GPU_ONLY
     );
     voxelIndexBuffer_ = indexBufferAlloc.buffer;
     voxelIndexBufferAllocation_ = indexBufferAlloc.allocation;
@@ -1545,9 +1444,9 @@ void VulkanEngine::createVoxelBuffers() {
     // Copy index data
     copyBuffer(indexStagingBuffer.buffer, voxelIndexBuffer_, indexBufferSize);
 
-    // Return staging buffers
-    memoryManager->returnStagingBuffer(vertexStagingBuffer);
-    memoryManager->returnStagingBuffer(indexStagingBuffer);
+    // Clean up staging buffers
+    memoryManager->destroyStagingBuffer(vertexStagingBuffer);
+    memoryManager->destroyStagingBuffer(indexStagingBuffer);
 }
 
 void VulkanEngine::createVoxelVertexData(const VoxelData& voxelData) {
@@ -1631,14 +1530,14 @@ void VulkanEngine::createVoxelVertexData(const VoxelData& voxelData) {
 
 void VulkanEngine::cleanupVoxelBuffers() {
     if (vulkanContext_ && vulkanContext_->getMemoryManager()) {
-        auto vma = vulkanContext_->getMemoryManager()->getAllocator();
+        auto memoryManager = vulkanContext_->getMemoryManager();
         
         if (voxelVertexBuffer_ != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(vma, voxelVertexBuffer_, voxelVertexBufferAllocation_);
+            memoryManager->destroyBuffer({voxelVertexBuffer_, voxelVertexBufferAllocation_, {}, 0, nullptr});
             voxelVertexBuffer_ = VK_NULL_HANDLE;
         }
         if (voxelIndexBuffer_ != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(vma, voxelIndexBuffer_, voxelIndexBufferAllocation_);
+            memoryManager->destroyBuffer({voxelIndexBuffer_, voxelIndexBufferAllocation_, {}, 0, nullptr});
             voxelIndexBuffer_ = VK_NULL_HANDLE;
         }
     }

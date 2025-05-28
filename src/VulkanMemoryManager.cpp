@@ -2,13 +2,15 @@
 #include "VulkanContext.h"
 #include <stdexcept>
 #include <algorithm>
+#include <cstring>
 
 namespace VulkanHIP {
 
 VulkanMemoryManager::VulkanMemoryManager(VkDevice device, VkPhysicalDevice physicalDevice)
-    : device_(device), physicalDevice_(physicalDevice) {
+    : device_(device), physicalDevice_(physicalDevice), allocator_(VK_NULL_HANDLE), 
+      commandPool_(VK_NULL_HANDLE), graphicsQueue_(VK_NULL_HANDLE), maxStagingSize_(0) {
     createAllocator();
-    createCommandPool();
+    // Command pool creation should be done elsewhere or passed in
 }
 
 VulkanMemoryManager::~VulkanMemoryManager() {
@@ -16,13 +18,20 @@ VulkanMemoryManager::~VulkanMemoryManager() {
 }
 
 void VulkanMemoryManager::cleanup() {
-    destroyCommandPool();
+    cleanupStagingBuffers();
+    if (commandPool_ != VK_NULL_HANDLE) {
+        vkDestroyCommandPool(device_, commandPool_, nullptr);
+        commandPool_ = VK_NULL_HANDLE;
+    }
     destroyAllocator();
 }
 
-BufferAllocation VulkanMemoryManager::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage) {
+VulkanMemoryManager::BufferAllocation VulkanMemoryManager::createBuffer(
+    VkDeviceSize size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage) {
+    
     BufferAllocation allocation{};
     allocation.size = size;
+    allocation.mappedData = nullptr;
 
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -30,47 +39,38 @@ BufferAllocation VulkanMemoryManager::createBuffer(VkDeviceSize size, VkBufferUs
     bufferInfo.usage = usage;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    VmaAllocationCreateInfo allocCreateInfo = {};
-    allocCreateInfo.usage = memoryUsage;
-    if (memoryUsage == VMA_MEMORY_USAGE_CPU_TO_GPU || memoryUsage == VMA_MEMORY_USAGE_CPU_ONLY) {
-        allocCreateInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = memoryUsage;
+
+    if (vmaCreateBuffer(allocator_, &bufferInfo, &allocInfo, 
+                       &allocation.buffer, &allocation.allocation, 
+                       &allocation.allocationInfo) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create buffer!");
     }
 
-    if (vmaCreateBuffer(allocator_, &bufferInfo, &allocCreateInfo, &allocation.buffer, &allocation.allocation, &allocation.allocationInfo) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create buffer with VMA!");
-    }
-
-    if (memoryUsage == VMA_MEMORY_USAGE_CPU_TO_GPU || memoryUsage == VMA_MEMORY_USAGE_CPU_ONLY) {
-        vmaMapMemory(allocator_, allocation.allocation, &allocation.mappedData);
-    }
-
+    bufferPool_.push_back(allocation);
     return allocation;
 }
 
 void VulkanMemoryManager::destroyBuffer(const BufferAllocation& allocation) {
-    if (allocation.mappedData) {
-        vmaUnmapMemory(allocator_, allocation.allocation);
-    }
-    if (allocation.buffer != VK_NULL_HANDLE) {
+    if (allocation.allocation) {
         vmaDestroyBuffer(allocator_, allocation.buffer, allocation.allocation);
     }
 }
 
 void* VulkanMemoryManager::mapMemory(const BufferAllocation& allocation) {
-    if (!allocation.mappedData) {
-        vmaMapMemory(allocator_, allocation.allocation, &allocation.mappedData);
+    void* data;
+    if (vmaMapMemory(allocator_, allocation.allocation, &data) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to map buffer memory!");
     }
-    return allocation.mappedData;
+    return data;
 }
 
 void VulkanMemoryManager::unmapMemory(const BufferAllocation& allocation) {
-    if (allocation.mappedData) {
-        vmaUnmapMemory(allocator_, allocation.allocation);
-        allocation.mappedData = nullptr;
-    }
+    vmaUnmapMemory(allocator_, allocation.allocation);
 }
 
-StagingBuffer VulkanMemoryManager::createStagingBuffer(VkDeviceSize size) {
+VulkanMemoryManager::StagingBuffer VulkanMemoryManager::createStagingBuffer(VkDeviceSize size) {
     StagingBuffer staging{};
     staging.size = size;
 
@@ -80,42 +80,144 @@ StagingBuffer VulkanMemoryManager::createStagingBuffer(VkDeviceSize size) {
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    VmaAllocationCreateInfo allocCreateInfo = {};
-    allocCreateInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-    allocCreateInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+    allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
-    if (vmaCreateBuffer(allocator_, &bufferInfo, &allocCreateInfo, &staging.buffer, &staging.allocation, &staging.allocationInfo) != VK_SUCCESS) {
+    VmaAllocationInfo allocationInfo;
+    if (vmaCreateBuffer(allocator_, &bufferInfo, &allocInfo,
+                       &staging.buffer, &staging.allocation, &allocationInfo) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create staging buffer!");
     }
 
-    vmaMapMemory(allocator_, staging.allocation, &staging.mappedData);
+    staging.allocationInfo = allocationInfo;
+    staging.mappedData = allocationInfo.pMappedData;
+    
     return staging;
 }
 
 void VulkanMemoryManager::destroyStagingBuffer(StagingBuffer& stagingBuffer) {
-    if (stagingBuffer.mappedData) {
-        vmaUnmapMemory(allocator_, stagingBuffer.allocation);
-        stagingBuffer.mappedData = nullptr;
-    }
-    if (stagingBuffer.buffer != VK_NULL_HANDLE) {
+    if (stagingBuffer.allocation) {
         vmaDestroyBuffer(allocator_, stagingBuffer.buffer, stagingBuffer.allocation);
         stagingBuffer.buffer = VK_NULL_HANDLE;
-        stagingBuffer.allocation = nullptr;
+        stagingBuffer.allocation = VK_NULL_HANDLE;
+        stagingBuffer.mappedData = nullptr;
     }
 }
 
-void VulkanMemoryManager::copyBuffer(
-    const BufferAllocation& src,
-    const BufferAllocation& dst,
-    VkDeviceSize size) {
+void* VulkanMemoryManager::mapStagingBuffer(StagingBuffer& stagingBuffer) {
+    return stagingBuffer.mappedData;  // Already mapped
+}
+
+void VulkanMemoryManager::unmapStagingBuffer(StagingBuffer& stagingBuffer) {
+    // No-op since we use persistently mapped buffers
+}
+
+void VulkanMemoryManager::createAllocator() {
+    VmaAllocatorCreateInfo allocatorInfo{};
+    allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_2;
+    allocatorInfo.physicalDevice = physicalDevice_;
+    allocatorInfo.device = device_;
+    allocatorInfo.instance = VulkanContext::getInstance().getVkInstance();
+
+    if (vmaCreateAllocator(&allocatorInfo, &allocator_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create Vulkan Memory Allocator!");
+    }
+}
+
+void VulkanMemoryManager::destroyAllocator() {
+    if (allocator_) {
+        vmaDestroyAllocator(allocator_);
+        allocator_ = VK_NULL_HANDLE;
+    }
+}
+
+uint32_t VulkanMemoryManager::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const {
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice_, &memProperties);
+
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+        if ((typeFilter & (1 << i)) && 
+            (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+        }
+    }
+
+    throw std::runtime_error("Failed to find suitable memory type!");
+}
+
+void VulkanMemoryManager::createStagingPool(VkDeviceSize size) {
+    std::lock_guard<std::mutex> lock(stagingMutex_);
+    maxStagingSize_ = size;
+    // Pre-allocate staging buffers if needed
+}
+
+void VulkanMemoryManager::destroyStagingPool() {
+    std::lock_guard<std::mutex> lock(stagingMutex_);
+    cleanupStagingBuffers();
+    maxStagingSize_ = 0;
+}
+
+void VulkanMemoryManager::cleanupStagingBuffers() {
+    for (auto& staging : stagingPool_) {
+        destroyStagingBuffer(staging);
+    }
+    stagingPool_.clear();
+}
+
+VulkanMemoryManager::StagingBuffer VulkanMemoryManager::allocateFromStagingPool(VkDeviceSize size) {
+    std::lock_guard<std::mutex> lock(stagingMutex_);
     
-    VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+    // For now, just create a new staging buffer
+    // TODO: Implement proper pooling
+    return createStagingBuffer(size);
+}
 
-    VkBufferCopy copyRegion{};
-    copyRegion.size = size;
-    vkCmdCopyBuffer(commandBuffer, src.buffer, dst.buffer, 1, &copyRegion);
+void VulkanMemoryManager::freeStagingBuffer(StagingBuffer& stagingBuffer) {
+    std::lock_guard<std::mutex> lock(stagingMutex_);
+    destroyStagingBuffer(stagingBuffer);
+}
 
-    endSingleTimeCommands(commandBuffer);
+VulkanMemoryManager::ImageAllocation VulkanMemoryManager::allocateImage(
+    uint32_t width, uint32_t height, VkFormat format, 
+    VkImageTiling tiling, VkImageUsageFlags usage, 
+    VkMemoryPropertyFlags properties) {
+    
+    ImageAllocation allocation{};
+    
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.extent.width = width;
+    imageInfo.extent.height = height;
+    imageInfo.extent.depth = 1;
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.format = format;
+    imageInfo.tiling = tiling;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage = usage;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+    if (vmaCreateImage(allocator_, &imageInfo, &allocInfo,
+                      &allocation.image, &allocation.allocation, nullptr) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create image!");
+    }
+
+    allocation.size = width * height * 4; // Approximate
+    allocation.inUse = true;
+    
+    return allocation;
+}
+
+void VulkanMemoryManager::freeImage(const ImageAllocation& allocation) {
+    if (allocation.allocation) {
+        vmaDestroyImage(allocator_, allocation.image, allocation.allocation);
+    }
 }
 
 VkCommandBuffer VulkanMemoryManager::beginSingleTimeCommands() {
@@ -133,7 +235,6 @@ VkCommandBuffer VulkanMemoryManager::beginSingleTimeCommands() {
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
     vkBeginCommandBuffer(commandBuffer, &beginInfo);
-
     return commandBuffer;
 }
 
@@ -145,148 +246,14 @@ void VulkanMemoryManager::endSingleTimeCommands(VkCommandBuffer commandBuffer) {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer;
 
-    vkQueueSubmit(VulkanContext::getInstance().getGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(VulkanContext::getInstance().getGraphicsQueue());
+    vkQueueSubmit(graphicsQueue_, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue_);
 
     vkFreeCommandBuffers(device_, commandPool_, 1, &commandBuffer);
 }
 
-void VulkanMemoryManager::createCommandPool() {
-    auto& context = VulkanContext::getInstance();
-    QueueFamilyIndices queueFamilyIndices = context.findQueueFamilies(physicalDevice_);
-
-    VkCommandPoolCreateInfo poolInfo{};
-    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value();
-    poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-
-    if (vkCreateCommandPool(device_, &poolInfo, nullptr, &commandPool_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create command pool!");
-    }
-}
-
-void VulkanMemoryManager::destroyCommandPool() {
-    if (commandPool_ != VK_NULL_HANDLE) {
-        vkDestroyCommandPool(device_, commandPool_, nullptr);
-        commandPool_ = VK_NULL_HANDLE;
-    }
-}
-
-void VulkanMemoryManager::createAllocator() {
-    VmaAllocatorCreateInfo allocatorInfo = {};
-    allocatorInfo.physicalDevice = physicalDevice_;
-    allocatorInfo.device = device_;
-    allocatorInfo.instance = VulkanContext::getInstance().getVkInstance();
-
-    if (vmaCreateAllocator(&allocatorInfo, &allocator_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create VMA allocator!");
-    }
-}
-
-void VulkanMemoryManager::destroyAllocator() {
-    if (allocator_ != VK_NULL_HANDLE) {
-        vmaDestroyAllocator(allocator_);
-        allocator_ = VK_NULL_HANDLE;
-    }
-}
-
-void* VulkanMemoryManager::mapStagingBuffer(StagingBuffer& stagingBuffer) {
-    if (!stagingBuffer.mappedData) {
-        vmaMapMemory(allocator_, stagingBuffer.allocation, &stagingBuffer.mappedData);
-    }
-    return stagingBuffer.mappedData;
-}
-
-void VulkanMemoryManager::unmapStagingBuffer(StagingBuffer& stagingBuffer) {
-    if (stagingBuffer.mappedData) {
-        vmaUnmapMemory(allocator_, stagingBuffer.allocation);
-        stagingBuffer.mappedData = nullptr;
-    }
-}
-
-void VulkanMemoryManager::createStagingPool(VkDeviceSize size) {
-    std::lock_guard<std::mutex> lock(stagingMutex_);
-    maxStagingSize_ = size;
-    stagingPool_.clear();
-}
-
-void VulkanMemoryManager::destroyStagingPool() {
-    std::lock_guard<std::mutex> lock(stagingMutex_);
-    for (auto& buffer : stagingPool_) {
-        destroyStagingBuffer(buffer);
-    }
-    stagingPool_.clear();
-    maxStagingSize_ = 0;
-}
-
-StagingBuffer VulkanMemoryManager::allocateFromStagingPool(VkDeviceSize size) {
-    std::lock_guard<std::mutex> lock(stagingMutex_);
-    
-    // Try to find an existing buffer that's large enough
-    for (auto& buffer : stagingPool_) {
-        if (!buffer.mappedData && buffer.size >= size) {
-            vmaMapMemory(allocator_, buffer.allocation, &buffer.mappedData);
-            return buffer;
-        }
-    }
-    
-    // Create a new buffer if none available
-    return createStagingBuffer(size);
-}
-
-void VulkanMemoryManager::freeStagingBuffer(StagingBuffer& stagingBuffer) {
-    std::lock_guard<std::mutex> lock(stagingMutex_);
-    if (stagingBuffer.mappedData) {
-        vmaUnmapMemory(allocator_, stagingBuffer.allocation);
-        stagingBuffer.mappedData = nullptr;
-    }
-}
-
-ImageAllocation VulkanMemoryManager::allocateImage(
-    uint32_t width, uint32_t height, VkFormat format,
-    VkImageTiling tiling, VkImageUsageFlags usage,
-    VkMemoryPropertyFlags properties) {
-    
-    ImageAllocation allocation{};
-    
-    VkImageCreateInfo imageInfo{};
-    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.extent.width = width;
-    imageInfo.extent.height = height;
-    imageInfo.extent.depth = 1;
-    imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
-    imageInfo.format = format;
-    imageInfo.tiling = tiling;
-    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageInfo.usage = usage;
-    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-
-    VmaAllocationCreateInfo allocInfo = {};
-    allocInfo.usage = (properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) ? 
-        VMA_MEMORY_USAGE_CPU_TO_GPU : VMA_MEMORY_USAGE_GPU_ONLY;
-
-    if (vmaCreateImage(allocator_, &imageInfo, &allocInfo, &allocation.image, &allocation.allocation, nullptr) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create image!");
-    }
-
-    allocation.size = width * height * 4; // Assuming RGBA format
-    allocation.inUse = true;
-    return allocation;
-}
-
-void VulkanMemoryManager::freeImage(const ImageAllocation& allocation) {
-    if (allocation.image != VK_NULL_HANDLE) {
-        vmaDestroyImage(allocator_, allocation.image, allocation.allocation);
-    }
-}
-
-void VulkanMemoryManager::createImageView(
-    VkImage image, VkFormat format, VkImageAspectFlags aspectFlags,
-    VkImageView& imageView) {
-    
+void VulkanMemoryManager::createImageView(VkImage image, VkFormat format, 
+                                         VkImageAspectFlags aspectFlags, VkImageView& imageView) {
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = image;
@@ -303,10 +270,8 @@ void VulkanMemoryManager::createImageView(
     }
 }
 
-void VulkanMemoryManager::transitionImageLayout(
-    VkImage image, VkFormat format, VkImageLayout oldLayout,
-    VkImageLayout newLayout) {
-    
+void VulkanMemoryManager::transitionImageLayout(VkImage image, VkFormat format, 
+                                               VkImageLayout oldLayout, VkImageLayout newLayout) {
     VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
     VkImageMemoryBarrier barrier{};
@@ -336,24 +301,15 @@ void VulkanMemoryManager::transitionImageLayout(
         sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
         destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     } else {
-        throw std::runtime_error("Unsupported layout transition!");
+        throw std::invalid_argument("Unsupported layout transition!");
     }
 
-    vkCmdPipelineBarrier(
-        commandBuffer,
-        sourceStage, destinationStage,
-        0,
-        0, nullptr,
-        0, nullptr,
-        1, &barrier
-    );
+    vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
     endSingleTimeCommands(commandBuffer);
 }
 
-void VulkanMemoryManager::copyBufferToImage(
-    VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {
-    
+void VulkanMemoryManager::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {
     VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
     VkBufferImageCopy region{};
@@ -367,24 +323,17 @@ void VulkanMemoryManager::copyBufferToImage(
     region.imageOffset = {0, 0, 0};
     region.imageExtent = {width, height, 1};
 
-    vkCmdCopyBufferToImage(
-        commandBuffer,
-        buffer,
-        image,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        1,
-        &region
-    );
+    vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
     endSingleTimeCommands(commandBuffer);
 }
 
-void VulkanMemoryManager::generateMipmaps(
-    VkImage image, VkFormat imageFormat, int32_t texWidth, int32_t texHeight, uint32_t mipLevels) {
-    
+void VulkanMemoryManager::generateMipmaps(VkImage image, VkFormat imageFormat, 
+                                         int32_t texWidth, int32_t texHeight, uint32_t mipLevels) {
     // Check if image format supports linear blitting
     VkFormatProperties formatProperties;
     vkGetPhysicalDeviceFormatProperties(physicalDevice_, imageFormat, &formatProperties);
+
     if (!(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
         throw std::runtime_error("Texture image format does not support linear blitting!");
     }

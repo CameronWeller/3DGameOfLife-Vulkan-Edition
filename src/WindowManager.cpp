@@ -9,10 +9,7 @@ namespace VulkanHIP {
 
 static Logger logger;
 
-WindowManager& WindowManager::getInstance() {
-    static WindowManager instance;
-    return instance;
-}
+// getInstance is already defined in the header
 
 WindowManager::WindowManager() : window_(nullptr) {
     if (!glfwInit()) {

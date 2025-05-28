@@ -12,6 +12,19 @@ project(cpp-vulkan-hip-engine LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Require MSVC compiler for best Vulkan compatibility on Windows
+if(WIN32)
+    if(NOT MSVC)
+        message(FATAL_ERROR "This project requires Microsoft Visual C++ (MSVC) compiler on Windows for optimal Vulkan support. "
+                            "Please install Visual Studio 2022 with C++ development tools or run scripts/install-msvc-compiler.ps1")
+    endif()
+    
+    # Set MSVC-specific flags for better Vulkan compatibility
+    if(MSVC_VERSION LESS 1930)
+        message(FATAL_ERROR "Visual Studio 2022 or later is required (MSVC version 19.30+)")
+    endif()
+endif()
+
 # Set policy for GLM compatibility
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 

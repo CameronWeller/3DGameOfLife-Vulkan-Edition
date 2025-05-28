@@ -18,7 +18,39 @@
 // typedef VkResult (VKAPI_PTR *PFN_vkCreateDebugUtilsMessengerEXT)(VkInstance, const VkDebugUtilsMessengerCreateInfoEXT*, const VkAllocationCallbacks*, VkDebugUtilsMessengerEXT*);
 // typedef void (VKAPI_PTR *PFN_vkDestroyDebugUtilsMessengerEXT)(VkInstance, VkDebugUtilsMessengerEXT, const VkAllocationCallbacks*);
 
+// Forward declarations
+struct ValidationLayerConfig;
+
 namespace VulkanHIP {
+
+// Validation layer configuration structure
+struct ValidationLayerConfig {
+    bool enabled = true;
+    std::vector<const char*> layers = { "VK_LAYER_KHRONOS_validation" };
+    
+    // Message severities
+    bool verboseMessages = false;
+    bool infoMessages = true;
+    bool warningMessages = true;
+    bool errorMessages = true;
+    
+    // Message types
+    bool generalMessages = true;
+    bool validationMessages = true;
+    bool performanceMessages = true;
+    
+    // Validation features
+    bool gpuAssistedValidation = true;
+    bool gpuAssistedReserveBindingSlot = true;
+    bool bestPracticesValidation = true;
+    bool debugPrintf = false;
+    bool synchronizationValidation = true;
+    
+    // Cache settings
+    bool enableCache = true;
+    std::string cachePath = "validation_cache.bin";
+    size_t maxCacheSizeMB = 100;
+};
 
 class VulkanContext {
 public:
@@ -49,6 +81,10 @@ public:
     static uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) const;
+    
+    // Validation layer configuration
+    void setValidationLayerConfig(const ValidationLayerConfig& config);
+    bool areValidationLayersEnabled() const { return enableValidationLayers_; }
 
 private:
     VulkanContext();
@@ -61,7 +97,9 @@ private:
     bool checkValidationLayerSupport() const;
     bool checkDeviceExtensionSupport(VkPhysicalDevice device) const;
     bool isDeviceSuitable(VkPhysicalDevice device) const;
-    void initDeviceManager();
+    void saveValidationCache();
+    void loadValidationFeatures();
+    void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -79,12 +117,22 @@ private:
     VkQueue presentQueue_ = VK_NULL_HANDLE;
     VkQueue computeQueue_ = VK_NULL_HANDLE;
     QueueFamilyIndices queueFamilyIndices_;
+    
+    // Validation layer configuration
+    bool enableValidationLayers_ = true;
     std::vector<const char*> validationLayers_ = { "VK_LAYER_KHRONOS_validation" };
-    std::vector<const char*> deviceExtensions_ = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+    VkValidationCacheEXT validationCache_ = VK_NULL_HANDLE;
+    VkSemaphore graphicsComputeSemaphore_ = VK_NULL_HANDLE;
+    VkSemaphore computePresentSemaphore_ = VK_NULL_HANDLE;
+    
+    // Validation features
+    std::vector<VkValidationFeatureEnableEXT> enabledValidationFeatures_;
+    std::vector<VkValidationFeatureDisableEXT> disabledValidationFeatures_;
+    ValidationLayerConfig validationConfig_;
+    
+    mutable std::vector<const char*> deviceExtensions_ = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
     std::unique_ptr<VulkanMemoryManager> memoryManager_;
     std::unique_ptr<DeviceManager> deviceManager_;
 };
 
-} // namespace VulkanHIP
-
-// ... existing code ... 
+} // namespace VulkanHIP 
