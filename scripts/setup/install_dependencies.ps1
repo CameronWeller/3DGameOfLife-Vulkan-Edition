@@ -27,7 +27,7 @@ function Test-Environment {
     # Check if running as administrator
     $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin) {
-        throw "This script must be run as Administrator"
+        throw "This script must be run as Administrator. Please run the main setup script with -Admin flag."
     }
     
     # Check required commands
@@ -51,7 +51,7 @@ try {
     $vcpkgRoot = Join-Path $projectRoot "vcpkg"
     
     if (-not (Test-Path $vcpkgRoot)) {
-        throw "vcpkg directory not found at: $vcpkgRoot"
+        throw "vcpkg directory not found at: $vcpkgRoot. Please run bootstrap.ps1 first."
     }
     
     # Set VCPKG_ROOT environment variable
@@ -86,6 +86,7 @@ try {
     
     Write-Host "CMake configuration completed successfully" -ForegroundColor Green
     Write-Host "You can now build the project using: cmake --build ." -ForegroundColor Green
+    exit 0
 }
 catch {
     Write-Error "Installation failed: $_"

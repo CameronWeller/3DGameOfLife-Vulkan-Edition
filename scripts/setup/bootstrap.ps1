@@ -29,7 +29,7 @@ function Test-Environment {
     # Check if running as administrator
     $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin) {
-        throw "This script must be run as Administrator"
+        throw "This script must be run as Administrator. Please run the main setup script with -Admin flag."
     }
     
     # Check required commands
@@ -49,11 +49,22 @@ function Get-VcpkgRoot {
     $vcpkgRootDir = Join-Path $projectRoot "vcpkg"
     
     if (-not (Test-Path $vcpkgRootDir)) {
-        throw "vcpkg directory not found at: $vcpkgRootDir"
+        Write-Host "vcpkg directory not found. Cloning vcpkg..." -ForegroundColor Yellow
+        git clone https://github.com/Microsoft/vcpkg.git $vcpkgRootDir
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to clone vcpkg repository"
+        }
     }
     
     if (-not (Test-Path (Join-Path $vcpkgRootDir ".vcpkg-root"))) {
-        throw "vcpkg is not properly initialized. Please run bootstrap-vcpkg.bat in the vcpkg directory first"
+        Write-Host "Bootstrapping vcpkg..." -ForegroundColor Yellow
+        Push-Location $vcpkgRootDir
+        & .\bootstrap-vcpkg.bat
+        if ($LASTEXITCODE -ne 0) {
+            Pop-Location
+            throw "Failed to bootstrap vcpkg"
+        }
+        Pop-Location
     }
     
     return $vcpkgRootDir
@@ -122,6 +133,7 @@ Read more about vcpkg telemetry at docs/about/privacy.md
     }
     
     Write-Host "vcpkg bootstrap completed successfully" -ForegroundColor Green
+    exit 0
 }
 catch {
     Write-Error "Bootstrap failed: $_"

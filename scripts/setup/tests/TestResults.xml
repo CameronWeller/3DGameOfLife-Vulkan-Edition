@@ -1,0 +1,94 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<test-results xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="nunit_schema_2.5.xsd" name="Pester" total="18" errors="0" failures="7" not-run="0" inconclusive="0" ignored="0" skipped="0" invalid="0" date="2025-05-29" time="13:10:46">
+  <environment user="camer" machine-name="ARCHITOP" cwd="C:\Dev\3DGameOfLife-Vulkan-Edition" user-domain="ARCHITOP" platform="Microsoft Windows 11 Home|C:\WINDOWS|\Device\Harddisk0\Partition3" nunit-version="2.5.8.0" os-version="10.0.26100" clr-version="4.0.30319.42000" />
+  <culture-info current-culture="en-US" current-uiculture="en-US" />
+  <test-suite type="Powershell" name="Pester" executed="True" result="Failure" success="False" time="11.1059" asserts="0">
+    <results>
+      <test-suite type="TestFixture" name="Bootstrap Script Tests" executed="True" result="Failure" success="False" time="7.336" asserts="0" description="Bootstrap Script Tests">
+        <results>
+          <test-case description="Should accept -disableMetrics switch" name="Bootstrap Script Tests.Should accept -disableMetrics switch" time="1.0504" asserts="0" success="True" result="Success" executed="True" />
+          <test-case description="Should require PowerShell 5.0 or higher" name="Bootstrap Script Tests.Should require PowerShell 5.0 or higher" time="0.2227" asserts="0" success="True" result="Success" executed="True" />
+          <test-case description="Should require administrator privileges" name="Bootstrap Script Tests.Should require administrator privileges" time="0.083" asserts="0" success="False" result="Failure" executed="True">
+            <failure>
+              <message>Expected: {True}
+But was:  {False}</message>
+              <stack-trace>at line: 32 in C:\Dev\3DGameOfLife-Vulkan-Edition\scripts\setup\tests\bootstrap.Tests.ps1
+32:             $isAdmin | Should Be $true
+</stack-trace>
+            </failure>
+          </test-case>
+          <test-case description="Should have required commands available" name="Bootstrap Script Tests.Should have required commands available" time="0.1156" asserts="0" success="True" result="Success" executed="True" />
+          <test-case description="Should create vcpkg directory if it doesn't exist" name="Bootstrap Script Tests.Should create vcpkg directory if it doesn't exist" time="5.7081" asserts="0" success="False" result="Failure" executed="True">
+            <failure>
+              <message>Expected: {True}
+But was:  {False}</message>
+              <stack-trace>at line: 66 in C:\Dev\3DGameOfLife-Vulkan-Edition\scripts\setup\tests\bootstrap.Tests.ps1
+66:             Test-Path $vcpkgRootDir | Should Be $true
+</stack-trace>
+            </failure>
+          </test-case>
+          <test-case description="Should clone vcpkg repository if not present" name="Bootstrap Script Tests.Should clone vcpkg repository if not present" time="0.0544" asserts="0" success="False" result="Failure" executed="True">
+            <failure>
+              <message>Expected: {True}
+But was:  {False}</message>
+              <stack-trace>at line: 75 in C:\Dev\3DGameOfLife-Vulkan-Edition\scripts\setup\tests\bootstrap.Tests.ps1
+75:             Test-Path (Join-Path $vcpkgRootDir ".git") | Should Be $true
+</stack-trace>
+            </failure>
+          </test-case>
+          <test-case description="Should create disable-metrics file when -disableMetrics is specified" name="Bootstrap Script Tests.Should create disable-metrics file when -disableMetrics is specified" time="0.1018" asserts="0" success="False" result="Failure" executed="True">
+            <failure>
+              <message>Expected: {True}
+But was:  {False}</message>
+              <stack-trace>at line: 89 in C:\Dev\3DGameOfLife-Vulkan-Edition\scripts\setup\tests\bootstrap.Tests.ps1
+89:             Test-Path (Join-Path $vcpkgRootDir "vcpkg.disable-metrics") | Should Be $true
+</stack-trace>
+            </failure>
+          </test-case>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="Install Dependencies Script Tests" executed="True" result="Failure" success="False" time="0.4834" asserts="0" description="Install Dependencies Script Tests">
+        <results>
+          <test-case description="Should require PowerShell 5.0 or higher" name="Install Dependencies Script Tests.Should require PowerShell 5.0 or higher" time="0.1316" asserts="0" success="True" result="Success" executed="True" />
+          <test-case description="Should require administrator privileges" name="Install Dependencies Script Tests.Should require administrator privileges" time="0.0245" asserts="0" success="False" result="Failure" executed="True">
+            <failure>
+              <message>Expected: {True}
+But was:  {False}</message>
+              <stack-trace>at line: 23 in C:\Dev\3DGameOfLife-Vulkan-Edition\scripts\setup\tests\install_dependencies.Tests.ps1
+23:             $isAdmin | Should Be $true
+</stack-trace>
+            </failure>
+          </test-case>
+          <test-case description="Should have required commands available" name="Install Dependencies Script Tests.Should have required commands available" time="0.0473" asserts="0" success="True" result="Success" executed="True" />
+          <test-case description="Should set VCPKG_ROOT environment variable" name="Install Dependencies Script Tests.Should set VCPKG_ROOT environment variable" time="0.1091" asserts="0" success="True" result="Success" executed="True" />
+          <test-case description="Should create build directory" name="Install Dependencies Script Tests.Should create build directory" time="0.0549" asserts="0" success="False" result="Failure" executed="True">
+            <failure>
+              <message>Expected: {True}
+But was:  {False}</message>
+              <stack-trace>at line: 81 in C:\Dev\3DGameOfLife-Vulkan-Edition\scripts\setup\tests\install_dependencies.Tests.ps1
+81:             Test-Path $buildDir | Should Be $true
+</stack-trace>
+            </failure>
+          </test-case>
+          <test-case description="Should fail if vcpkg directory is not found" name="Install Dependencies Script Tests.Should fail if vcpkg directory is not found" time="0.116" asserts="0" success="False" result="Failure" executed="True">
+            <failure>
+              <message>Expected: the expression to throw an exception</message>
+              <stack-trace>at line: 94 in C:\Dev\3DGameOfLife-Vulkan-Edition\scripts\setup\tests\install_dependencies.Tests.ps1
+94:             { &amp; $scriptPath } | Should Throw
+</stack-trace>
+            </failure>
+          </test-case>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="Main Setup Script Tests" executed="True" result="Success" success="True" time="3.2865" asserts="0" description="Main Setup Script Tests">
+        <results>
+          <test-case description="Should accept -Admin switch" name="Main Setup Script Tests.Should accept -Admin switch" time="2.7275" asserts="0" success="True" result="Success" executed="True" />
+          <test-case description="Should accept -Clean switch" name="Main Setup Script Tests.Should accept -Clean switch" time="0.1525" asserts="0" success="True" result="Success" executed="True" />
+          <test-case description="Should accept -Help switch" name="Main Setup Script Tests.Should accept -Help switch" time="0.0826" asserts="0" success="True" result="Success" executed="True" />
+          <test-case description="Should detect admin privileges correctly" name="Main Setup Script Tests.Should detect admin privileges correctly" time="0.0821" asserts="0" success="True" result="Success" executed="True" />
+          <test-case description="Should remove build directories when -Clean is specified" name="Main Setup Script Tests.Should remove build directories when -Clean is specified" time="0.2418" asserts="0" success="True" result="Success" executed="True" />
+        </results>
+      </test-suite>
+    </results>
+  </test-suite>
+</test-results>

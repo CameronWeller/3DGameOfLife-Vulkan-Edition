@@ -50,17 +50,41 @@ if ($Clean) {
 # Run the setup scripts in order
 Write-Host "Starting setup process..."
 
+$success = $true
+
 # Bootstrap vcpkg
 Write-Host "Setting up vcpkg..."
-& "$PSScriptRoot\bootstrap_vcpkg.ps1"
+try {
+    & "$PSScriptRoot\bootstrap.ps1"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Bootstrap script failed with exit code $LASTEXITCODE"
+    }
+}
+catch {
+    Write-Error "Failed to bootstrap vcpkg: $_"
+    $success = $false
+}
 
 # Install dependencies
-Write-Host "Installing dependencies..."
-& "$PSScriptRoot\install_vcpkg.ps1"
+if ($success) {
+    Write-Host "Installing dependencies..."
+    try {
+        & "$PSScriptRoot\install_dependencies.ps1"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Dependencies installation failed with exit code $LASTEXITCODE"
+        }
+    }
+    catch {
+        Write-Error "Failed to install dependencies: $_"
+        $success = $false
+    }
+}
 
-# Fix PATH if needed
-Write-Host "Configuring environment..."
-& "$PSScriptRoot\fix_path.ps1"
-
-Write-Host "Setup completed successfully!"
-Write-Host "You can now build the project using CMake." 
+if ($success) {
+    Write-Host "Setup completed successfully!" -ForegroundColor Green
+    Write-Host "You can now build the project using CMake."
+}
+else {
+    Write-Error "Setup failed. Please check the errors above and try again."
+    exit 1
+} 
