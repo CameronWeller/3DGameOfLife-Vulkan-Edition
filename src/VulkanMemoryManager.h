@@ -16,6 +16,19 @@ public:
         VmaAllocationInfo allocationInfo;
         VkDeviceSize size;
         void* mappedData;  // For host-visible buffers
+
+        // Operator overloads
+        bool operator==(const BufferAllocation& other) const {
+            return buffer == other.buffer && allocation == other.allocation;
+        }
+
+        bool operator!=(const BufferAllocation& other) const {
+            return !(*this == other);
+        }
+
+        operator bool() const {
+            return buffer != VK_NULL_HANDLE && allocation != nullptr;
+        }
     };
 
     struct StagingBuffer {
@@ -24,6 +37,39 @@ public:
         VmaAllocationInfo allocationInfo;
         void* mappedData;
         VkDeviceSize size;
+
+        // Operator overloads
+        bool operator==(const StagingBuffer& other) const {
+            return buffer == other.buffer && allocation == other.allocation;
+        }
+
+        bool operator!=(const StagingBuffer& other) const {
+            return !(*this == other);
+        }
+
+        operator bool() const {
+            return buffer != VK_NULL_HANDLE && allocation != nullptr;
+        }
+    };
+
+    struct ImageAllocation {
+        VkImage image;
+        VmaAllocation allocation;
+        VkDeviceSize size;
+        bool inUse;
+
+        // Operator overloads
+        bool operator==(const ImageAllocation& other) const {
+            return image == other.image && allocation == other.allocation;
+        }
+
+        bool operator!=(const ImageAllocation& other) const {
+            return !(*this == other);
+        }
+
+        operator bool() const {
+            return image != VK_NULL_HANDLE && allocation != nullptr;
+        }
     };
 
     VulkanMemoryManager(VkDevice device, VkPhysicalDevice physicalDevice);
@@ -48,13 +94,6 @@ public:
     void freeStagingBuffer(StagingBuffer& stagingBuffer);
 
     // Image management
-    struct ImageAllocation {
-        VkImage image;
-        VmaAllocation allocation;
-        VkDeviceSize size;
-        bool inUse;
-    };
-
     ImageAllocation allocateImage(uint32_t width, uint32_t height, VkFormat format, 
                                 VkImageTiling tiling, VkImageUsageFlags usage, 
                                 VkMemoryPropertyFlags properties);

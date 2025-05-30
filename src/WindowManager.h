@@ -3,7 +3,9 @@
 #include <GLFW/glfw3.h>
 #include <string>
 #include <functional>
-#include "ThreadSafe.h"
+#include <mutex>
+#include <atomic>
+#include <memory>
 
 namespace VulkanHIP {
 
@@ -57,41 +59,54 @@ public:
     void getCursorPos(double* xpos, double* ypos) const;
     bool isKeyPressed(int key) const;
 
-    // Callback setters
+    // Callback setters with thread safety
     void setFramebufferResizeCallback(std::function<void(int, int)> callback) {
-        framebufferResizeCallback_.setCallback(callback);
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        framebufferResizeCallback_ = callback;
     }
 
     void setKeyCallback(std::function<void(int, int, int, int)> callback) {
-        keyCallback_.setCallback(callback);
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        keyCallback_ = callback;
     }
 
     void setMouseButtonCallback(std::function<void(int, int, int)> callback) {
-        mouseButtonCallback_.setCallback(callback);
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        mouseButtonCallback_ = callback;
     }
 
     void setCursorPosCallback(std::function<void(double, double)> callback) {
-        cursorPosCallback_.setCallback(callback);
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        cursorPosCallback_ = callback;
     }
 
     void setScrollCallback(std::function<void(double, double)> callback) {
-        scrollCallback_.setCallback(callback);
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        scrollCallback_ = callback;
     }
 
     // Window access
-    GLFWwindow* getWindow() const { return window_.get(); }
+    GLFWwindow* getWindow() const { return window_.load(); }
+
+protected:
+    WindowManager() = default;
+    WindowManager(const WindowManager&) = delete;
+    WindowManager& operator=(const WindowManager&) = delete;
 
 private:
-    ThreadSafeValue<WindowConfig> config_;
-    ThreadSafeValue<GLFWwindow*> window_;
-    ThreadSafeValue<bool> glfwInitialized_{false};
+    std::atomic<GLFWwindow*> window_{nullptr};
+    std::atomic<bool> glfwInitialized_{false};
+    WindowConfig config_;
 
-    ThreadSafeCallback<int, int> framebufferResizeCallback_;
-    ThreadSafeCallback<int, int, int, int> keyCallback_;
-    ThreadSafeCallback<int, int, int> mouseButtonCallback_;
-    ThreadSafeCallback<double, double> cursorPosCallback_;
-    ThreadSafeCallback<double, double> scrollCallback_;
+    // Thread-safe callbacks
+    mutable std::mutex callbackMutex_;
+    std::function<void(int, int)> framebufferResizeCallback_;
+    std::function<void(int, int, int, int)> keyCallback_;
+    std::function<void(int, int, int)> mouseButtonCallback_;
+    std::function<void(double, double)> cursorPosCallback_;
+    std::function<void(double, double)> scrollCallback_;
 
+    // Static callback handlers
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
     static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);

@@ -387,7 +387,7 @@ public:
      * @brief Get the memory manager
      * @return Reference to the memory manager
      */
-    VulkanMemoryManager& getMemoryManager() const { return vulkanContext_->getMemoryManager(); }
+    VulkanMemoryManager& getMemoryManager() const { return *memoryManager_; }
 
     /**
      * @brief Create an index buffer for the vertices
@@ -481,6 +481,7 @@ private:
     std::shared_ptr<WindowManager> windowManager_;
     VkSurfaceKHR surface_;
     std::unique_ptr<VulkanContext> vulkanContext_;
+    std::unique_ptr<VulkanMemoryManager> memoryManager_;
     VkInstance vkInstance_;
     VkPhysicalDevice physicalDevice_;
     VkDevice device_;
@@ -692,8 +693,42 @@ private:
     void cleanupVoxelBuffers();
 
     // ImGui members
-    VkDescriptorPool imguiDescriptorPool_;
+    VkDescriptorPool imguiDescriptorPool_ = VK_NULL_HANDLE;
     bool imguiInitialized_ = false;
+
+    void createImGuiDescriptorPool() {
+        VkDescriptorPoolSize pool_sizes[] = {
+            { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+            { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+            { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+        };
+
+        VkDescriptorPoolCreateInfo pool_info = {};
+        pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+        pool_info.maxSets = 1000 * IM_ARRAYSIZE(pool_sizes);
+        pool_info.poolSizeCount = (uint32_t)IM_ARRAYSIZE(pool_sizes);
+        pool_info.pPoolSizes = pool_sizes;
+
+        if (vkCreateDescriptorPool(vulkanContext_->getDevice(), &pool_info, nullptr, &imguiDescriptorPool_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create ImGui descriptor pool!");
+        }
+    }
+
+    void cleanupImGuiDescriptorPool() {
+        if (imguiDescriptorPool_ != VK_NULL_HANDLE) {
+            vkDestroyDescriptorPool(vulkanContext_->getDevice(), imguiDescriptorPool_, nullptr);
+            imguiDescriptorPool_ = VK_NULL_HANDLE;
+        }
+    }
 
 #ifdef _MSC_VER
 #pragma message("If you see an error about vk_mem_alloc.h, ensure VMA is installed via vcpkg and your includePath is set to vcpkg/installed/<triplet>/include.")

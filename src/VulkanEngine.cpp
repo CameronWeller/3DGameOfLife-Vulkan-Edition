@@ -179,7 +179,7 @@ void VulkanEngine::drawFrame() {
 
     uint32_t imageIndex;
     VkResult result = vkAcquireNextImageKHR(vulkanContext_->getDevice(), swapChain_, UINT64_MAX, 
-                                           imageAvailableSemaphores_[currentFrame_], VK_NULL_HANDLE, &imageIndex);
+        imageAvailableSemaphores_[currentFrame_], VK_NULL_HANDLE, &imageIndex);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         recreateSwapChain();
@@ -188,25 +188,11 @@ void VulkanEngine::drawFrame() {
         throw std::runtime_error("Failed to acquire swap chain image!");
     }
 
-    updateUniformBuffer(currentFrame_);
-
+    // Only reset the fence if we are submitting work
     vkResetFences(vulkanContext_->getDevice(), 1, &inFlightFences_[currentFrame_]);
 
     vkResetCommandBuffer(commandBuffers_[currentFrame_], 0);
     recordCommandBuffer(commandBuffers_[currentFrame_], imageIndex);
-
-    // Begin ImGui frame
-    beginImGuiFrame();
-
-    // Draw ImGui windows
-    drawMenu();
-    drawSavePicker();
-    if (isLoading_) {
-        drawLoading();
-    }
-
-    // End ImGui frame
-    endImGuiFrame();
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -236,6 +222,7 @@ void VulkanEngine::drawFrame() {
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = swapChains;
     presentInfo.pImageIndices = &imageIndex;
+    presentInfo.pResults = nullptr;
 
     result = vkQueuePresentKHR(vulkanContext_->getPresentQueue(), &presentInfo);
 
@@ -350,10 +337,10 @@ void VulkanEngine::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t i
     VkBuffer vertexBuffers[] = {vertexBuffer_};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-
     vkCmdBindIndexBuffer(commandBuffer, indexBuffer_, 0, VK_INDEX_TYPE_UINT32);
 
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descriptorSets_[currentFrame_], 0, nullptr);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, 
+        &descriptorSets_[currentFrame_], 0, nullptr);
 
     vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices_.size()), 1, 0, 0, 0);
 
@@ -1692,7 +1679,7 @@ void VulkanEngine::initImGui() {
     // Setup Platform/Renderer backends
     ImGui_ImplGlfw_InitForVulkan(windowManager_->getWindow(), true);
     ImGui_ImplVulkan_InitInfo init_info = {};
-    init_info.Instance = vulkanContext_->getInstance();
+    init_info.Instance = vulkanContext_->getVkInstance();
     init_info.PhysicalDevice = vulkanContext_->getPhysicalDevice();
     init_info.Device = vulkanContext_->getDevice();
     init_info.QueueFamily = queueFamilyIndices_.graphicsFamily.value();
@@ -1718,6 +1705,7 @@ void VulkanEngine::initImGui() {
 
 void VulkanEngine::cleanupImGui() {
     if (imguiInitialized_) {
+        vkDeviceWaitIdle(vulkanContext_->getDevice());
         ImGui_ImplVulkan_Shutdown();
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
@@ -1737,12 +1725,15 @@ void VulkanEngine::beginImGuiFrame() {
 void VulkanEngine::endImGuiFrame() {
     if (imguiInitialized_) {
         ImGui::Render();
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffers_[currentFrame_]);
+        ImDrawData* draw_data = ImGui::GetDrawData();
+        if (draw_data) {
+            ImGui_ImplVulkan_RenderDrawData(draw_data, commandBuffers_[currentFrame_]);
 
-        // Update and Render additional Platform Windows
-        if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-            ImGui::UpdatePlatformWindows();
-            ImGui::RenderPlatformWindowsDefault();
+            // Update and Render additional Platform Windows
+            if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+                ImGui::UpdatePlatformWindows();
+                ImGui::RenderPlatformWindowsDefault();
+            }
         }
     }
 }
@@ -1779,6 +1770,10 @@ void VulkanEngine::cleanupImGuiDescriptorPool() {
         vkDestroyDescriptorPool(vulkanContext_->getDevice(), imguiDescriptorPool_, nullptr);
         imguiDescriptorPool_ = VK_NULL_HANDLE;
     }
+}
+
+VkSurfaceKHR VulkanEngine::createWindowSurface() const {
+    return windowManager_->createSurface(vulkanContext_->getVkInstance());
 }
 
 } // namespace VulkanHIP
