@@ -64,7 +64,8 @@ VulkanEngine::VulkanEngine()
       isLoading_(false),
       lastAutoSave_(std::chrono::steady_clock::now()),
       shouldCancelLoading_(false),
-      loadingProgress_(0.0f)
+      loadingProgress_(0.0f),
+      camera_(nullptr)  // Will be initialized properly in init()
 {
     if (instance_ != nullptr) {
         throw std::runtime_error("VulkanEngine instance already exists!");
@@ -215,10 +216,14 @@ void VulkanEngine::init() {
         // Initialize ImGui
         initImGui();
 
-        // Initialize camera
+        // Initialize camera with window
+        camera_ = Camera(windowManager_->getWindow());
         camera_.setPosition(glm::vec3(0.0f, 0.0f, 5.0f));
         camera_.setTarget(glm::vec3(0.0f, 0.0f, 0.0f));
         camera_.setUp(glm::vec3(0.0f, 1.0f, 0.0f));
+        
+        // Set Grid3D reference in Camera for collision detection
+        camera_.setGrid(&grid_);
 
         // Initialize save manager
         saveManager_ = std::make_unique<SaveManager>();
@@ -648,7 +653,7 @@ void VulkanEngine::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t i
     // End ImGui frame
     ImGui::Render();
     ImDrawData* draw_data = ImGui::GetDrawData();
-    ImGui_ImplVulkan_RenderDrawData(draw_data, commandBuffer);
+    ImGui::RenderForVulkan(commandBuffer);
 
     vkCmdEndRenderPass(commandBuffer);
 
@@ -948,7 +953,7 @@ void VulkanEngine::cleanup() {
 
     // Cleanup ImGui
     if (imguiInitialized_) {
-        ImGui_ImplVulkan_Shutdown();
+        ImGui::ShutdownForVulkan();
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
         imguiInitialized_ = false;
@@ -1500,7 +1505,7 @@ void VulkanEngine::createUniformBuffers() {
     VkDeviceSize bufferSize = sizeof(UniformBufferObject);
 
     uniformBuffers_.resize(MAX_FRAMES_IN_FLIGHT);
-    uniformBuffersAllocations_.resize(MAX_FRAMES_IN_FLIGHT);
+    uniformBufferAllocations_.resize(MAX_FRAMES_IN_FLIGHT);
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         VkBufferCreateInfo bufferInfo{};
@@ -1514,7 +1519,7 @@ void VulkanEngine::createUniformBuffers() {
         allocInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 
         if (vmaCreateBuffer(memoryManager_->getAllocator(), &bufferInfo, &allocInfo,
-            &uniformBuffers_[i], &uniformBuffersAllocations_[i], nullptr) != VK_SUCCESS) {
+            &uniformBuffers_[i], &uniformBufferAllocations_[i], nullptr) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create uniform buffer!");
         }
     }
@@ -1609,13 +1614,13 @@ void VulkanEngine::updateUniformBuffer(uint32_t currentImage) {
     ubo.maxLODDistance = maxLODDistance_;
 
     void* data;
-    vmaMapMemory(memoryManager_->getAllocator(), uniformBuffersAllocations_[currentImage], &data);
+    vmaMapMemory(memoryManager_->getAllocator(), uniformBufferAllocations_[currentImage], &data);
     memcpy(data, &ubo, sizeof(ubo));
-    vmaUnmapMemory(memoryManager_->getAllocator(), uniformBuffersAllocations_[currentImage]);
+    vmaUnmapMemory(memoryManager_->getAllocator(), uniformBufferAllocations_[currentImage]);
 }
 
 void VulkanEngine::drawMenu() {
-    ImGui_ImplVulkan_NewFrame();
+    ImGui::NewFrameForVulkan();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
@@ -1657,8 +1662,7 @@ void VulkanEngine::drawSavePicker() {
     ImGui::Begin("Load Save", &showSavePicker_,
                  ImGuiWindowFlags_NoResize |
                  ImGuiWindowFlags_NoCollapse);
-
-    saveFiles_ = saveManager_->getSaveFiles();
+    saveFiles_ = saveManager_->getPatternFiles();
     for (size_t i = 0; i < saveFiles_.size(); ++i) {
         if (ImGui::Selectable(saveFiles_[i].displayName.c_str(), selectedSaveIndex_ == i)) {
             selectedSaveIndex_ = i;
@@ -1707,7 +1711,7 @@ void VulkanEngine::newProject() {
 }
 
 void VulkanEngine::loadLastSave() {
-    std::string lastSave = saveManager_->getLastSaveFile();
+    std::string lastSave = saveManager_->getLastPatternFile();
     if (!lastSave.empty()) {
         loadSave(lastSave);
     }
@@ -1734,7 +1738,8 @@ void VulkanEngine::loadSave(const std::string& filename) {
             }
             
             VoxelData temp;
-            bool ok = saveManager_->loadSaveFile(filename, temp);
+            PatternMetadata metadata;
+            bool ok = saveManager_->loadPattern(filename, temp, metadata);
             if (!ok) {
                 std::string error = saveManager_->getLastError();
                 updateLoadingState("Failed to load save file: " + error, 0.0f);
@@ -1770,8 +1775,14 @@ void VulkanEngine::loadSave(const std::string& filename) {
 
 void VulkanEngine::saveCurrent() {
     std::string filename = generateSaveFileName("save_");
-    // If SaveManager::saveCurrentState requires more arguments, pass them here
-    saveManager_->saveCurrentState(filename, loadedVoxelData_);
+    PatternMetadata metadata;
+    metadata.name = filename;
+    metadata.description = "Auto-generated pattern";
+    metadata.author = "VulkanEngine";
+    metadata.creationDate = std::chrono::system_clock::now();
+    metadata.tags = {};
+    metadata.version = "1.0";
+    saveManager_->savePattern(filename, loadedVoxelData_, metadata);
 }
 
 void VulkanEngine::setAppState(App::State newState) {
@@ -1779,7 +1790,7 @@ void VulkanEngine::setAppState(App::State newState) {
 }
 
 void VulkanEngine::drawLoading() {
-    ImGui_ImplVulkan_NewFrame();
+    ImGui::NewFrameForVulkan();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
@@ -1850,7 +1861,14 @@ bool VulkanEngine::isAutoSaveDue() const {
 void VulkanEngine::performAutoSave() {
     try {
         std::string filename = generateSaveFileName(AUTO_SAVE_PREFIX);
-        if (saveManager_->saveCurrentState(filename, loadedVoxelData_)) {
+        PatternMetadata metadata;
+        metadata.name = filename;
+        metadata.description = "Auto-save pattern";
+        metadata.author = "VulkanEngine";
+        metadata.creationDate = std::chrono::system_clock::now();
+        metadata.tags = {};
+        metadata.version = "1.0";
+        if (saveManager_->savePattern(filename, loadedVoxelData_, metadata)) {
             std::cout << "Auto-save completed: " << filename << std::endl;
         } else {
             std::cerr << "Auto-save failed: " << saveManager_->getLastError() << std::endl;
@@ -1866,7 +1884,7 @@ void VulkanEngine::performAutoSave() {
 
 void VulkanEngine::cleanupOldAutoSaves() {
     try {
-        auto saves = saveManager_->getSaveFiles();
+        auto saves = saveManager_->getPatternFiles();
         std::vector<std::string> autoSaves;
         
         // Collect auto-save filenames
@@ -1881,7 +1899,7 @@ void VulkanEngine::cleanupOldAutoSaves() {
 
         // Remove oldest auto-saves if we have too many
         while (autoSaves.size() > MAX_AUTO_SAVES) {
-            if (!saveManager_->deleteSaveFile(autoSaves.front())) {
+            if (!saveManager_->deletePattern(autoSaves.front())) {
                 std::cerr << "Failed to delete old auto-save: " << saveManager_->getLastError() << std::endl;
             }
             autoSaves.erase(autoSaves.begin());
@@ -1898,7 +1916,14 @@ void VulkanEngine::cleanupOldAutoSaves() {
 void VulkanEngine::performManualSave() {
     try {
         std::string filename = generateSaveFileName(MANUAL_SAVE_PREFIX);
-        if (saveManager_->saveCurrentState(filename, loadedVoxelData_)) {
+        PatternMetadata metadata;
+        metadata.name = filename;
+        metadata.description = "Manual save pattern";
+        metadata.author = "VulkanEngine";
+        metadata.creationDate = std::chrono::system_clock::now();
+        metadata.tags = {};
+        metadata.version = "1.0";
+        if (saveManager_->savePattern(filename, loadedVoxelData_, metadata)) {
             std::cout << "Manual save completed: " << filename << std::endl;
         } else {
             std::cerr << "Manual save failed: " << saveManager_->getLastError() << std::endl;
@@ -1926,19 +1951,16 @@ void VulkanEngine::createVoxelBuffers() {
 
     // Create vertex buffer
     VkDeviceSize vertexBufferSize = sizeof(Vertex) * voxelVertices_.size();
-    auto memoryManager = vulkanContext_->getMemoryManager();
-    if (!memoryManager) {
-        throw std::runtime_error("Memory manager not available for voxel buffer creation");
-    }
+    auto& memoryManager = vulkanContext_->getMemoryManager();
 
     // Create staging buffer for vertices
-    auto vertexStagingBuffer = memoryManager->createStagingBuffer(vertexBufferSize);
-    void* vertexData = memoryManager->mapStagingBuffer(vertexStagingBuffer);
+    auto vertexStagingBuffer = memoryManager.createStagingBuffer(vertexBufferSize);
+    void* vertexData = memoryManager.mapStagingBuffer(vertexStagingBuffer);
     memcpy(vertexData, voxelVertices_.data(), vertexBufferSize);
-    memoryManager->unmapStagingBuffer(vertexStagingBuffer);
+    memoryManager.unmapStagingBuffer(vertexStagingBuffer);
 
     // Create vertex buffer
-    auto vertexBufferAlloc = memoryManager->createBuffer(
+    auto vertexBufferAlloc = memoryManager.createBuffer(
         vertexBufferSize,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY
@@ -1951,13 +1973,13 @@ void VulkanEngine::createVoxelBuffers() {
 
     // Create index buffer
     VkDeviceSize indexBufferSize = sizeof(uint32_t) * voxelIndices_.size();
-    auto indexStagingBuffer = memoryManager->createStagingBuffer(indexBufferSize);
-    void* indexData = memoryManager->mapStagingBuffer(indexStagingBuffer);
+    auto indexStagingBuffer = memoryManager.createStagingBuffer(indexBufferSize);
+    void* indexData = memoryManager.mapStagingBuffer(indexStagingBuffer);
     memcpy(indexData, voxelIndices_.data(), indexBufferSize);
-    memoryManager->unmapStagingBuffer(indexStagingBuffer);
+    memoryManager.unmapStagingBuffer(indexStagingBuffer);
 
     // Create index buffer
-    auto indexBufferAlloc = memoryManager->createBuffer(
+    auto indexBufferAlloc = memoryManager.createBuffer(
         indexBufferSize,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY
@@ -1969,8 +1991,8 @@ void VulkanEngine::createVoxelBuffers() {
     copyBuffer(indexStagingBuffer.buffer, voxelIndexBuffer_, indexBufferSize);
 
     // Clean up staging buffers
-    memoryManager->destroyStagingBuffer(vertexStagingBuffer);
-    memoryManager->destroyStagingBuffer(indexStagingBuffer);
+    memoryManager.destroyStagingBuffer(vertexStagingBuffer);
+    memoryManager.destroyStagingBuffer(indexStagingBuffer);
 }
 
 void VulkanEngine::createVoxelVertexData(const VoxelData& voxelData) {
@@ -2053,15 +2075,15 @@ void VulkanEngine::createVoxelVertexData(const VoxelData& voxelData) {
 }
 
 void VulkanEngine::cleanupVoxelBuffers() {
-    if (vulkanContext_ && vulkanContext_->getMemoryManager()) {
-        auto memoryManager = vulkanContext_->getMemoryManager();
+    if (vulkanContext_) {
+        auto& memoryManager = vulkanContext_->getMemoryManager();
         
         if (voxelVertexBuffer_ != VK_NULL_HANDLE) {
-            memoryManager->destroyBuffer({voxelVertexBuffer_, voxelVertexBufferAllocation_, {}, 0, nullptr});
+            memoryManager.destroyBuffer({voxelVertexBuffer_, voxelVertexBufferAllocation_, {}, 0, nullptr});
             voxelVertexBuffer_ = VK_NULL_HANDLE;
         }
         if (voxelIndexBuffer_ != VK_NULL_HANDLE) {
-            memoryManager->destroyBuffer({voxelIndexBuffer_, voxelIndexBufferAllocation_, {}, 0, nullptr});
+            memoryManager.destroyBuffer({voxelIndexBuffer_, voxelIndexBufferAllocation_, {}, 0, nullptr});
             voxelIndexBuffer_ = VK_NULL_HANDLE;
         }
     }
@@ -2239,36 +2261,34 @@ void VulkanEngine::initImGui() {
     ImGui::StyleColorsDark();
 
     // Setup Platform/Renderer backends
-    ImGui_ImplGlfw_InitForVulkan(window_, true);
-    ImGui_ImplVulkan_InitInfo init_info = {};
-    init_info.Instance = vulkanContext_->getInstance();
-    init_info.PhysicalDevice = vulkanContext_->getPhysicalDevice();
-    init_info.Device = vulkanContext_->getDevice();
-    init_info.QueueFamily = findQueueFamilies(vulkanContext_->getPhysicalDevice(), vulkanContext_->getSurface()).graphicsFamily.value();
-    init_info.Queue = vulkanContext_->getGraphicsQueue();
-    init_info.PipelineCache = VK_NULL_HANDLE;
-    init_info.DescriptorPool = descriptorPool_;
-    init_info.Subpass = 0;
-    init_info.MinImageCount = 2;
-    init_info.ImageCount = static_cast<uint32_t>(swapChainImages_.size());
-    init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-    init_info.Allocator = nullptr;
-    init_info.CheckVkResultFn = nullptr;
+    ImGui_ImplGlfw_InitForVulkan(windowManager_->getWindow(), true);
+    ImGui::VulkanInitInfo init_info = {};
+    init_info.instance = vulkanContext_->getInstance();
+    init_info.physicalDevice = vulkanContext_->getPhysicalDevice();
+    init_info.device = vulkanContext_->getDevice();
+    init_info.queueFamily = findQueueFamilies(vulkanContext_->getPhysicalDevice(), vulkanContext_->getSurface()).graphicsFamily.value();
+    init_info.queue = vulkanContext_->getGraphicsQueue();
+    init_info.pipelineCache = VK_NULL_HANDLE;
+    init_info.descriptorPool = descriptorPool_;
+    init_info.minImageCount = 2;
+    init_info.imageCount = static_cast<uint32_t>(swapChainImages_.size());
+    init_info.msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+    init_info.allocator = nullptr;
 
-    ImGui_ImplVulkan_Init(&init_info, renderPass_);
+    ImGui::InitForVulkan(init_info);
 
     // Upload Fonts
     VkCommandBuffer commandBuffer = beginSingleTimeCommands();
-    ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
+    ImGui::CreateFontsTexture(commandBuffer);
     endSingleTimeCommands(commandBuffer);
-    ImGui_ImplVulkan_DestroyFontUploadObjects();
+    ImGui::DestroyFontUploadObjects();
 
     imguiInitialized_ = true;
 }
 
 void VulkanEngine::cleanupImGui() {
     if (imguiInitialized_) {
-        ImGui_ImplVulkan_Shutdown();
+        ImGui::ShutdownForVulkan();
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
         imguiInitialized_ = false;
@@ -2277,7 +2297,7 @@ void VulkanEngine::cleanupImGui() {
 
 void VulkanEngine::beginImGuiFrame() {
     if (imguiInitialized_) {
-        ImGui_ImplVulkan_NewFrame();
+        ImGui::NewFrameForVulkan();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
     }
@@ -2286,7 +2306,7 @@ void VulkanEngine::beginImGuiFrame() {
 void VulkanEngine::endImGuiFrame() {
     if (imguiInitialized_) {
         ImGui::Render();
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData());
+        ImGui::RenderForVulkan(commandBuffer_);
 
         // Update and Render additional Platform Windows
         if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {

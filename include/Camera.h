@@ -1,60 +1,88 @@
 #pragma once
 
+#include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+class Grid3D; // Forward declaration
+
+enum class CameraMode {
+    Fly,
+    Orbit,
+    Pan,
+    FirstPerson
+};
+
 class Camera {
 public:
-    Camera() = default;
+    Camera(GLFWwindow* window, float fov = 45.0f, float near = 0.1f, float far = 1000.0f);
     ~Camera() = default;
 
-    void setPosition(const glm::vec3& position) { position_ = position; }
-    void setTarget(const glm::vec3& target) { target_ = target; }
-    void setUp(const glm::vec3& up) { up_ = up; }
+    // Core functionality
+    void update(float deltaTime);
+    glm::mat4 getViewMatrix() const;
+    glm::mat4 getProjectionMatrix() const;
 
-    const glm::vec3& getPosition() const { return position_; }
-    const glm::vec3& getTarget() const { return target_; }
-    const glm::vec3& getUp() const { return up_; }
+    // Movement
+    void moveForward(float distance);
+    void moveRight(float distance);
+    void moveUp(float distance);
+    void rotate(float yaw, float pitch);
 
-    glm::mat4 getViewMatrix() const {
-        return glm::lookAt(position_, target_, up_);
-    }
+    // Mouse input
+    void processMouseMovement(float xoffset, float yoffset, bool constrainPitch = true);
+    void processMouseScroll(float yoffset);
 
-    void moveForward(float distance) {
-        glm::vec3 direction = glm::normalize(target_ - position_);
-        position_ += direction * distance;
-        target_ += direction * distance;
-    }
+    // Getters
+    const glm::vec3& getPosition() const { return position; }
+    const glm::vec3& getFront() const { return front; }
+    const glm::vec3& getUp() const { return up; }
+    const glm::vec3& getRight() const { return right; }
+    const glm::vec3& getTarget() const { return target; }
+    float getZoom() const { return zoom; }
+    CameraMode getMode() const { return mode; }
 
-    void moveRight(float distance) {
-        glm::vec3 direction = glm::normalize(target_ - position_);
-        glm::vec3 right = glm::normalize(glm::cross(direction, up_));
-        position_ += right * distance;
-        target_ += right * distance;
-    }
-
-    void moveUp(float distance) {
-        position_ += up_ * distance;
-        target_ += up_ * distance;
-    }
-
-    void rotate(float yaw, float pitch) {
-        glm::vec3 direction = glm::normalize(target_ - position_);
-        glm::vec3 right = glm::normalize(glm::cross(direction, up_));
-
-        // Rotate around up vector (yaw)
-        glm::mat4 yawRotation = glm::rotate(glm::mat4(1.0f), yaw, up_);
-        direction = glm::vec3(yawRotation * glm::vec4(direction, 0.0f));
-
-        // Rotate around right vector (pitch)
-        glm::mat4 pitchRotation = glm::rotate(glm::mat4(1.0f), pitch, right);
-        direction = glm::vec3(pitchRotation * glm::vec4(direction, 0.0f));
-
-        target_ = position_ + direction;
-    }
+    // Setters
+    void setPosition(const glm::vec3& pos) { position = pos; }
+    void setTarget(const glm::vec3& tgt) { target = tgt; }
+    void setMode(CameraMode newMode);
+    void setGrid(Grid3D* grid) { grid_ = grid; }
 
 private:
-    glm::vec3 position_ = glm::vec3(0.0f, 0.0f, 0.0f);
-    glm::vec3 target_ = glm::vec3(0.0f, 0.0f, -1.0f);
-    glm::vec3 up_ = glm::vec3(0.0f, 1.0f, 0.0f);
-}; 
+    // Camera vectors
+    glm::vec3 position;
+    glm::vec3 front;
+    glm::vec3 up;
+    glm::vec3 right;
+    glm::vec3 worldUp;
+    glm::vec3 target;
+
+    // Euler angles
+    float yaw;
+    float pitch;
+
+    // Camera options
+    float movementSpeed;
+    float mouseSensitivity;
+    float zoom;
+    float minZoom;
+    float maxZoom;
+    float orbitDistance;
+
+    // Projection parameters
+    float fov;
+    float near;
+    float far;
+
+    // Mode and window
+    CameraMode mode;
+    GLFWwindow* window;
+
+    // Grid reference for collision detection
+    Grid3D* grid_;
+
+    // Helper methods
+    void updateCameraVectors();
+    bool checkCollision(const glm::vec3& newPosition) const;
+    glm::vec3 resolveCollision(const glm::vec3& currentPos, const glm::vec3& targetPos) const;
+};

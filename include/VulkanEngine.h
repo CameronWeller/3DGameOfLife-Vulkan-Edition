@@ -32,6 +32,9 @@
 #include "VulkanMemoryManager.h"
 #include "AppState.h"
 #include "SaveManager.h"
+#include "Camera.h"
+#include "Grid3D.h"
+#include "vulkan/resources/VulkanBufferManager.h"
 
 namespace VulkanHIP {
 
@@ -447,6 +450,18 @@ public:
     VulkanMemoryManager& getMemoryManager() const { return *memoryManager_; }
 
     /**
+     * @brief Get the camera
+     * @return Pointer to the camera
+     */
+    Camera* getCamera() { return &camera_; }
+
+    /**
+     * @brief Get the grid
+     * @return Pointer to the grid
+     */
+    Grid3D* getGrid() { return &grid_; }
+
+    /**
      * @brief Create an index buffer for the vertices
      */
     void createIndexBuffer();
@@ -462,10 +477,17 @@ public:
     // New public methods for menu system
     void drawMenu();
     void drawSavePicker();
-    void newProject();
-    void loadLastSave();
+    // Add these method declarations
+    void updateLoading(float deltaTime);
+    void updateSimulation(float deltaTime);
+    bool isAutoSaveDue();
+    void performAutoSave();
     void loadSave(const std::string& filename);
     void saveCurrent();
+    void newProject();
+    void loadLastSave();
+    void updateLoadingState(const std::string& status, float progress);
+    std::string generateSaveFileName(const std::string& prefix);
     void setAppState(App::State newState);
 
     void drawLoading();
@@ -490,14 +512,30 @@ public:
     std::string generateSaveFileName(const char* prefix) const;
 
     // Loading screen members
-    bool isLoading_ = false;
+    // Add these to the private section around line 620
+    
+    // Loading state management
     float loadingElapsed_ = 0.0f;
     std::future<bool> loadingFuture_;
+    bool isLoading_ = false;
+    float loadingProgress_ = 0.0f;
+    std::string loadingStatus_;
+    bool shouldCancelLoading_ = false;
+    std::mutex loadingMutex_;
+    
+    // Rendering configuration
+    int renderMode_ = 0;
+    float minLODDistance_ = 10.0f;
+    float maxLODDistance_ = 100.0f;
+    
+    // Voxel data and rendering
     VoxelData loadedVoxelData_;
-    std::atomic<float> loadingProgress_{0.0f};
-    std::string loadingStatus_{"Loading..."};
-    std::mutex loadingMutex_;  // Protect loading state access
-    std::atomic<bool> shouldCancelLoading_{false};  // Flag for cancellation
+    VkBuffer voxelInstanceBuffer_ = VK_NULL_HANDLE;
+    VmaAllocation voxelInstanceBufferAllocation_ = VK_NULL_HANDLE;
+    std::vector<VoxelInstance> voxelInstances_;
+    
+    // Timing
+    std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
 
     // Helper methods
     void cancelLoading();
@@ -591,13 +629,7 @@ private:
     QueueFamilyIndices queueFamilyIndices_;
 
     // Buffers and resources
-    std::vector<VkBuffer> uniformBuffers_;
-    std::vector<VmaAllocation> uniformBufferAllocations_;
-    std::vector<void*> uniformBuffersMapped_;
-    VkBuffer vertexBuffer_;
-    VmaAllocation vertexBufferAllocation_;
-    VkBuffer indexBuffer_;
-    VmaAllocation indexBufferAllocation_;
+    std::unique_ptr<VulkanBufferManager> bufferManager_;
     std::vector<Vertex> vertices_;
     std::vector<uint32_t> indices_;
 
@@ -695,7 +727,292 @@ private:
     void createImageViews();
     void createRenderPass();
     void createFramebuffers();
-    void createVertexBuffer();
+    void submitComputeCommand(VkCommandBuffer commandBuffer);
+
+    /**
+     * @brief Get the memory manager
+     * @return Reference to the memory manager
+     */
+    VulkanMemoryManager& getMemoryManager() const { return *memoryManager_; }
+
+    /**
+     * @brief Get the camera
+     * @return Pointer to the camera
+     */
+    Camera* getCamera() { return &camera_; }
+
+    /**
+     * @brief Get the grid
+     * @return Pointer to the grid
+     */
+    Grid3D* getGrid() { return &grid_; }
+
+    /**
+     * @brief Create an index buffer for the vertices
+     */
+    void createIndexBuffer();
+
+    /**
+     * @brief Callback for window framebuffer resize events
+     * @param window The GLFW window
+     * @param width New width
+     * @param height New height
+     */
+    static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
+
+    // New public methods for menu system
+    void drawMenu();
+    void drawSavePicker();
+    // Add these method declarations
+    void updateLoading(float deltaTime);
+    void updateSimulation(float deltaTime);
+    bool isAutoSaveDue();
+    void performAutoSave();
+    void loadSave(const std::string& filename);
+    void saveCurrent();
+    void newProject();
+    void loadLastSave();
+    void updateLoadingState(const std::string& status, float progress);
+    std::string generateSaveFileName(const std::string& prefix);
+    void setAppState(App::State newState);
+
+    void drawLoading();
+
+    // Auto-save members
+    bool autoSaveEnabled_ = true;
+    std::chrono::steady_clock::time_point lastAutoSave_;
+    static constexpr auto AUTO_SAVE_INTERVAL = std::chrono::minutes(5);
+    static constexpr const char* AUTO_SAVE_PREFIX = "autosave_";
+
+    // Save management members
+    static constexpr size_t MAX_AUTO_SAVES = 5;  // Keep last 5 auto-saves
+    static constexpr const char* MANUAL_SAVE_PREFIX = "save_";
+    std::mutex saveMutex_;  // Protect save operations
+
+    // Helper methods
+    void performAutoSave();
+    void updateLoadingState(const std::string& status, float progress);
+    bool isAutoSaveDue() const;
+    void cleanupOldAutoSaves();
+    void performManualSave();
+    std::string generateSaveFileName(const char* prefix) const;
+
+    // Loading screen members
+    // Add these to the private section around line 620
+    
+    // Loading state management
+    float loadingElapsed_ = 0.0f;
+    std::future<bool> loadingFuture_;
+    bool isLoading_ = false;
+    float loadingProgress_ = 0.0f;
+    std::string loadingStatus_;
+    bool shouldCancelLoading_ = false;
+    std::mutex loadingMutex_;
+    
+    // Rendering configuration
+    int renderMode_ = 0;
+    float minLODDistance_ = 10.0f;
+    float maxLODDistance_ = 100.0f;
+    
+    // Voxel data and rendering
+    VoxelData loadedVoxelData_;
+    VkBuffer voxelInstanceBuffer_ = VK_NULL_HANDLE;
+    VmaAllocation voxelInstanceBufferAllocation_ = VK_NULL_HANDLE;
+    std::vector<VoxelInstance> voxelInstances_;
+    
+    // Timing
+    std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
+
+    // Helper methods
+    void cancelLoading();
+    bool isCancelling() const { return shouldCancelLoading_; }
+
+    // ImGui functions
+    void initImGui();
+    void cleanupImGui();
+    void beginImGuiFrame();
+    void endImGuiFrame();
+    void createImGuiDescriptorPool();
+    void cleanupImGuiDescriptorPool();
+
+private:
+    static VulkanEngine* instance_;
+    std::shared_ptr<WindowManager> windowManager_;
+    VkSurfaceKHR surface_;
+    std::unique_ptr<VulkanContext> vulkanContext_;
+    std::unique_ptr<VulkanMemoryManager> memoryManager_;
+    VkInstance vkInstance_;
+    VkPhysicalDevice physicalDevice_;
+    VkDevice device_;
+    VkQueue graphicsQueue_;
+    VkQueue presentQueue_;
+    VkQueue computeQueue_;
+    VkPipelineLayout pipelineLayout_;
+    VkPipeline graphicsPipeline_;
+
+    // Command pools
+    VkCommandPool graphicsCommandPool_ = VK_NULL_HANDLE;
+    VkCommandPool computeCommandPool_ = VK_NULL_HANDLE;
+
+    // Swap chain resources
+    VkSwapchainKHR swapChain_ = VK_NULL_HANDLE;
+    std::vector<VkImage> swapChainImages_;
+    std::vector<VkImageView> swapChainImageViews_;
+    std::vector<VkFramebuffer> swapChainFramebuffers_;
+    VkFormat swapChainImageFormat_;
+    VkExtent2D swapChainExtent_;
+    VkRenderPass renderPass_ = VK_NULL_HANDLE;
+
+    // Depth and color resources
+    VkImage depthImage_ = VK_NULL_HANDLE;
+    VmaAllocation depthImageAllocation_ = VK_NULL_HANDLE;
+    VkImageView depthImageView_ = VK_NULL_HANDLE;
+    VkImage colorImage_ = VK_NULL_HANDLE;
+    VmaAllocation colorImageAllocation_ = VK_NULL_HANDLE;
+    VkImageView colorImageView_ = VK_NULL_HANDLE;
+
+    // Command buffers and synchronization
+    std::vector<VkCommandBuffer> commandBuffers_;
+    std::vector<VkSemaphore> imageAvailableSemaphores_;
+    std::vector<VkSemaphore> renderFinishedSemaphores_;
+    std::vector<VkFence> inFlightFences_;
+    uint32_t currentFrame_ = 0;
+    bool framebufferResized_ = false;
+
+    // Descriptor resources
+    VkDescriptorSetLayout descriptorSetLayout_ = VK_NULL_HANDLE;
+    VkDescriptorPool descriptorPool_ = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> descriptorSets_;
+
+    // Texture resources
+    VkImageView textureImageView_ = VK_NULL_HANDLE;
+    VkSampler textureSampler_ = VK_NULL_HANDLE;
+
+    // Vulkan handles
+    std::vector<VkShaderModule> shaderModules;
+
+    std::vector<VkCommandBuffer> graphicsCommandBuffers;
+    std::vector<VkCommandBuffer> computeCommandBuffers;
+
+    std::vector<VkSemaphore> computeSemaphores;
+    std::vector<VkFence> computeFences;
+
+    VkPhysicalDeviceFeatures enabledFeatures_{};
+    const std::vector<const char*> deviceExtensions_ = {
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+        VK_KHR_MAINTENANCE1_EXTENSION_NAME,
+        VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,
+        VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME
+    };
+    const std::vector<const char*> validationLayers_ = {
+        "VK_LAYER_KHRONOS_validation"
+    };
+    const std::vector<const char*> instanceExtensions_ = {
+        VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME
+    };
+
+    QueueFamilyIndices queueFamilyIndices_;
+
+    // Buffers and resources
+    std::unique_ptr<VulkanBufferManager> bufferManager_;
+    std::vector<Vertex> vertices_;
+    std::vector<uint32_t> indices_;
+
+    // New private members for menu system
+    App::State currentState_ = App::State::Menu;
+    App::MenuState menuState_;
+    std::unique_ptr<SaveManager> saveManager_;
+    bool showSavePicker_ = false;
+    bool showNewProjectDialog_ = false;
+    bool showSettings_ = false;
+    std::vector<App::SaveInfo> saveFiles_;
+    int selectedSaveIndex_ = -1;
+
+    // Add new member for compute pipeline layout tracking
+    struct ComputePipelineInfo {
+        VkPipeline pipeline;
+        VkPipelineLayout layout;
+        VkDescriptorSetLayout descriptorSetLayout;
+        VkDescriptorPool descriptorPool;
+        std::vector<VkDescriptorSet> descriptorSets;
+        VkBuffer stateBuffer;
+        VkBuffer nextStateBuffer;
+        VmaAllocation stateBufferAllocation;
+        VmaAllocation nextStateBufferAllocation;
+        GameOfLifePushConstants pushConstants;
+    } computePipeline_;
+
+    EngineStateMachine stateMachine_;
+    void initializeStateMachine();
+
+    /**
+     * @brief Create command pools for graphics and compute operations
+     * @throws std::runtime_error if command pool creation fails
+     */
+    void createCommandPools();
+
+    /**
+     * @brief Create the descriptor set layout for shader resources
+     * @throws std::runtime_error if descriptor set layout creation fails
+     */
+    void createDescriptorSetLayout();
+
+    /**
+     * @brief Create the graphics pipeline
+     * @throws std::runtime_error if pipeline creation fails
+     */
+    void createGraphicsPipeline();
+
+    /**
+     * @brief Read a file into a vector of chars
+     * @param filename Path to the file to read
+     * @return Vector containing the file contents
+     * @throws std::runtime_error if file cannot be opened
+     */
+    std::vector<char> readFile(const std::string& filename);
+
+    /**
+     * @brief Create shader stages for the graphics pipeline
+     * @param vertPath Path to the vertex shader
+     * @param fragPath Path to the fragment shader
+     * @param vertStageInfo Output parameter for vertex shader stage info
+     * @param fragStageInfo Output parameter for fragment shader stage info
+     * @throws std::runtime_error if shader creation fails
+     */
+    void createShaderStages(const std::string& vertPath, const std::string& fragPath,
+                           VkPipelineShaderStageCreateInfo& vertStageInfo,
+                           VkPipelineShaderStageCreateInfo& fragStageInfo);
+
+    /**
+     * @brief Wait for compute operations to complete
+     */
+    void waitForComputeCompletion();
+
+    /**
+     * @brief Copy data between buffers
+     * @param srcBuffer Source buffer
+     * @param dstBuffer Destination buffer
+     * @param size Size of data to copy
+     */
+    void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
+
+    /**
+     * @brief Record commands for drawing a frame
+     * @param commandBuffer Command buffer to record into
+     * @param imageIndex Index of the swap chain image to render to
+     */
+    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
+
+    /**
+     * @brief Clean up all Vulkan resources
+     */
+    void cleanup();
+
+    void createSwapChain();
+    void createImageViews();
+    void createRenderPass();
+    void createFramebuffers();
     void createDepthResources();
     void createColorResources();
     void createSyncObjects();
@@ -703,7 +1020,6 @@ private:
     void cleanupSwapChain();
     void updateUniformBuffer(uint32_t currentImage);
     void createCommandBuffers();
-    void createUniformBuffers();
     void createDescriptorPool();
     void createDescriptorSets();
     VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) const;
@@ -714,6 +1030,7 @@ private:
     VkFormat findDepthFormat();
     bool hasStencilComponent(VkFormat format);
     VkSampleCountFlagBits getMaxUsableSampleCount();
+    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface);
 
     std::vector<const char*> getRequiredInstanceExtensions();
     void applyEnabledDeviceFeatures(VkPhysicalDeviceFeatures& features);
@@ -807,4 +1124,4 @@ struct ShaderModuleDeleter {
     }
 };
 
-} // namespace VulkanHIP 
+} // namespace VulkanHIP

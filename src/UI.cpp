@@ -19,7 +19,7 @@ UI::UI(VulkanEngine* engine)
 
 UI::~UI() {
     cleanupPreviewTextures();
-    ImGui_ImplVulkan_Shutdown();
+    ImGui::ShutdownForVulkan();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 }
@@ -115,11 +115,11 @@ void UI::init() {
     colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
     
     ImGui_ImplGlfw_InitForVulkan(window, true);
-    // Note: ImGui_ImplVulkan_Init will be called after Vulkan device creation
+    // Note: ImGui::InitForVulkan will be called after Vulkan device creation
 }
 
 void UI::render() {
-    ImGui_ImplVulkan_NewFrame();
+    ImGui::NewFrameForVulkan();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
     
@@ -926,4 +926,4 @@ void UI::cleanupPreviewTextures() {
     previewImageMemory_.clear();
     previewImageViews_.clear();
     previewSamplers_.clear();
-} 
+}

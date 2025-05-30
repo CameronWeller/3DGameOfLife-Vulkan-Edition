@@ -4,6 +4,8 @@
 #include <iostream> // For temporary logging, remove later
 #include <cstring> // For strcmp
 
+namespace VulkanHIP {
+
 DeviceManager::DeviceManager(VkInstance instance, VkSurfaceKHR surface, const std::vector<const char*>& requiredDeviceExtensions)
     : instance_(instance),
       surface_(surface),
@@ -197,4 +199,6 @@ void DeviceManager::createLogicalDevice(const std::vector<const char*>& validati
         vkGetDeviceQueue(device_, queueFamilyIndices_.computeFamily.value(), 0, &computeQueue_);
     }
     std::cout << "Logical device created successfully." << std::endl;
-} 
+}
+
+} // namespace VulkanHIP
