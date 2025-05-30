@@ -50,15 +50,29 @@ VulkanEngine::VulkanEngine()
       graphicsCommandPool_(VK_NULL_HANDLE),
       computeCommandPool_(VK_NULL_HANDLE),
       descriptorSetLayout_(VK_NULL_HANDLE),
-      saveManager_(std::make_unique<SaveManager>()),
+      pipelineLayout_(VK_NULL_HANDLE),
+      graphicsPipeline_(VK_NULL_HANDLE),
+      surface_(VK_NULL_HANDLE),
+      device_(VK_NULL_HANDLE),
+      physicalDevice_(VK_NULL_HANDLE),
+      graphicsQueue_(VK_NULL_HANDLE),
+      presentQueue_(VK_NULL_HANDLE),
+      computeQueue_(VK_NULL_HANDLE),
+      imguiDescriptorPool_(VK_NULL_HANDLE),
+      imguiInitialized_(false),
       loadingElapsed_(0.0f),
       isLoading_(false),
-      lastAutoSave_(std::chrono::steady_clock::now()) {
-    
+      lastAutoSave_(std::chrono::steady_clock::now()),
+      shouldCancelLoading_(false),
+      loadingProgress_(0.0f)
+{
     if (instance_ != nullptr) {
         throw std::runtime_error("VulkanEngine instance already exists!");
     }
     instance_ = this;
+    
+    // Initialize enabledFeatures_
+    memset(&enabledFeatures_, 0, sizeof(VkPhysicalDeviceFeatures));
     
     // Set up vertex data for a cube
     vertices_ = {
@@ -108,9 +122,6 @@ VulkanEngine::VulkanEngine()
         16, 17, 18, 18, 19, 16, // Right
         20, 21, 22, 22, 23, 20  // Left
     };
-
-    // Initialize enabledFeatures_
-    memset(&enabledFeatures_, 0, sizeof(VkPhysicalDeviceFeatures));
 }
 
 // Destructor
@@ -123,78 +134,99 @@ VulkanEngine::~VulkanEngine() {
 
 // Initialize the engine
 void VulkanEngine::init() {
-    // Initialize window
-    glfwInit();
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    window_ = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, nullptr, nullptr);
-    glfwSetWindowUserPointer(window_, this);
-    glfwSetFramebufferSizeCallback(window_, framebufferResizeCallback);
+    try {
+        // Initialize window manager
+        windowManager_ = std::make_unique<WindowManager>();
+        windowManager_->init(WIDTH, HEIGHT, WINDOW_TITLE);
+        windowManager_->setFramebufferResizeCallback([](GLFWwindow* window, int width, int height) {
+            auto engine = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
+            engine->framebufferResized_ = true;
+        });
 
-    // Initialize Vulkan context
-    vulkanContext_ = new VulkanContext();
-    vulkanContext_->init(window_);
+        // Initialize Vulkan context
+        vulkanContext_ = std::make_unique<VulkanContext>();
+        vulkanContext_->init(windowManager_->getWindow());
 
-    // Initialize memory manager
-    memoryManager_ = new MemoryManager(vulkanContext_->getDevice(), vulkanContext_->getPhysicalDevice());
+        // Get device and queues
+        device_ = vulkanContext_->getDevice();
+        physicalDevice_ = vulkanContext_->getPhysicalDevice();
+        graphicsQueue_ = vulkanContext_->getGraphicsQueue();
+        presentQueue_ = vulkanContext_->getPresentQueue();
+        computeQueue_ = vulkanContext_->getComputeQueue();
+        queueFamilyIndices_ = vulkanContext_->getQueueFamilyIndices();
 
-    // Create command pools
-    createCommandPools();
+        // Initialize memory manager
+        memoryManager_ = std::make_unique<VulkanMemoryManager>(device_, physicalDevice_);
 
-    // Create swap chain
-    createSwapChain();
+        // Create command pools
+        createCommandPools();
 
-    // Create image views
-    createImageViews();
+        // Create surface
+        surface_ = windowManager_->createSurface(vulkanContext_->getVkInstance());
 
-    // Create render pass
-    createRenderPass();
+        // Create swap chain
+        createSwapChain();
 
-    // Create descriptor set layout
-    createDescriptorSetLayout();
+        // Create image views
+        createImageViews();
 
-    // Create graphics pipeline
-    createGraphicsPipeline();
+        // Create render pass
+        createRenderPass();
 
-    // Create framebuffers
-    createFramebuffers();
+        // Create descriptor set layout
+        createDescriptorSetLayout();
 
-    // Create depth resources
-    createDepthResources();
+        // Create graphics pipeline
+        createGraphicsPipeline();
 
-    // Create color resources
-    createColorResources();
+        // Create framebuffers
+        createFramebuffers();
 
-    // Create uniform buffers
-    createUniformBuffers();
+        // Create depth resources
+        createDepthResources();
 
-    // Create descriptor pool
-    createDescriptorPool();
+        // Create color resources
+        createColorResources();
 
-    // Create descriptor sets
-    createDescriptorSets();
+        // Create uniform buffers
+        createUniformBuffers();
 
-    // Create command buffers
-    createCommandBuffers();
+        // Create descriptor pool
+        createDescriptorPool();
 
-    // Create compute pipelines
-    createComputePipelines();
+        // Create descriptor sets
+        createDescriptorSets();
 
-    // Create compute buffers
-    createComputeBuffers();
+        // Create command buffers
+        createCommandBuffers();
 
-    // Create compute descriptor sets
-    createComputeDescriptorSets();
+        // Create compute pipelines
+        createComputePipelines();
 
-    // Create synchronization objects
-    createSyncObjects();
+        // Create compute buffers
+        createComputeBuffers();
 
-    // Initialize ImGui
-    initImGui();
+        // Create compute descriptor sets
+        createComputeDescriptorSets();
 
-    // Initialize camera
-    camera_.setPosition(glm::vec3(gridWidth_ / 2.0f, gridHeight_ / 2.0f, gridDepth_ * 2.0f));
-    camera_.setTarget(glm::vec3(gridWidth_ / 2.0f, gridHeight_ / 2.0f, gridDepth_ / 2.0f));
-    camera_.setUp(glm::vec3(0.0f, 1.0f, 0.0f));
+        // Create synchronization objects
+        createSyncObjects();
+
+        // Initialize ImGui
+        initImGui();
+
+        // Initialize camera
+        camera_.setPosition(glm::vec3(0.0f, 0.0f, 5.0f));
+        camera_.setTarget(glm::vec3(0.0f, 0.0f, 0.0f));
+        camera_.setUp(glm::vec3(0.0f, 1.0f, 0.0f));
+
+        // Initialize save manager
+        saveManager_ = std::make_unique<SaveManager>();
+
+    } catch (const std::exception& e) {
+        cleanup();
+        throw std::runtime_error(std::string("Failed to initialize VulkanEngine: ") + e.what());
+    }
 }
 
 // Placeholder for the new applyEnabledDeviceFeatures
@@ -416,35 +448,145 @@ void VulkanEngine::createCommandPools() {
 
 // Run the engine
 void VulkanEngine::run() {
-    while (!windowManager_->shouldClose() && currentState_ != App::State::Exiting) {
-        windowManager_->pollEvents();
+    try {
+        auto lastFrameTime = std::chrono::high_resolution_clock::now();
+        float deltaTime = 0.0f;
 
-        // Begin ImGui frame
-        beginImGuiFrame();
+        while (!windowManager_->shouldClose() && currentState_ != App::State::Exiting) {
+            // Calculate delta time
+            auto currentTime = std::chrono::high_resolution_clock::now();
+            deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime).count();
+            lastFrameTime = currentTime;
 
-        // Draw ImGui windows based on state
-        switch (currentState_) {
-            case App::State::Menu:
-                drawMenu();
-                break;
-            case App::State::Running:
-                drawFrame();
-                break;
-            case App::State::SavePicker:
-                drawSavePicker();
-                break;
-            case App::State::Loading:
-                drawLoading();
-                break;
-            case App::State::Exiting:
-                break;
+            // Handle window events
+            windowManager_->pollEvents();
+
+            // Begin ImGui frame
+            beginImGuiFrame();
+
+            // Update state based on current state
+            switch (currentState_) {
+                case App::State::Menu:
+                    updateMenu(deltaTime);
+                    break;
+                case App::State::Running:
+                    updateRunning(deltaTime);
+                    break;
+                case App::State::SavePicker:
+                    updateSavePicker(deltaTime);
+                    break;
+                case App::State::Loading:
+                    updateLoading(deltaTime);
+                    break;
+                case App::State::Exiting:
+                    break;
+            }
+
+            // Draw frame
+            drawFrame();
+
+            // End ImGui frame
+            endImGuiFrame();
+
+            // Cap framerate to ~60fps when idle
+            auto frameEndTime = std::chrono::high_resolution_clock::now();
+            auto frameDuration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                frameEndTime - currentTime).count();
+            
+            if (frameDuration < 16) { // 16ms ~= 60fps
+                std::this_thread::sleep_for(std::chrono::milliseconds(16 - frameDuration));
+            }
         }
 
-        // End ImGui frame
-        endImGuiFrame();
+        // Wait for device idle before cleanup
+        vkDeviceWaitIdle(device_);
+
+    } catch (const std::exception& e) {
+        std::cerr << "Error in main loop: " << e.what() << std::endl;
+        cleanup();
+        throw;
+    }
+}
+
+void VulkanEngine::updateMenu(float deltaTime) {
+    // Update menu state
+    if (ImGui::Begin("Main Menu")) {
+        if (ImGui::Button("Start Simulation")) {
+            currentState_ = App::State::Running;
+        }
+        if (ImGui::Button("Load Pattern")) {
+            currentState_ = App::State::SavePicker;
+        }
+        if (ImGui::Button("Exit")) {
+            currentState_ = App::State::Exiting;
+        }
+    }
+    ImGui::End();
+}
+
+void VulkanEngine::updateRunning(float deltaTime) {
+    // Update simulation
+    if (!isPaused_) {
+        updateSimulation(deltaTime);
     }
 
-    vkDeviceWaitIdle(vulkanContext_->getDevice());
+    // Update camera
+    camera_.update(deltaTime);
+
+    // Update UI
+    if (ImGui::Begin("Controls")) {
+        ImGui::Checkbox("Pause", &isPaused_);
+        if (ImGui::Button("Save Pattern")) {
+            currentState_ = App::State::SavePicker;
+        }
+        if (ImGui::Button("Exit to Menu")) {
+            currentState_ = App::State::Menu;
+        }
+    }
+    ImGui::End();
+}
+
+void VulkanEngine::updateSavePicker(float deltaTime) {
+    // Update save picker UI
+    if (ImGui::Begin("Save/Load Pattern")) {
+        if (ImGui::Button("Back")) {
+            currentState_ = App::State::Menu;
+        }
+        // Add save/load pattern UI here
+    }
+    ImGui::End();
+}
+
+void VulkanEngine::updateLoading(float deltaTime) {
+    // Update loading screen
+    loadingElapsed_ += deltaTime;
+    
+    // Check if loading is complete
+    if (loadingFuture_.valid() && loadingFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        bool success = loadingFuture_.get();
+        if (success) {
+            currentState_ = App::State::Running;
+        } else {
+            currentState_ = App::State::Menu;
+        }
+        isLoading_ = false;
+    }
+}
+
+void VulkanEngine::updateSimulation(float deltaTime) {
+    // Update simulation state
+    if (isAutoSaveDue()) {
+        performAutoSave();
+    }
+
+    // Update compute shader parameters
+    updateComputePushConstants();
+
+    // Submit compute work
+    submitComputeWork();
+
+    // Wait for compute completion
+    waitForComputeCompletion();
 }
 
 // Record a command buffer for drawing a frame
@@ -798,13 +940,18 @@ std::vector<char> VulkanEngine::readFile(const std::string& filename) {
 }
 
 void VulkanEngine::cleanup() {
-    vkDeviceWaitIdle(vulkanContext_->getDevice());
+    if (device_ == VK_NULL_HANDLE) {
+        return; // Already cleaned up
+    }
+
+    vkDeviceWaitIdle(device_);
 
     // Cleanup ImGui
     if (imguiInitialized_) {
         ImGui_ImplVulkan_Shutdown();
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
+        imguiInitialized_ = false;
     }
 
     // Cleanup swap chain
@@ -813,104 +960,126 @@ void VulkanEngine::cleanup() {
     // Cleanup vertex buffer
     if (vertexBuffer_ != VK_NULL_HANDLE) {
         vmaDestroyBuffer(memoryManager_->getAllocator(), vertexBuffer_, vertexBufferAllocation_);
+        vertexBuffer_ = VK_NULL_HANDLE;
     }
 
     // Cleanup index buffer
     if (indexBuffer_ != VK_NULL_HANDLE) {
         vmaDestroyBuffer(memoryManager_->getAllocator(), indexBuffer_, indexBufferAllocation_);
+        indexBuffer_ = VK_NULL_HANDLE;
     }
 
-    // Cleanup voxel instance buffer
-    if (voxelInstanceBuffer_ != VK_NULL_HANDLE) {
-        vmaDestroyBuffer(memoryManager_->getAllocator(), voxelInstanceBuffer_, voxelInstanceBufferAllocation_);
-    }
+    // Cleanup voxel buffers
+    cleanupVoxelBuffers();
 
     // Cleanup uniform buffers
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         if (uniformBuffers_[i] != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(memoryManager_->getAllocator(), uniformBuffers_[i], uniformBuffersAllocations_[i]);
+            vmaDestroyBuffer(memoryManager_->getAllocator(), uniformBuffers_[i], uniformBufferAllocations_[i]);
+            uniformBuffers_[i] = VK_NULL_HANDLE;
         }
     }
 
     // Cleanup compute pipelines
     for (auto& pipeline : computePipelines_) {
         if (pipeline.pipeline != VK_NULL_HANDLE) {
-            vkDestroyPipeline(vulkanContext_->getDevice(), pipeline.pipeline, nullptr);
+            vkDestroyPipeline(device_, pipeline.pipeline, nullptr);
+            pipeline.pipeline = VK_NULL_HANDLE;
         }
         if (pipeline.layout != VK_NULL_HANDLE) {
-            vkDestroyPipelineLayout(vulkanContext_->getDevice(), pipeline.layout, nullptr);
+            vkDestroyPipelineLayout(device_, pipeline.layout, nullptr);
+            pipeline.layout = VK_NULL_HANDLE;
         }
         if (pipeline.currentStateBuffer != VK_NULL_HANDLE) {
             vmaDestroyBuffer(memoryManager_->getAllocator(), pipeline.currentStateBuffer, pipeline.currentStateBufferAllocation);
+            pipeline.currentStateBuffer = VK_NULL_HANDLE;
         }
         if (pipeline.nextStateBuffer != VK_NULL_HANDLE) {
             vmaDestroyBuffer(memoryManager_->getAllocator(), pipeline.nextStateBuffer, pipeline.nextStateBufferAllocation);
+            pipeline.nextStateBuffer = VK_NULL_HANDLE;
         }
         if (pipeline.descriptorPool != VK_NULL_HANDLE) {
-            vkDestroyDescriptorPool(vulkanContext_->getDevice(), pipeline.descriptorPool, nullptr);
+            vkDestroyDescriptorPool(device_, pipeline.descriptorPool, nullptr);
+            pipeline.descriptorPool = VK_NULL_HANDLE;
         }
     }
 
     // Cleanup graphics pipeline
     if (graphicsPipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(vulkanContext_->getDevice(), graphicsPipeline_, nullptr);
+        vkDestroyPipeline(device_, graphicsPipeline_, nullptr);
+        graphicsPipeline_ = VK_NULL_HANDLE;
     }
     if (pipelineLayout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(vulkanContext_->getDevice(), pipelineLayout_, nullptr);
+        vkDestroyPipelineLayout(device_, pipelineLayout_, nullptr);
+        pipelineLayout_ = VK_NULL_HANDLE;
     }
     if (renderPass_ != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(vulkanContext_->getDevice(), renderPass_, nullptr);
+        vkDestroyRenderPass(device_, renderPass_, nullptr);
+        renderPass_ = VK_NULL_HANDLE;
     }
 
     // Cleanup descriptor set layout
     if (descriptorSetLayout_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(vulkanContext_->getDevice(), descriptorSetLayout_, nullptr);
+        vkDestroyDescriptorSetLayout(device_, descriptorSetLayout_, nullptr);
+        descriptorSetLayout_ = VK_NULL_HANDLE;
     }
 
     // Cleanup descriptor pool
     if (descriptorPool_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(vulkanContext_->getDevice(), descriptorPool_, nullptr);
+        vkDestroyDescriptorPool(device_, descriptorPool_, nullptr);
+        descriptorPool_ = VK_NULL_HANDLE;
+    }
+
+    // Cleanup ImGui descriptor pool
+    if (imguiDescriptorPool_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(device_, imguiDescriptorPool_, nullptr);
+        imguiDescriptorPool_ = VK_NULL_HANDLE;
     }
 
     // Cleanup command pools
     if (graphicsCommandPool_ != VK_NULL_HANDLE) {
-        vkDestroyCommandPool(vulkanContext_->getDevice(), graphicsCommandPool_, nullptr);
+        vkDestroyCommandPool(device_, graphicsCommandPool_, nullptr);
+        graphicsCommandPool_ = VK_NULL_HANDLE;
     }
     if (computeCommandPool_ != VK_NULL_HANDLE) {
-        vkDestroyCommandPool(vulkanContext_->getDevice(), computeCommandPool_, nullptr);
+        vkDestroyCommandPool(device_, computeCommandPool_, nullptr);
+        computeCommandPool_ = VK_NULL_HANDLE;
     }
 
     // Cleanup synchronization objects
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         if (imageAvailableSemaphores_[i] != VK_NULL_HANDLE) {
-            vkDestroySemaphore(vulkanContext_->getDevice(), imageAvailableSemaphores_[i], nullptr);
+            vkDestroySemaphore(device_, imageAvailableSemaphores_[i], nullptr);
+            imageAvailableSemaphores_[i] = VK_NULL_HANDLE;
         }
         if (renderFinishedSemaphores_[i] != VK_NULL_HANDLE) {
-            vkDestroySemaphore(vulkanContext_->getDevice(), renderFinishedSemaphores_[i], nullptr);
+            vkDestroySemaphore(device_, renderFinishedSemaphores_[i], nullptr);
+            renderFinishedSemaphores_[i] = VK_NULL_HANDLE;
         }
         if (inFlightFences_[i] != VK_NULL_HANDLE) {
-            vkDestroyFence(vulkanContext_->getDevice(), inFlightFences_[i], nullptr);
+            vkDestroyFence(device_, inFlightFences_[i], nullptr);
+            inFlightFences_[i] = VK_NULL_HANDLE;
         }
         if (computeFences_[i] != VK_NULL_HANDLE) {
-            vkDestroyFence(vulkanContext_->getDevice(), computeFences_[i], nullptr);
+            vkDestroyFence(device_, computeFences_[i], nullptr);
+            computeFences_[i] = VK_NULL_HANDLE;
         }
     }
 
-    // Cleanup memory manager
-    if (memoryManager_) {
-        delete memoryManager_;
+    // Cleanup surface
+    if (surface_ != VK_NULL_HANDLE) {
+        vkDestroySurfaceKHR(vulkanContext_->getVkInstance(), surface_, nullptr);
+        surface_ = VK_NULL_HANDLE;
     }
 
-    // Cleanup Vulkan context
-    if (vulkanContext_) {
-        delete vulkanContext_;
-    }
+    // Cleanup managers
+    saveManager_.reset();
+    memoryManager_.reset();
+    vulkanContext_.reset();
+    windowManager_.reset();
 
-    // Cleanup window
-    if (window_) {
-        glfwDestroyWindow(window_);
-    }
-    glfwTerminate();
+    // Reset device handle to indicate cleanup is complete
+    device_ = VK_NULL_HANDLE;
 }
 
 // Placeholder for framebufferResizeCallback - will be handled by WindowManager
