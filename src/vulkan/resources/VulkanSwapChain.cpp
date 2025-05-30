@@ -3,9 +3,11 @@
 #include "WindowManager.h"
 #include <stdexcept>
 
+namespace VulkanHIP {
+
 VulkanSwapChain::VulkanSwapChain(VulkanContext* context, WindowManager* windowManager, VkSurfaceKHR surface)
-    : context_(context), windowManager_(windowManager), surface_(surface) {
-    if (!context_ || !windowManager_) {
+    : vulkanContext_(context), windowManager_(windowManager), surface_(surface) {
+    if (!vulkanContext_ || !windowManager_) {
         throw std::runtime_error("VulkanSwapChain: Invalid context or window manager");
     }
     createSwapChain();
@@ -22,3 +24,5 @@ void VulkanSwapChain::createSwapChain() {
 void VulkanSwapChain::cleanup() {
     // Cleanup implementation
 }
+
+} // namespace VulkanHIP

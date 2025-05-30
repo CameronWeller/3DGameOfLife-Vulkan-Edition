@@ -1,7 +1,7 @@
-#include "VulkanFramebuffer.h"
+#include "vulkan/resources/VulkanFramebuffer.h"
 #include "VulkanContext.h"
-#include "VulkanSwapChain.h"
-#include "VulkanImageManager.h"
+#include "vulkan/resources/VulkanSwapChain.h"
+#include "vulkan/resources/VulkanImageManager.h"
 #include <stdexcept>
 #include <array>
 

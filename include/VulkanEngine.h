@@ -35,6 +35,7 @@
 #include "Camera.h"
 #include "Grid3D.h"
 #include "vulkan/resources/VulkanBufferManager.h"
+#include "vulkan/rendering/VoxelRenderer.h"
 
 namespace VulkanHIP {
 
@@ -130,16 +131,6 @@ struct ComputePipelineInfo {
     VmaAllocation stateBufferAllocation;
     VmaAllocation nextStateBufferAllocation;
     GameOfLifePushConstants pushConstants;
-};
-
-/**
- * @brief Voxel instance data
- */
-struct VoxelInstance {
-    glm::vec3 position;
-    glm::vec4 color;
-    float age;
-    float lod;
 };
 
 class VulkanError : public std::runtime_error {
@@ -392,12 +383,12 @@ private:
     void applyEnabledDeviceFeatures(VkPhysicalDeviceFeatures& features);
 
     // Member variables
-    std::unique_ptr<VulkanContext> vulkanContext_;
-    std::unique_ptr<WindowManager> windowManager_;
-    std::unique_ptr<VulkanMemoryManager> memoryManager_;
+    VulkanHIP::VulkanContext* vulkanContext_;
+    VulkanHIP::WindowManager* windowManager_;
+    std::unique_ptr<VulkanHIP::VulkanMemoryManager> memoryManager_;
     std::unique_ptr<SaveManager> saveManager_;
-    std::unique_ptr<Camera> camera_;
-    std::unique_ptr<Grid3D> grid_;
+    std::unique_ptr<::Camera> camera_;
+    std::unique_ptr<::Grid3D> grid_;
     EngineStateMachine stateMachine_;
 
     // Compute pipeline
@@ -421,7 +412,7 @@ private:
     VoxelData loadedVoxelData_;
     VkBuffer voxelInstanceBuffer_ = VK_NULL_HANDLE;
     VmaAllocation voxelInstanceBufferAllocation_ = VK_NULL_HANDLE;
-    std::vector<VoxelInstance> voxelInstances_;
+    std::vector<VulkanHIP::VoxelInstance> voxelInstances_;
 
     // Timing
     std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();

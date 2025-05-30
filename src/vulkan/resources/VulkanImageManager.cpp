@@ -4,6 +4,9 @@
 #include <stdexcept>
 #include <array>
 
+// Access ImageAllocation type properly before namespace
+using ImageAllocation = VulkanHIP::VulkanMemoryManager::ImageAllocation;
+
 namespace VulkanHIP {
 
 VulkanImageManager::VulkanImageManager(VulkanContext* context, VulkanMemoryManager* memoryManager)
@@ -20,11 +23,11 @@ VulkanImageManager::~VulkanImageManager() {
 void VulkanImageManager::createDepthResources(uint32_t width, uint32_t height, VkSampleCountFlagBits msaaSamples) {
     VkFormat depthFormat = findDepthFormat();
     
-    auto depthImageAlloc = memoryManager_->createImage(
-        width, height, 1, msaaSamples, depthFormat,
+    auto depthImageAlloc = memoryManager_->allocateImage(
+        width, height, depthFormat,
         VK_IMAGE_TILING_OPTIMAL,
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
     );
     
     depthImage_ = depthImageAlloc.image;
@@ -34,11 +37,11 @@ void VulkanImageManager::createDepthResources(uint32_t width, uint32_t height, V
 }
 
 void VulkanImageManager::createColorResources(uint32_t width, uint32_t height, VkFormat format, VkSampleCountFlagBits msaaSamples) {
-    auto colorImageAlloc = memoryManager_->createImage(
-        width, height, 1, msaaSamples, format,
+    auto colorImageAlloc = memoryManager_->allocateImage(
+        width, height, format,
         VK_IMAGE_TILING_OPTIMAL,
         VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
     );
     
     colorImage_ = colorImageAlloc.image;
@@ -57,11 +60,11 @@ void VulkanImageManager::createTextureImage(unsigned char* pixels, uint32_t widt
     memoryManager_->unmapStagingBuffer(stagingBuffer);
     
     // Create texture image
-    auto textureImageAlloc = memoryManager_->createImage(
-        width, height, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB,
+    auto textureImageAlloc = memoryManager_->allocateImage(
+        width, height, VK_FORMAT_R8G8B8A8_SRGB,
         VK_IMAGE_TILING_OPTIMAL,
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
     );
     
     textureImage_ = textureImageAlloc.image;
@@ -164,7 +167,8 @@ void VulkanImageManager::cleanup() {
     }
     
     if (textureImage_ != VK_NULL_HANDLE) {
-        vmaDestroyImage(memoryManager_->getAllocator(), textureImage_, textureImageAllocation_);
+        ImageAllocation textureAlloc = {textureImage_, textureImageAllocation_, 0, false};
+        memoryManager_->freeImage(textureAlloc);
         textureImage_ = VK_NULL_HANDLE;
         textureImageAllocation_ = VK_NULL_HANDLE;
     }
@@ -176,7 +180,8 @@ void VulkanImageManager::cleanup() {
     }
     
     if (colorImage_ != VK_NULL_HANDLE) {
-        vmaDestroyImage(memoryManager_->getAllocator(), colorImage_, colorImageAllocation_);
+        ImageAllocation colorAlloc = {colorImage_, colorImageAllocation_, 0, false};
+        memoryManager_->freeImage(colorAlloc);
         colorImage_ = VK_NULL_HANDLE;
         colorImageAllocation_ = VK_NULL_HANDLE;
     }
@@ -188,7 +193,8 @@ void VulkanImageManager::cleanup() {
     }
     
     if (depthImage_ != VK_NULL_HANDLE) {
-        vmaDestroyImage(memoryManager_->getAllocator(), depthImage_, depthImageAllocation_);
+        ImageAllocation depthAlloc = {depthImage_, depthImageAllocation_, 0, false};
+        memoryManager_->freeImage(depthAlloc);
         depthImage_ = VK_NULL_HANDLE;
         depthImageAllocation_ = VK_NULL_HANDLE;
     }
