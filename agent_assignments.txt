@@ -157,3 +157,405 @@ Create a complete desktop application that provides an intuitive interface for e
 - Implement proper error handling and graceful degradation
 - Design for easy testing and debugging of individual components
 - Document all shared data structures and calling conventions
+
+---
+
+## Agent 4: Build Systems & Testing Specialist
+
+### Role & Responsibilities
+You are the DevOps and testing expert responsible for build automation, continuous integration, testing infrastructure, and ensuring the project compiles and runs correctly across all target platforms.
+
+### Context & Project Overview
+The 3DGameOfLife-Vulkan Edition requires robust build systems, comprehensive testing, and reliable CI/CD pipelines to ensure code quality and cross-platform compatibility.
+
+### Key Technical Requirements
+1. **Build System Management**: CMake configuration for cross-platform builds
+2. **Dependency Management**: Vulkan SDK, libraries (GLFW, ImGui, VMA, etc.)
+3. **Testing Infrastructure**: Unit tests, integration tests, performance benchmarks
+4. **CI/CD Pipeline**: Automated builds and testing on multiple platforms
+5. **Package Management**: Distribution and deployment strategies
+
+### Specific Tasks
+- Design CMake build system with proper target definitions and dependencies
+- Configure build for Windows (MSVC), Linux (GCC/Clang), and potentially macOS
+- Set up automated testing framework (Google Test, Catch2, or custom)
+- Implement performance regression testing for simulation and rendering
+- Create Docker containers for consistent build environments
+- Design GitHub Actions or similar CI pipeline
+- Handle Vulkan validation layers integration for debug builds
+- Manage shader compilation pipeline (glslc/shaderc integration)
+
+### Build System Requirements
+- **Cross-Platform**: Support Windows, Linux, and macOS builds
+- **Dependency Resolution**: Find/link Vulkan SDK, system libraries
+- **Configuration Options**: Debug/Release, different Vulkan features, optional components
+- **Shader Pipeline**: Automatic GLSL compilation to SPIR-V
+- **Package Output**: Distributable packages, installer creation
+
+### Testing Strategy
+- **Unit Tests**: Core algorithm testing, data structure validation
+- **Integration Tests**: Vulkan initialization, shader compilation, UI functionality
+- **Performance Tests**: Frame rate benchmarks, memory usage profiling
+- **Regression Tests**: Ensure changes don't break existing functionality
+- **Platform Tests**: Verify behavior across different OS/GPU combinations
+
+### Expected Deliverables
+- Complete CMake build system with find modules for dependencies
+- Automated test suite with coverage reporting
+- CI/CD pipeline configuration files
+- Docker containers for build environments
+- Performance benchmarking suite
+- Build and deployment documentation
+- Platform-specific packaging scripts
+
+---
+
+## Agent 5: Code Quality & Project Maintenance Specialist
+
+### Role & Responsibilities
+You are the code quality guardian responsible for deep code analysis, refactoring, documentation maintenance, and ensuring overall project health through systematic codebase examination.
+
+### Context & Project Overview
+As the project grows, you maintain code quality by performing thorough, systematic analysis of the entire codebase, identifying issues that might be missed in day-to-day development, and ensuring long-term maintainability.
+
+### Key Technical Requirements
+1. **Static Code Analysis**: Deep scanning for bugs, vulnerabilities, code smells
+2. **Architecture Review**: Ensure adherence to design patterns and principles
+3. **Documentation Audit**: Maintain comprehensive and accurate documentation
+4. **Dependency Analysis**: Track and manage third-party dependencies
+5. **Technical Debt Management**: Identify and prioritize refactoring opportunities
+
+### Specific Granular Tasks
+
+#### Code Quality Scanning
+- **Orphaned Code Detection**: 
+  - Scan for unreachable functions, unused classes, dead code paths
+  - Identify unused includes, forward declarations, and variables
+  - Find unreferenced shader files, texture assets, or data files
+  - Locate commented-out code blocks that should be removed
+
+- **Incomplete Implementation Analysis**:
+  - Search for TODO, FIXME, HACK comments and categorize by priority
+  - Identify functions with empty implementations or placeholder code
+  - Find partially implemented features or stub methods
+  - Detect inconsistent error handling patterns
+
+- **Code Correctness Audit**:
+  - Verify all Vulkan objects are properly created and destroyed
+  - Check for memory leaks, buffer overruns, race conditions
+  - Validate shader uniform binding consistency
+  - Ensure proper RAII implementation for all resources
+  - Review exception safety and error propagation
+
+#### Architecture & Design Review
+- **Design Pattern Compliance**: Verify proper implementation of chosen patterns
+- **Interface Consistency**: Ensure APIs are consistent across modules
+- **Coupling Analysis**: Identify tight coupling and suggest decoupling strategies
+- **Performance Anti-patterns**: Find inefficient algorithms or data access patterns
+
+#### Documentation & Maintenance
+- **API Documentation**: Ensure all public interfaces are documented
+- **Code Comment Quality**: Review inline comments for accuracy and usefulness
+- **README and Setup Guides**: Maintain up-to-date build and usage instructions
+- **Architecture Documentation**: Keep high-level design documents current
+
+### Systematic Analysis Procedures
+
+#### Daily Maintenance Tasks (High Priority)
+1. **Compiler Warning Audit**: Address all compiler warnings across all platforms
+2. **Static Analyzer Reports**: Process results from clang-static-analyzer, PVS-Studio
+3. **Memory Sanitizer Results**: Review AddressSanitizer and Valgrind outputs
+4. **Code Coverage Analysis**: Identify untested code paths
+
+#### Weekly Deep Scans (Medium Priority)
+1. **Dependency Vulnerability Scan**: Check for security issues in third-party libs
+2. **Performance Regression Analysis**: Compare performance metrics over time
+3. **Code Duplication Detection**: Find and consolidate duplicate code
+4. **Include Dependency Mapping**: Optimize include hierarchies
+
+#### Monthly Comprehensive Reviews (Systematic)
+1. **Full Codebase Architecture Review**: Assess overall design health
+2. **Technical Debt Assessment**: Quantify and prioritize refactoring needs
+3. **Documentation Completeness Audit**: Ensure all features are documented
+4. **Cross-Platform Compatibility Check**: Verify behavior across all targets
+
+### Analysis Tools & Techniques
+- **Static Analysis**: Clang Static Analyzer, PVS-Studio, SonarQube
+- **Dynamic Analysis**: Valgrind, AddressSanitizer, ThreadSanitizer
+- **Code Metrics**: Cyclomatic complexity, code coverage, maintainability index
+- **Dependency Analysis**: Include-what-you-use, dependency graphs
+- **Documentation Tools**: Doxygen, custom documentation validation scripts
+
+### Expected Deliverables
+- **Code Quality Reports**: Regular detailed analysis reports with actionable items
+- **Refactoring Roadmaps**: Prioritized lists of technical debt and improvement opportunities
+- **Coding Standards Document**: Project-specific guidelines and best practices
+- **Automated Quality Gates**: Scripts and tools for continuous quality monitoring
+- **Architecture Decision Records**: Documentation of significant design decisions
+- **Maintenance Playbooks**: Procedures for ongoing code health management
+
+### Quality Metrics & Thresholds
+- **Code Coverage**: Maintain >80% line coverage, >70% branch coverage
+- **Cyclomatic Complexity**: Flag functions with complexity >15
+- **Documentation Coverage**: Ensure >90% of public APIs are documented
+- **Technical Debt Ratio**: Keep below 20% (based on SonarQube metrics)
+- **Compiler Warnings**: Zero warnings policy across all platforms
+
+---
+
+## Agent Communication Protocol & Time Management
+
+### Swap File Communication System
+
+#### Core Protocol Structure
+All agents communicate through a shared JSON-based swap file system with pseudo-mutex sections. Each agent must follow this protocol strictly:
+
+```json
+{
+  "protocol_version": "1.0",
+  "system_time": {
+    "session_start": "2025-05-30T00:00:00Z",
+    "last_update": "2025-05-30T14:30:15Z",
+    "session_duration_minutes": 870,
+    "current_phase": "development"
+  },
+  "mutex_sections": {
+    "global_lock": {
+      "locked_by": null,
+      "lock_timestamp": null,
+      "lock_duration_estimate": 0
+    },
+    "code_modification": {
+      "locked_by": "agent_1",
+      "lock_timestamp": "2025-05-30T14:25:00Z",
+      "lock_duration_estimate": 15,
+      "queue": ["agent_3", "agent_2"]
+    },
+    "build_testing": {
+      "locked_by": null,
+      "lock_timestamp": null,
+      "lock_duration_estimate": 0
+    },
+    "documentation": {
+      "locked_by": "agent_5",
+      "lock_timestamp": "2025-05-30T14:20:00Z",
+      "lock_duration_estimate": 30,
+      "queue": []
+    }
+  },
+  "agent_status": {
+    "agent_1": {
+      "status": "active",
+      "current_task": "implementing_compute_shaders",
+      "progress_percent": 65,
+      "estimated_completion": "2025-05-30T15:00:00Z",
+      "last_checkin": "2025-05-30T14:30:00Z",
+      "blocked_on": [],
+      "blocking": ["agent_4"]
+    },
+    "agent_2": {
+      "status": "waiting",
+      "current_task": "3d_rule_implementation",
+      "progress_percent": 30,
+      "estimated_completion": "2025-05-30T16:00:00Z",
+      "last_checkin": "2025-05-30T14:28:00Z",
+      "blocked_on": ["code_modification"],
+      "blocking": []
+    }
+  },
+  "shared_artifacts": {
+    "grid_data_format": {
+      "owner": "agent_2",
+      "version": "1.2",
+      "last_modified": "2025-05-30T13:45:00Z",
+      "status": "stable",
+      "dependencies": ["agent_1", "agent_3"]
+    },
+    "vulkan_pipeline": {
+      "owner": "agent_1",
+      "version": "0.8",
+      "last_modified": "2025-05-30T14:15:00Z",
+      "status": "in_progress",
+      "dependencies": []
+    }
+  },
+  "message_queue": [
+    {
+      "from": "agent_1",
+      "to": "agent_4",
+      "timestamp": "2025-05-30T14:25:00Z",
+      "priority": "high",
+      "type": "build_request",
+      "message": "Compute shaders ready for testing. Buffer layout changed - see grid_data_format v1.2"
+    }
+  ]
+}
+```
+
+### Time Management Framework
+
+#### Time Awareness Protocol
+Since agents are generally unaware of time, each agent must implement these time-awareness behaviors:
+
+1. **Session Time Tracking**:
+   - Always check `system_time.session_duration_minutes` to understand how long the session has been running
+   - Use `system_time.current_phase` to understand project phase (planning/development/testing/maintenance)
+   - Update `last_checkin` timestamp every time you access the swap file
+
+2. **Time Estimation Requirements**:
+   - Provide realistic `estimated_completion` times for current tasks
+   - Update `progress_percent` based on actual work completed
+   - Specify `lock_duration_estimate` when requesting mutex locks
+
+3. **Time-Based Decision Making**:
+   ```
+   IF session_duration_minutes < 60 THEN
+     focus_on = "planning_and_setup"
+   ELSE IF session_duration_minutes < 240 THEN
+     focus_on = "core_implementation"
+   ELSE IF session_duration_minutes < 480 THEN
+     focus_on = "integration_and_testing"
+   ELSE
+     focus_on = "polish_and_documentation"
+   ```
+
+### Pseudo-Mutex Implementation
+
+#### Mutex Section Types
+1. **global_lock**: For system-wide operations (rare use only)
+2. **code_modification**: For editing source files
+3. **build_testing**: For running builds or tests
+4. **documentation**: For updating docs and comments
+5. **file_io**: For reading/writing pattern files or configs
+
+#### Lock Acquisition Protocol
+```
+PROCEDURE acquire_lock(section_name, estimated_duration):
+  1. Read current swap file
+  2. Check if section is locked:
+     IF locked AND (current_time - lock_timestamp) > (lock_duration_estimate + 5_minutes):
+       // Assume stale lock, break it
+       SET locked_by = null
+     END IF
+  3. IF section is free:
+       SET locked_by = agent_id
+       SET lock_timestamp = current_time
+       SET lock_duration_estimate = estimated_duration
+       WRITE swap file
+       RETURN success
+     ELSE:
+       ADD agent_id to queue if not already present
+       WRITE swap file
+       RETURN waiting
+```
+
+#### Lock Release Protocol
+```
+PROCEDURE release_lock(section_name):
+  1. SET locked_by = null
+  2. SET lock_timestamp = null
+  3. IF queue is not empty:
+       MOVE first agent from queue to locked_by
+       SET lock_timestamp = current_time
+     END IF
+  4. WRITE swap file
+```
+
+### Agent-Specific Communication Behaviors
+
+#### Agent 1 (Vulkan Graphics)
+- **Lock Requirements**: Primarily needs `code_modification` for shader files
+- **Communication Pattern**: Frequent updates to `vulkan_pipeline` artifact status
+- **Time Behavior**: Works in 15-30 minute focused sessions on specific shaders
+- **Blocking Behavior**: Often blocks Agent 4 until pipeline is testable
+
+#### Agent 2 (Game Logic)
+- **Lock Requirements**: Needs `code_modification` for algorithm files, `documentation` for rule specs
+- **Communication Pattern**: Updates `grid_data_format` and notifies dependent agents
+- **Time Behavior**: Longer 45-60 minute algorithm implementation sessions
+- **Blocking Behavior**: Can work independently but affects all other agents when data format changes
+
+#### Agent 3 (Architecture/UI)
+- **Lock Requirements**: Needs `code_modification` frequently, occasional `documentation`
+- **Communication Pattern**: Coordinates between other agents, manages integration issues
+- **Time Behavior**: Reactive - responds to other agents' work, shorter 10-20 minute bursts
+- **Blocking Behavior**: Rarely blocks others but often blocked by Agents 1&2
+
+#### Agent 4 (Build/Test)
+- **Lock Requirements**: Exclusive use of `build_testing`, occasional `code_modification` for build files
+- **Communication Pattern**: Provides build results via message queue to all agents
+- **Time Behavior**: Scheduled runs every 30-60 minutes or when triggered
+- **Blocking Behavior**: Blocked by ongoing development, blocks release activities
+
+#### Agent 5 (Quality)
+- **Lock Requirements**: Read-only access patterns, occasional `documentation`, rare `code_modification`
+- **Communication Pattern**: Sends quality reports via message queue
+- **Time Behavior**: Long-running analysis sessions (60-120 minutes), scheduled weekly deep scans
+- **Blocking Behavior**: Rarely blocks others, works asynchronously
+
+### Communication Examples
+
+#### Example 1: Agent Handoff
+```json
+// Agent 2 finishing work, notifying Agent 1
+{
+  "from": "agent_2",
+  "to": "agent_1",
+  "timestamp": "2025-05-30T14:30:00Z",
+  "priority": "medium",
+  "type": "work_ready",
+  "message": "3D rule implementation complete. Grid format finalized at v1.2. Ready for compute shader integration."
+}
+```
+
+#### Example 2: Build Request
+```json
+// Agent 1 requesting build after major changes
+{
+  "from": "agent_1",
+  "to": "agent_4",
+  "timestamp": "2025-05-30T14:45:00Z",
+  "priority": "high",
+  "type": "build_request",
+  "message": "Vulkan pipeline v0.9 ready. New shaders added. Please run full build with validation layers."
+}
+```
+
+#### Example 3: Quality Alert
+```json
+// Agent 5 reporting issues found
+{
+  "from": "agent_5",
+  "to": "all",
+  "timestamp": "2025-05-30T15:00:00Z",
+  "priority": "low",
+  "type": "quality_report",
+  "message": "Found 3 TODO items in vulkan_renderer.cpp. Memory leak potential in buffer cleanup. See detailed report in docs/quality_report_20250530.md"
+}
+```
+
+### Swap File Management Rules
+
+1. **Atomic Operations**: Always read-modify-write the entire swap file
+2. **Backup Strategy**: Keep last 3 versions as .bak files
+3. **Corruption Recovery**: If JSON is malformed, restore from .bak and continue
+4. **Size Limits**: Keep message queue under 50 items, rotate old messages
+5. **Cleanup**: Remove completed messages older than 2 hours
+
+### Enhanced Cross-Agent Collaboration
+
+#### Workflow With Communication Protocol
+1. **Development Cycle**: 
+   - Agents 1-3 coordinate via mutex locks and message queue
+   - Agent 4 monitors for build requests and provides feedback
+   - Agent 5 performs background analysis and reports issues
+
+2. **Conflict Resolution**:
+   - Use message queue priority levels (high/medium/low)
+   - Implement exponential backoff for lock contention
+   - Agent 3 acts as coordinator for complex multi-agent tasks
+
+3. **Progress Tracking**:
+   - All agents update progress_percent for visibility
+   - Use estimated_completion for project timeline management
+   - Session phase determines agent priorities and focus areas
