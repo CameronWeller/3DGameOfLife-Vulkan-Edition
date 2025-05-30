@@ -16,11 +16,43 @@ A modern C++ engine that combines Vulkan for graphics and AMD's HIP for compute 
 
 ## Prerequisites
 
+### Required Software
 - Visual Studio 2022 with C++ development tools
 - CMake 3.15 or higher
 - Vulkan SDK 1.3 or higher
 - GLFW 3.3.8 and GLM 0.9.9.8 (automatically fetched by CMake)
 - AMD HIP (optional, for compute operations)
+
+### Vulkan SDK Installation (Windows)
+
+1. Download the Vulkan SDK from [LunarG's website](https://vulkan.lunarg.com/sdk/home#windows)
+2. Run the installer and follow the installation wizard
+3. After installation, set up environment variables:
+   ```powershell
+   # Set VULKAN_SDK environment variable (replace with your installation path)
+   $env:VULKAN_SDK = "C:\VulkanSDK\1.3.xxx.x"
+   
+   # Add Vulkan SDK's bin directory to PATH
+   $env:Path += ";$env:VULKAN_SDK\Bin"
+   ```
+4. Verify installation:
+   ```powershell
+   # Check if glslc is available
+   glslc --version
+   
+   # Check if Vulkan SDK is properly set
+   echo $env:VULKAN_SDK
+   ```
+
+### Development Environment Setup
+
+1. Install Visual Studio 2022 with C++ development tools
+2. Install Vulkan SDK following the instructions above
+3. Clone this repository
+4. Run the setup script:
+   ```powershell
+   .\scripts\setup\main.ps1 -Admin
+   ```
 
 ## Quick Start
 
@@ -140,101 +172,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ### Docker Alternative
 - If using Docker and encountering X11/display errors, ensure VcXsrv is running and DISPLAY is set correctly
 - If Docker build fails, try `docker-compose build --no-cache`
-- For X11 setup on Windows, run `scripts/setup_windows.bat` before using Docker
-
-## Clean/Rebuild
-- To clean: `scripts\clean_windows.bat` or delete the build directory
-- To rebuild from scratch: Run `scripts\build_windows.bat` again
-
-## Code Quality & Static Analysis
-
-This project uses the following tools for code quality:
-
-- **clang-format**: Enforces code style
-- **clang-tidy**: Advanced static analysis
-- **cppcheck**: General static analysis
-
-Configuration for these tools is in `.clang-format`, `.clang-tidy`, and `cppcheck.suppress` at the project root.
-
-## Setup with vcpkg
-
-1. Install vcpkg:
-```powershell
-git clone https://github.com/Microsoft/vcpkg.git
-cd vcpkg
-./bootstrap-vcpkg.bat
-```
-
-2. Set up vcpkg environment variable (in PowerShell):
-```powershell
-$env:VCPKG_ROOT = "C:\path\to\vcpkg"  # Adjust path as needed
-```
-
-3. Build the project:
-```powershell
-mkdir build
-cd build
-cmake ..
-cmake --build . --config Release
-```
-
-## Dependencies (managed by vcpkg)
-
-- Vulkan SDK
-- GLFW3
-- GLM
-- Dear ImGui
-- spdlog
-- Vulkan Memory Allocator (VMA)
-
-## Controls
-
-- WASD: Camera movement
-- Mouse: Look around
-- E: Toggle placement mode
-- Left Click: Place voxel
-- Right Click: Remove voxel
-- Space: Toggle pause
-
-## Building from Source
-
-1. Clone the repository:
-```powershell
-git clone https://github.com/yourusername/cpp-vulkan-hip-engine.git
-cd cpp-vulkan-hip-engine
-```
-
-2. Follow the vcpkg setup instructions above
-
-3. Build the project:
-```powershell
-mkdir build
-cd build
-cmake ..
-cmake --build . --config Release
-```
-
-## Project Structure
-
-```
-cpp-vulkan-hip-engine/
-├── src/                    # Source files
-├── shaders/               # GLSL shaders
-├── include/              # Header files
-├── tests/               # Test files
-├── CMakeLists.txt      # CMake configuration
-├── vcpkg.json         # vcpkg manifest
-└── README.md         # This file
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details. 
+- For X11 setup on Windows, run `

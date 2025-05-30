@@ -1,53 +1,41 @@
+# Use Ubuntu 22.04 as base image
 FROM ubuntu:22.04
 
-# Install dependencies
-RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+# Avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install essential build tools and dependencies
+RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
+    ninja-build \
     git \
     wget \
+    unzip \
     pkg-config \
-    x11-apps \
-    x11-xserver-utils \
-    xauth \
-    mesa-utils \
-    libgl1-mesa-glx \
-    libgl1-mesa-dri \
-    x11vnc \
-    xvfb \
-    libx11-dev \
-    libxrandr-dev \
-    libxinerama-dev \
-    libxcursor-dev \
-    libxi-dev \
-    libglm-dev \
-    libgl1-mesa-dev \
-    libglu1-mesa-dev && \
-    rm -rf /var/lib/apt/lists/*
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install Vulkan SDK and validation layers
-RUN wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | apt-key add - && \
-    wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list http://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list && \
-    apt-get update && \
-    apt-get install -y vulkan-sdk vulkan-validationlayers && \
-    rm -rf /var/lib/apt/lists/*
+# Install Vulkan SDK
+RUN wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | apt-key add - \
+    && wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list http://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list \
+    && apt-get update \
+    && apt-get install -y vulkan-sdk \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set environment variables for Vulkan
-ENV VK_LAYER_PATH=/usr/share/vulkan/explicit_layer.d
-ENV VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation
+# Set up working directory
+WORKDIR /app
 
-# Set working directory
-WORKDIR /workspace
+# Copy CMake configuration
+COPY CMakeLists.txt .
+COPY cmake/ cmake/
 
-# Copy project files
-COPY . /workspace
+# Create build directory
+RUN mkdir build
 
-# Build the project
-RUN cmake -S . -B build && \
-    cmake --build build --verbose && \
-    ls -la build && \
-    ls -la build/shaders
+# Set environment variables
+ENV VULKAN_SDK=/usr
+ENV PATH=$PATH:/usr/bin
 
 # Default command
-CMD ["/workspace/build/vulkan-engine"] 
+CMD ["/bin/bash"] 

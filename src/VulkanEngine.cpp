@@ -60,15 +60,54 @@ VulkanEngine::VulkanEngine()
     }
     instance_ = this;
     
-    // Set up vertex data
+    // Set up vertex data for a cube
     vertices_ = {
-        {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-        {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-        {{0.0f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.5f, 1.0f}}
+        // Front face
+        {{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+        {{ 0.5f, -0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+        {{ 0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+        {{-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+        
+        // Back face
+        {{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f}},
+        {{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 0.0f}},
+        {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f}},
+        {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 1.0f}},
+        
+        // Top face
+        {{-0.5f,  0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+        {{ 0.5f,  0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+        {{ 0.5f,  0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
+        {{-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
+        
+        // Bottom face
+        {{-0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 1.0f}},
+        {{ 0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {1.0f, 1.0f}},
+        {{ 0.5f, -0.5f,  0.5f}, {0.0f, -1.0f, 0.0f}, {1.0f, 0.0f}},
+        {{-0.5f, -0.5f,  0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
+        
+        // Right face
+        {{ 0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+        {{ 0.5f,  0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
+        {{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
+        {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+        
+        // Left face
+        {{-0.5f, -0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+        {{-0.5f,  0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
+        {{-0.5f,  0.5f,  0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
+        {{-0.5f, -0.5f,  0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}}
     };
 
-    // Set up index data
-    indices_ = {0, 1, 2};
+    // Set up index data for a cube
+    indices_ = {
+        0, 1, 2, 2, 3, 0,       // Front
+        4, 5, 6, 6, 7, 4,       // Back
+        8, 9, 10, 10, 11, 8,    // Top
+        12, 13, 14, 14, 15, 12, // Bottom
+        16, 17, 18, 18, 19, 16, // Right
+        20, 21, 22, 22, 23, 20  // Left
+    };
 
     // Initialize enabledFeatures_
     memset(&enabledFeatures_, 0, sizeof(VkPhysicalDeviceFeatures));
@@ -84,77 +123,78 @@ VulkanEngine::~VulkanEngine() {
 
 // Initialize the engine
 void VulkanEngine::init() {
-    // Initialize window manager
-    windowManager_ = std::make_shared<WindowManager>();
-    WindowManager::WindowConfig config;
-    config.width = WIDTH;
-    config.height = HEIGHT;
-    config.title = WINDOW_TITLE;
-    windowManager_->init(config);
-    
+    // Initialize window
+    glfwInit();
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    window_ = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, nullptr, nullptr);
+    glfwSetWindowUserPointer(window_, this);
+    glfwSetFramebufferSizeCallback(window_, framebufferResizeCallback);
+
     // Initialize Vulkan context
-    vulkanContext_ = std::make_unique<VulkanContext>();
-    vulkanContext_->init(getRequiredInstanceExtensions());
-    
-    // Create surface
-    surface_ = windowManager_->createSurface(vulkanContext_->getVkInstance());
-    
+    vulkanContext_ = new VulkanContext();
+    vulkanContext_->init(window_);
+
     // Initialize memory manager
-    memoryManager_ = std::make_unique<VulkanMemoryManager>(
-        vulkanContext_->getDevice(),
-        vulkanContext_->getPhysicalDevice()
-    );
-    
+    memoryManager_ = new MemoryManager(vulkanContext_->getDevice(), vulkanContext_->getPhysicalDevice());
+
     // Create command pools
     createCommandPools();
-    createComputeCommandPool();
-    
+
     // Create swap chain
     createSwapChain();
+
+    // Create image views
     createImageViews();
+
+    // Create render pass
     createRenderPass();
-    createFramebuffers();
-    createDepthResources();
-    createColorResources();
+
+    // Create descriptor set layout
     createDescriptorSetLayout();
+
+    // Create graphics pipeline
     createGraphicsPipeline();
+
+    // Create framebuffers
+    createFramebuffers();
+
+    // Create depth resources
+    createDepthResources();
+
+    // Create color resources
+    createColorResources();
+
+    // Create uniform buffers
+    createUniformBuffers();
+
+    // Create descriptor pool
+    createDescriptorPool();
+
+    // Create descriptor sets
+    createDescriptorSets();
+
+    // Create command buffers
     createCommandBuffers();
+
+    // Create compute pipelines
+    createComputePipelines();
+
+    // Create compute buffers
+    createComputeBuffers();
+
+    // Create compute descriptor sets
+    createComputeDescriptorSets();
+
+    // Create synchronization objects
     createSyncObjects();
-    
-    // Initialize compute pipeline
-    createComputeCommandBuffers();
-    createComputeDescriptorPool();
-    
-    // Create Game of Life compute pipeline
-    VkPipeline gameOfLifePipeline = createComputePipeline("shaders/game_of_life_3d.comp");
-    
-    // Initialize compute pipeline with default grid size
-    ComputePipelineInfo pipelineInfo;
-    pipelineInfo.pipeline = gameOfLifePipeline;
-    createComputeBuffers(pipelineInfo, 64, 64, 64); // Default 64x64x64 grid
-    createComputeDescriptorSets(pipelineInfo);
-    computePipelines_.push_back(pipelineInfo);
-    
-    // Initialize compute synchronization objects
-    computeSemaphores_.resize(MAX_FRAMES_IN_FLIGHT);
-    computeFences_.resize(MAX_FRAMES_IN_FLIGHT);
-    
-    VkSemaphoreCreateInfo semaphoreInfo{};
-    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    
-    VkFenceCreateInfo fenceInfo{};
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        if (vkCreateSemaphore(vulkanContext_->getDevice(), &semaphoreInfo, nullptr, &computeSemaphores_[i]) != VK_SUCCESS ||
-            vkCreateFence(vulkanContext_->getDevice(), &fenceInfo, nullptr, &computeFences_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create compute synchronization objects!");
-        }
-    }
-    
+
     // Initialize ImGui
     initImGui();
+
+    // Initialize camera
+    camera_.setPosition(glm::vec3(gridWidth_ / 2.0f, gridHeight_ / 2.0f, gridDepth_ * 2.0f));
+    camera_.setTarget(glm::vec3(gridWidth_ / 2.0f, gridHeight_ / 2.0f, gridDepth_ / 2.0f));
+    camera_.setUp(glm::vec3(0.0f, 1.0f, 0.0f));
 }
 
 // Placeholder for the new applyEnabledDeviceFeatures
@@ -226,6 +266,9 @@ void VulkanEngine::drawFrame() {
     // Update uniform buffer
     updateUniformBuffer(currentFrame_);
 
+    // Update voxel instances
+    updateVoxelInstances();
+
     // Record compute command buffer
     VkCommandBuffer computeCommandBuffer = computeCommandBuffers_[currentComputeFrame_];
     VkCommandBufferBeginInfo computeBeginInfo{};
@@ -239,13 +282,13 @@ void VulkanEngine::drawFrame() {
     for (const auto& pipeline : computePipelines_) {
         vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline);
         vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                               pipeline.layout, 0, 1, &pipeline.descriptorSet, 0, nullptr);
+                               pipeline.layout, 0, 1, &pipeline.descriptorSets[currentFrame_], 0, nullptr);
 
         // Update push constants
         GameOfLifePushConstants constants{
-            gridWidth_,
-            gridHeight_,
-            gridDepth_,
+            pipeline.pushConstants.width,
+            pipeline.pushConstants.height,
+            pipeline.pushConstants.depth,
             ruleSet_,
             surviveMin_,
             surviveMax_,
@@ -255,9 +298,9 @@ void VulkanEngine::drawFrame() {
                           0, sizeof(GameOfLifePushConstants), &constants);
 
         // Dispatch compute shader
-        uint32_t groupCountX = (gridWidth_ + 7) / 8;
-        uint32_t groupCountY = (gridHeight_ + 7) / 8;
-        uint32_t groupCountZ = (gridDepth_ + 7) / 8;
+        uint32_t groupCountX = (pipeline.pushConstants.width + 7) / 8;
+        uint32_t groupCountY = (pipeline.pushConstants.height + 7) / 8;
+        uint32_t groupCountZ = (pipeline.pushConstants.depth + 7) / 8;
         vkCmdDispatch(computeCommandBuffer, groupCountX, groupCountY, groupCountZ);
     }
 
@@ -275,18 +318,13 @@ void VulkanEngine::drawFrame() {
         throw std::runtime_error("Failed to submit compute command buffer!");
     }
 
-    // Wait for compute to finish before graphics
+    // Wait for compute to finish
     vkWaitForFences(vulkanContext_->getDevice(), 1, &computeFences_[currentComputeFrame_], VK_TRUE, UINT64_MAX);
     vkResetFences(vulkanContext_->getDevice(), 1, &computeFences_[currentComputeFrame_]);
 
-    // Reset the fence for the current frame
-    vkResetFences(vulkanContext_->getDevice(), 1, &inFlightFences_[currentFrame_]);
+    // Record and submit graphics command buffer
+    recordCommandBuffer(commandBuffers_[currentFrame_], imageIndex);
 
-    // Record graphics command buffer
-    VkCommandBuffer commandBuffer = commandBuffers_[currentFrame_];
-    recordCommandBuffer(commandBuffer, imageIndex);
-
-    // Submit graphics command buffer
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
@@ -296,7 +334,7 @@ void VulkanEngine::drawFrame() {
     submitInfo.pWaitSemaphores = waitSemaphores;
     submitInfo.pWaitDstStageMask = waitStages;
     submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
+    submitInfo.pCommandBuffers = &commandBuffers_[currentFrame_];
 
     VkSemaphore signalSemaphores[] = {renderFinishedSemaphores_[currentFrame_]};
     submitInfo.signalSemaphoreCount = 1;
@@ -306,7 +344,7 @@ void VulkanEngine::drawFrame() {
         throw std::runtime_error("Failed to submit draw command buffer!");
     }
 
-    // Present the frame
+    // Present
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     presentInfo.waitSemaphoreCount = 1;
@@ -326,14 +364,13 @@ void VulkanEngine::drawFrame() {
         throw std::runtime_error("Failed to present swap chain image!");
     }
 
-    // Update frame indices
     currentFrame_ = (currentFrame_ + 1) % MAX_FRAMES_IN_FLIGHT;
     currentComputeFrame_ = (currentComputeFrame_ + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 void VulkanEngine::waitForComputeCompletion() {
-    VK_CHECK(vkWaitForFences(vulkanContext_->getDevice(), 1, &computeFences[currentFrame_], VK_TRUE, UINT64_MAX));
-    VK_CHECK(vkResetFences(vulkanContext_->getDevice(), 1, &computeFences[currentFrame_]));
+    vkWaitForFences(vulkanContext_->getDevice(), 1, &computeFences_[currentComputeFrame_], VK_TRUE, UINT64_MAX);
+    vkResetFences(vulkanContext_->getDevice(), 1, &computeFences_[currentComputeFrame_]);
 }
 
 void VulkanEngine::submitComputeCommand(VkCommandBuffer commandBuffer) {
@@ -352,7 +389,7 @@ void VulkanEngine::submitComputeCommand(VkCommandBuffer commandBuffer) {
         submitInfo.pWaitDstStageMask = &waitStage;
     }
 
-    if (vkQueueSubmit(computeQueue, 1, &submitInfo, computeFences[currentFrame_]) != VK_SUCCESS) {
+    if (vkQueueSubmit(computeQueue, 1, &submitInfo, computeFences_[currentComputeFrame_]) != VK_SUCCESS) {
         throw std::runtime_error("Failed to submit compute command!");
     }
 }
@@ -437,20 +474,39 @@ void VulkanEngine::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t i
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline_);
 
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = static_cast<float>(swapChainExtent_.width);
+    viewport.height = static_cast<float>(swapChainExtent_.height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = swapChainExtent_;
+    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descriptorSets_[currentFrame_], 0, nullptr);
+
+    // Bind vertex and index buffers
     VkBuffer vertexBuffers[] = {vertexBuffer_};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
     vkCmdBindIndexBuffer(commandBuffer, indexBuffer_, 0, VK_INDEX_TYPE_UINT32);
 
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, 
-        &descriptorSets_[currentFrame_], 0, nullptr);
+    // Bind instance buffer
+    VkBuffer instanceBuffers[] = {voxelInstanceBuffer_};
+    vkCmdBindVertexBuffers(commandBuffer, 1, 1, instanceBuffers, offsets);
 
-    vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices_.size()), 1, 0, 0, 0);
+    // Draw instanced
+    vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices_.size()), static_cast<uint32_t>(voxelInstances_.size()), 0, 0, 0);
 
-    // Record ImGui draw commands
-    if (imguiInitialized_) {
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
-    }
+    // End ImGui frame
+    ImGui::Render();
+    ImDrawData* draw_data = ImGui::GetDrawData();
+    ImGui_ImplVulkan_RenderDrawData(draw_data, commandBuffer);
 
     vkCmdEndRenderPass(commandBuffer);
 
@@ -624,24 +680,26 @@ void VulkanEngine::createComputeDescriptorSets() {
 }
 
 void VulkanEngine::createComputeBuffers() {
-    VkDeviceSize bufferSize = sizeof(uint32_t) * gridWidth_ * gridHeight_ * gridDepth_;
+    VkDeviceSize bufferSize = gridWidth_ * gridHeight_ * gridDepth_ * sizeof(uint32_t);
+    auto& memoryManager = vulkanContext_->getMemoryManager();
 
-    // Create state buffer
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = bufferSize;
-    bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    VmaAllocationCreateInfo allocInfo{};
-    allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-
-    VK_CHECK(vmaCreateBuffer(vulkanContext_->getVmaAllocator(), &bufferInfo, &allocInfo,
-        &computePipeline_.stateBuffer, &computePipeline_.stateBufferAllocation, nullptr));
+    // Create current state buffer
+    auto currentStateAlloc = memoryManager.createBuffer(
+        bufferSize,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY
+    );
+    pipelineInfo.currentStateBuffer = currentStateAlloc.buffer;
+    pipelineInfo.currentStateBufferAllocation = currentStateAlloc.allocation;
 
     // Create next state buffer
-    VK_CHECK(vmaCreateBuffer(vulkanContext_->getVmaAllocator(), &bufferInfo, &allocInfo,
-        &computePipeline_.nextStateBuffer, &computePipeline_.nextStateBufferAllocation, nullptr));
+    auto nextStateAlloc = memoryManager.createBuffer(
+        bufferSize,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY
+    );
+    pipelineInfo.nextStateBuffer = nextStateAlloc.buffer;
+    pipelineInfo.nextStateBufferAllocation = nextStateAlloc.allocation;
 }
 
 void VulkanEngine::updateComputePushConstants() {
@@ -689,71 +747,36 @@ void VulkanEngine::destroyComputePipeline(VkPipeline pipeline) {
 
 // Begin a single-time command buffer
 VkCommandBuffer VulkanEngine::beginSingleTimeCommands() {
-    VkDevice currentDevice = vulkanContext_->getDevice();
-    if (currentDevice == VK_NULL_HANDLE) {
-        throw std::runtime_error("Cannot begin single-time commands: Device is null");
-    }
-
-    VkCommandPool poolToUse = graphicsCommandPool_;
-    if (poolToUse == VK_NULL_HANDLE) {
-        throw std::runtime_error("Cannot begin single-time commands: Command pool is null");
-    }
-    
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = poolToUse;
+    allocInfo.commandPool = graphicsCommandPool_;
     allocInfo.commandBufferCount = 1;
 
     VkCommandBuffer commandBuffer;
-    VkResult result = vkAllocateCommandBuffers(currentDevice, &allocInfo, &commandBuffer);
-    if (result != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate single-time command buffer: " + 
-            std::to_string(static_cast<int>(result)));
-    }
+    vkAllocateCommandBuffers(vulkanContext_->getDevice(), &allocInfo, &commandBuffer);
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    
-    result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
-    if (result != VK_SUCCESS) {
-        vkFreeCommandBuffers(currentDevice, poolToUse, 1, &commandBuffer);
-        throw std::runtime_error("Failed to begin single-time command buffer: " + 
-            std::to_string(static_cast<int>(result)));
-    }
-    
+
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
     return commandBuffer;
 }
 
 void VulkanEngine::endSingleTimeCommands(VkCommandBuffer commandBuffer) {
-    VkDevice currentDevice = vulkanContext_->getDevice();
-    VkQueue queueToUse = vulkanContext_->getGraphicsQueue();
-    VkCommandPool poolToUse = graphicsCommandPool_;
-
-    if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
-        vkFreeCommandBuffers(currentDevice, poolToUse, 1, &commandBuffer);
-        throw std::runtime_error("Failed to end single-time command buffer");
-    }
+    vkEndCommandBuffer(commandBuffer);
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer;
 
-    VkResult result = vkQueueSubmit(queueToUse, 1, &submitInfo, VK_NULL_HANDLE);
-    if (result != VK_SUCCESS) {
-        vkFreeCommandBuffers(currentDevice, poolToUse, 1, &commandBuffer);
-        throw std::runtime_error("Failed to submit single-time command buffer");
-    }
+    vkQueueSubmit(vulkanContext_->getGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(vulkanContext_->getGraphicsQueue());
 
-    result = vkQueueWaitIdle(queueToUse);
-    if (result != VK_SUCCESS) {
-        vkFreeCommandBuffers(currentDevice, poolToUse, 1, &commandBuffer);
-        throw std::runtime_error("Queue wait idle failed for single-time command buffer");
-    }
-
-    vkFreeCommandBuffers(currentDevice, poolToUse, 1, &commandBuffer);
+    vkFreeCommandBuffers(vulkanContext_->getDevice(), graphicsCommandPool_, 1, &commandBuffer);
 }
 
 // Read a file into a vector of chars
@@ -775,81 +798,89 @@ std::vector<char> VulkanEngine::readFile(const std::string& filename) {
 }
 
 void VulkanEngine::cleanup() {
-    // Wait for device to finish operations
-    if (vulkanContext_ && vulkanContext_->getDevice() != VK_NULL_HANDLE) {
-        vkDeviceWaitIdle(vulkanContext_->getDevice());
+    vkDeviceWaitIdle(vulkanContext_->getDevice());
+
+    // Cleanup ImGui
+    if (imguiInitialized_) {
+        ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
     }
 
-    // Cleanup ImGui first as it depends on other resources
-    cleanupImGui();
+    // Cleanup swap chain
+    cleanupSwapChain();
 
-    // Cleanup compute resources
-    for (const auto& pipeline : computePipelines_) {
+    // Cleanup vertex buffer
+    if (vertexBuffer_ != VK_NULL_HANDLE) {
+        vmaDestroyBuffer(memoryManager_->getAllocator(), vertexBuffer_, vertexBufferAllocation_);
+    }
+
+    // Cleanup index buffer
+    if (indexBuffer_ != VK_NULL_HANDLE) {
+        vmaDestroyBuffer(memoryManager_->getAllocator(), indexBuffer_, indexBufferAllocation_);
+    }
+
+    // Cleanup voxel instance buffer
+    if (voxelInstanceBuffer_ != VK_NULL_HANDLE) {
+        vmaDestroyBuffer(memoryManager_->getAllocator(), voxelInstanceBuffer_, voxelInstanceBufferAllocation_);
+    }
+
+    // Cleanup uniform buffers
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        if (uniformBuffers_[i] != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(memoryManager_->getAllocator(), uniformBuffers_[i], uniformBuffersAllocations_[i]);
+        }
+    }
+
+    // Cleanup compute pipelines
+    for (auto& pipeline : computePipelines_) {
         if (pipeline.pipeline != VK_NULL_HANDLE) {
             vkDestroyPipeline(vulkanContext_->getDevice(), pipeline.pipeline, nullptr);
         }
         if (pipeline.layout != VK_NULL_HANDLE) {
             vkDestroyPipelineLayout(vulkanContext_->getDevice(), pipeline.layout, nullptr);
         }
-        if (pipeline.descriptorSetLayout != VK_NULL_HANDLE) {
-            vkDestroyDescriptorSetLayout(vulkanContext_->getDevice(), pipeline.descriptorSetLayout, nullptr);
-        }
         if (pipeline.currentStateBuffer != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(vulkanContext_->getVmaAllocator(), pipeline.currentStateBuffer, pipeline.currentStateBufferAllocation);
+            vmaDestroyBuffer(memoryManager_->getAllocator(), pipeline.currentStateBuffer, pipeline.currentStateBufferAllocation);
         }
         if (pipeline.nextStateBuffer != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(vulkanContext_->getVmaAllocator(), pipeline.nextStateBuffer, pipeline.nextStateBufferAllocation);
+            vmaDestroyBuffer(memoryManager_->getAllocator(), pipeline.nextStateBuffer, pipeline.nextStateBufferAllocation);
+        }
+        if (pipeline.descriptorPool != VK_NULL_HANDLE) {
+            vkDestroyDescriptorPool(vulkanContext_->getDevice(), pipeline.descriptorPool, nullptr);
         }
     }
-    computePipelines_.clear();
 
-    // Cleanup compute command buffers
-    if (!computeCommandBuffers_.empty()) {
-        vkFreeCommandBuffers(vulkanContext_->getDevice(), computeCommandPool_,
-                           static_cast<uint32_t>(computeCommandBuffers_.size()), computeCommandBuffers_.data());
-        computeCommandBuffers_.clear();
+    // Cleanup graphics pipeline
+    if (graphicsPipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(vulkanContext_->getDevice(), graphicsPipeline_, nullptr);
     }
-
-    // Cleanup compute command pool
-    if (computeCommandPool_ != VK_NULL_HANDLE) {
-        vkDestroyCommandPool(vulkanContext_->getDevice(), computeCommandPool_, nullptr);
-        computeCommandPool_ = VK_NULL_HANDLE;
+    if (pipelineLayout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(vulkanContext_->getDevice(), pipelineLayout_, nullptr);
     }
-
-    // Cleanup compute descriptor pool
-    if (computeDescriptorPool_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(vulkanContext_->getDevice(), computeDescriptorPool_, nullptr);
-        computeDescriptorPool_ = VK_NULL_HANDLE;
+    if (renderPass_ != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(vulkanContext_->getDevice(), renderPass_, nullptr);
     }
-
-    // Cleanup compute synchronization objects
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        if (computeSemaphores_[i] != VK_NULL_HANDLE) {
-            vkDestroySemaphore(vulkanContext_->getDevice(), computeSemaphores_[i], nullptr);
-        }
-        if (computeFences_[i] != VK_NULL_HANDLE) {
-            vkDestroyFence(vulkanContext_->getDevice(), computeFences_[i], nullptr);
-        }
-    }
-    computeSemaphores_.clear();
-    computeFences_.clear();
-
-    // Cleanup swap chain
-    cleanupSwapChain();
 
     // Cleanup descriptor set layout
     if (descriptorSetLayout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(vulkanContext_->getDevice(), descriptorSetLayout_, nullptr);
-        descriptorSetLayout_ = VK_NULL_HANDLE;
+    }
+
+    // Cleanup descriptor pool
+    if (descriptorPool_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(vulkanContext_->getDevice(), descriptorPool_, nullptr);
     }
 
     // Cleanup command pools
     if (graphicsCommandPool_ != VK_NULL_HANDLE) {
         vkDestroyCommandPool(vulkanContext_->getDevice(), graphicsCommandPool_, nullptr);
-        graphicsCommandPool_ = VK_NULL_HANDLE;
+    }
+    if (computeCommandPool_ != VK_NULL_HANDLE) {
+        vkDestroyCommandPool(vulkanContext_->getDevice(), computeCommandPool_, nullptr);
     }
 
-    // Cleanup sync objects
+    // Cleanup synchronization objects
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         if (imageAvailableSemaphores_[i] != VK_NULL_HANDLE) {
             vkDestroySemaphore(vulkanContext_->getDevice(), imageAvailableSemaphores_[i], nullptr);
@@ -860,40 +891,45 @@ void VulkanEngine::cleanup() {
         if (inFlightFences_[i] != VK_NULL_HANDLE) {
             vkDestroyFence(vulkanContext_->getDevice(), inFlightFences_[i], nullptr);
         }
+        if (computeFences_[i] != VK_NULL_HANDLE) {
+            vkDestroyFence(vulkanContext_->getDevice(), computeFences_[i], nullptr);
+        }
     }
 
     // Cleanup memory manager
-    memoryManager_.reset();
+    if (memoryManager_) {
+        delete memoryManager_;
+    }
 
     // Cleanup Vulkan context
-    vulkanContext_.reset();
+    if (vulkanContext_) {
+        delete vulkanContext_;
+    }
 
-    // Cleanup window manager
-    windowManager_.reset();
+    // Cleanup window
+    if (window_) {
+        glfwDestroyWindow(window_);
+    }
+    glfwTerminate();
 }
 
 // Placeholder for framebufferResizeCallback - will be handled by WindowManager
 void VulkanEngine::framebufferResizeCallback(GLFWwindow* window, int width, int height) {
     auto app = reinterpret_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
-    // app->framebufferResized_ = true; // This flag will be managed by SwapchainManager or VulkanEngine based on WindowManager events
+    app->framebufferResized_ = true;
 }
 
 VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code) {
-    VkDevice currentDevice = vulkanContext_->getDevice();
-    if (currentDevice == VK_NULL_HANDLE) {
-        throw std::runtime_error("Device not available for shader module creation");
-    }
-
     VkShaderModuleCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     createInfo.codeSize = code.size();
     createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
 
     VkShaderModule shaderModule;
-    if (vkCreateShaderModule(currentDevice, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
+    if (vkCreateShaderModule(vulkanContext_->getDevice(), &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create shader module!");
     }
-    // shaderModules.push_back(shaderModule); // This logic will move to a ShaderManager or PipelineManager
+
     return shaderModule;
 }
 
@@ -1293,21 +1329,25 @@ void VulkanEngine::createIndexBuffer() {
 
 void VulkanEngine::createUniformBuffers() {
     VkDeviceSize bufferSize = sizeof(UniformBufferObject);
-    auto& memoryManager = vulkanContext_->getMemoryManager();
 
     uniformBuffers_.resize(MAX_FRAMES_IN_FLIGHT);
-    uniformBufferAllocations_.resize(MAX_FRAMES_IN_FLIGHT);
-    uniformBuffersMapped_.resize(MAX_FRAMES_IN_FLIGHT);
+    uniformBuffersAllocations_.resize(MAX_FRAMES_IN_FLIGHT);
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        auto allocation = memoryManager.createBuffer(
-            bufferSize,
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VMA_MEMORY_USAGE_CPU_TO_GPU
-        );
-        uniformBuffers_[i] = allocation.buffer;
-        uniformBufferAllocations_[i] = allocation.allocation;
-        uniformBuffersMapped_[i] = memoryManager.mapMemory(allocation);
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = bufferSize;
+        bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        VmaAllocationCreateInfo allocInfo{};
+        allocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+        allocInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+        if (vmaCreateBuffer(memoryManager_->getAllocator(), &bufferInfo, &allocInfo,
+            &uniformBuffers_[i], &uniformBuffersAllocations_[i], nullptr) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create uniform buffer!");
+        }
     }
 }
 
@@ -1315,8 +1355,8 @@ void VulkanEngine::createDescriptorPool() {
     std::array<VkDescriptorPoolSize, 2> poolSizes{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-    poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2); // For compute buffers
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1348,31 +1388,16 @@ void VulkanEngine::createDescriptorSets() {
         bufferInfo.offset = 0;
         bufferInfo.range = sizeof(UniformBufferObject);
 
-        VkDescriptorImageInfo imageInfo{};
-        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfo.imageView = textureImageView_;
-        imageInfo.sampler = textureSampler_;
+        VkWriteDescriptorSet descriptorWrite{};
+        descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrite.dstSet = descriptorSets_[i];
+        descriptorWrite.dstBinding = 0;
+        descriptorWrite.dstArrayElement = 0;
+        descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        descriptorWrite.descriptorCount = 1;
+        descriptorWrite.pBufferInfo = &bufferInfo;
 
-        std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
-
-        descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrites[0].dstSet = descriptorSets_[i];
-        descriptorWrites[0].dstBinding = 0;
-        descriptorWrites[0].dstArrayElement = 0;
-        descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        descriptorWrites[0].descriptorCount = 1;
-        descriptorWrites[0].pBufferInfo = &bufferInfo;
-
-        descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrites[1].dstSet = descriptorSets_[i];
-        descriptorWrites[1].dstBinding = 1;
-        descriptorWrites[1].dstArrayElement = 0;
-        descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        descriptorWrites[1].descriptorCount = 1;
-        descriptorWrites[1].pImageInfo = &imageInfo;
-
-        vkUpdateDescriptorSets(vulkanContext_->getDevice(), static_cast<uint32_t>(descriptorWrites.size()), 
-                             descriptorWrites.data(), 0, nullptr);
+        vkUpdateDescriptorSets(vulkanContext_->getDevice(), 1, &descriptorWrite, 0, nullptr);
     }
 }
 
@@ -1404,14 +1429,20 @@ void VulkanEngine::updateUniformBuffer(uint32_t currentImage) {
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
     UniformBufferObject ubo{};
-    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    
-    float aspectRatio = static_cast<float>(swapChainExtent_.width) / static_cast<float>(swapChainExtent_.height);
-    ubo.proj = glm::perspective(glm::radians(45.0f), aspectRatio, 0.1f, 10.0f);
-    ubo.proj[1][1] *= -1;
+    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    ubo.view = camera_.getViewMatrix();
+    ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent_.width / (float)swapChainExtent_.height, 0.1f, 1000.0f);
+    ubo.proj[1][1] *= -1; // Flip Y for Vulkan
+    ubo.cameraPos = camera_.getPosition();
+    ubo.time = time;
+    ubo.renderMode = renderMode_;
+    ubo.minLODDistance = minLODDistance_;
+    ubo.maxLODDistance = maxLODDistance_;
 
-    memcpy(uniformBuffersMapped_[currentImage], &ubo, sizeof(ubo));
+    void* data;
+    vmaMapMemory(memoryManager_->getAllocator(), uniformBuffersAllocations_[currentImage], &data);
+    memcpy(data, &ubo, sizeof(ubo));
+    vmaUnmapMemory(memoryManager_->getAllocator(), uniformBuffersAllocations_[currentImage]);
 }
 
 void VulkanEngine::drawMenu() {
@@ -1868,20 +1899,22 @@ void VulkanEngine::cleanupVoxelBuffers() {
 }
 
 void VulkanEngine::createGraphicsPipeline() {
-    VkDevice device = vulkanContext_->getDevice();
+    // Load shader code
+    auto vertShaderCode = readFile("shaders/voxel.vert");
+    auto fragShaderCode = readFile("shaders/voxel.frag");
 
-    // Load shaders
-    auto vertShaderCode = readFile("shaders/basic.vert.spv");
-    auto fragShaderCode = readFile("shaders/basic.frag.spv");
+    // Create shader modules
     ShaderModule vertShaderModule(createShaderModule(vertShaderCode));
     ShaderModule fragShaderModule(createShaderModule(fragShaderCode));
 
+    // Vertex shader stage
     VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
     vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
     vertShaderStageInfo.module = vertShaderModule;
     vertShaderStageInfo.pName = "main";
 
+    // Fragment shader stage
     VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
     fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -1890,33 +1923,44 @@ void VulkanEngine::createGraphicsPipeline() {
 
     VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
-    // Vertex input
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
-    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    
+    // Vertex input state
     auto bindingDescription = Vertex::getBindingDescription();
     auto attributeDescriptions = Vertex::getAttributeDescriptions();
-    
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInputInfo.vertexBindingDescriptionCount = 1;
     vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
     vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
     vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
-    // Input assembly
+    // Input assembly state
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     inputAssembly.primitiveRestartEnable = VK_FALSE;
 
-    // Viewport and scissor (dynamic)
+    // Viewport state
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = static_cast<float>(swapChainExtent_.width);
+    viewport.height = static_cast<float>(swapChainExtent_.height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = swapChainExtent_;
+
     VkPipelineViewportStateCreateInfo viewportState{};
     viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
     viewportState.viewportCount = 1;
-    viewportState.pViewports = nullptr; // Dynamic
+    viewportState.pViewports = &viewport;
     viewportState.scissorCount = 1;
-    viewportState.pScissors = nullptr; // Dynamic
+    viewportState.pScissors = &scissor;
 
-    // Rasterizer
+    // Rasterization state
     VkPipelineRasterizationStateCreateInfo rasterizer{};
     rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rasterizer.depthClampEnable = VK_FALSE;
@@ -1927,13 +1971,14 @@ void VulkanEngine::createGraphicsPipeline() {
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_FALSE;
 
-    // Multisampling
+    // Multisampling state
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.sampleShadingEnable = VK_FALSE;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampling.sampleShadingEnable = VK_TRUE;
+    multisampling.rasterizationSamples = msaaSamples_;
+    multisampling.minSampleShading = 0.2f;
 
-    // Depth and stencil
+    // Depth stencil state
     VkPipelineDepthStencilStateCreateInfo depthStencil{};
     depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     depthStencil.depthTestEnable = VK_TRUE;
@@ -1942,11 +1987,16 @@ void VulkanEngine::createGraphicsPipeline() {
     depthStencil.depthBoundsTestEnable = VK_FALSE;
     depthStencil.stencilTestEnable = VK_FALSE;
 
-    // Color blending
+    // Color blend state
     VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    colorBlendAttachment.blendEnable = VK_FALSE;
+    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttachment.blendEnable = VK_TRUE;
+    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
 
     VkPipelineColorBlendStateCreateInfo colorBlending{};
     colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -1957,8 +2007,9 @@ void VulkanEngine::createGraphicsPipeline() {
     // Dynamic state
     std::vector<VkDynamicState> dynamicStates = {
         VK_DYNAMIC_STATE_VIEWPORT,
-        VK_DYNAMIC_STATE_SCISSOR
+        VK_DYNAMIC_STATE_LINE_WIDTH
     };
+
     VkPipelineDynamicStateCreateInfo dynamicState{};
     dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
@@ -1970,7 +2021,16 @@ void VulkanEngine::createGraphicsPipeline() {
     pipelineLayoutInfo.setLayoutCount = 1;
     pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout_;
 
-    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout_) != VK_SUCCESS) {
+    // Push constant ranges
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(UniformBufferObject);
+
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+
+    if (vkCreatePipelineLayout(vulkanContext_->getDevice(), &pipelineLayoutInfo, nullptr, &pipelineLayout_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create pipeline layout!");
     }
 
@@ -1993,7 +2053,7 @@ void VulkanEngine::createGraphicsPipeline() {
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
     pipelineInfo.basePipelineIndex = -1;
 
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline_) != VK_SUCCESS) {
+    if (vkCreateGraphicsPipelines(vulkanContext_->getDevice(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create graphics pipeline!");
     }
 }
@@ -2005,29 +2065,28 @@ void VulkanEngine::initImGui() {
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
-    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
 
     // Setup Platform/Renderer backends
-    ImGui_ImplGlfw_InitForVulkan(windowManager_->getWindow(), true);
+    ImGui_ImplGlfw_InitForVulkan(window_, true);
     ImGui_ImplVulkan_InitInfo init_info = {};
-    init_info.Instance = vulkanContext_->getVkInstance();
+    init_info.Instance = vulkanContext_->getInstance();
     init_info.PhysicalDevice = vulkanContext_->getPhysicalDevice();
     init_info.Device = vulkanContext_->getDevice();
-    init_info.QueueFamily = vulkanContext_->getGraphicsQueueFamily();
+    init_info.QueueFamily = findQueueFamilies(vulkanContext_->getPhysicalDevice(), vulkanContext_->getSurface()).graphicsFamily.value();
     init_info.Queue = vulkanContext_->getGraphicsQueue();
     init_info.PipelineCache = VK_NULL_HANDLE;
-    init_info.DescriptorPool = imguiDescriptorPool_;
+    init_info.DescriptorPool = descriptorPool_;
     init_info.Subpass = 0;
     init_info.MinImageCount = 2;
-    init_info.ImageCount = swapChainImages_.size();
+    init_info.ImageCount = static_cast<uint32_t>(swapChainImages_.size());
     init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     init_info.Allocator = nullptr;
     init_info.CheckVkResultFn = nullptr;
-    ImGui_ImplVulkan_Init(&init_info);
+
+    ImGui_ImplVulkan_Init(&init_info, renderPass_);
 
     // Upload Fonts
     VkCommandBuffer commandBuffer = beginSingleTimeCommands();
@@ -2234,6 +2293,207 @@ void VulkanEngine::submitComputeCommand(VkCommandBuffer commandBuffer) {
 void VulkanEngine::waitForComputeCompletion() {
     vkWaitForFences(vulkanContext_->getDevice(), 1, &computeFences_[currentComputeFrame_], VK_TRUE, UINT64_MAX);
     vkResetFences(vulkanContext_->getDevice(), 1, &computeFences_[currentComputeFrame_]);
+}
+
+// Update voxel instances
+void VulkanEngine::updateVoxelInstances() {
+    voxelInstances_.clear();
+    
+    // Read current state from compute buffer
+    std::vector<uint32_t> currentState(gridWidth_ * gridHeight_ * gridDepth_);
+    void* data;
+    vmaMapMemory(memoryManager_->getAllocator(), computePipelines_[0].currentStateBufferAllocation, &data);
+    memcpy(currentState.data(), data, currentState.size() * sizeof(uint32_t));
+    vmaUnmapMemory(memoryManager_->getAllocator(), computePipelines_[0].currentStateBufferAllocation);
+
+    // Create instances for active cells
+    for (uint32_t z = 0; z < gridDepth_; z++) {
+        for (uint32_t y = 0; y < gridHeight_; y++) {
+            for (uint32_t x = 0; x < gridWidth_; x++) {
+                uint32_t index = z * gridWidth_ * gridHeight_ + y * gridWidth_ + x;
+                if (currentState[index] > 0) {
+                    VoxelInstance instance;
+                    instance.position = glm::vec3(x, y, z);
+                    instance.color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f); // Default color
+                    instance.age = currentState[index];
+                    instance.lod = 0; // Will be calculated in shader
+                    voxelInstances_.push_back(instance);
+                }
+            }
+        }
+    }
+
+    // Update instance buffer
+    if (!voxelInstances_.empty()) {
+        void* instanceData;
+        vmaMapMemory(memoryManager_->getAllocator(), voxelInstanceBufferAllocation_, &instanceData);
+        memcpy(instanceData, voxelInstances_.data(), voxelInstances_.size() * sizeof(VoxelInstance));
+        vmaUnmapMemory(memoryManager_->getAllocator(), voxelInstanceBufferAllocation_);
+    }
+}
+
+// Create compute pipelines
+void VulkanEngine::createComputePipelines() {
+    // Create Game of Life compute pipeline
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &computeDescriptorSetLayout_;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(GameOfLifePushConstants);
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+
+    ComputePipelineInfo pipelineInfo;
+    if (vkCreatePipelineLayout(vulkanContext_->getDevice(), &pipelineLayoutInfo, nullptr, &pipelineInfo.layout) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create compute pipeline layout!");
+    }
+
+    // Create compute shader module
+    auto computeShaderCode = readFile("shaders/game_of_life_3d.comp");
+    VkShaderModule computeShaderModule = createShaderModule(computeShaderCode);
+
+    VkPipelineShaderStageCreateInfo shaderStageInfo{};
+    shaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    shaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    shaderStageInfo.module = computeShaderModule;
+    shaderStageInfo.pName = "main";
+
+    VkComputePipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipelineInfo.stage = shaderStageInfo;
+    pipelineInfo.layout = pipelineInfo.layout;
+
+    if (vkCreateComputePipelines(vulkanContext_->getDevice(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipelineInfo.pipeline) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create compute pipeline!");
+    }
+
+    vkDestroyShaderModule(vulkanContext_->getDevice(), computeShaderModule, nullptr);
+
+    // Set pipeline constants
+    pipelineInfo.pushConstants.width = gridWidth_;
+    pipelineInfo.pushConstants.height = gridHeight_;
+    pipelineInfo.pushConstants.depth = gridDepth_;
+    pipelineInfo.pushConstants.ruleSet = ruleSet_;
+    pipelineInfo.pushConstants.surviveMin = surviveMin_;
+    pipelineInfo.pushConstants.surviveMax = surviveMax_;
+    pipelineInfo.pushConstants.birthCount = birthCount_;
+
+    computePipelines_.push_back(pipelineInfo);
+}
+
+// Create compute descriptor set layout
+void VulkanEngine::createComputeDescriptorSetLayout() {
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings = bindings.data();
+
+    if (vkCreateDescriptorSetLayout(vulkanContext_->getDevice(), &layoutInfo, nullptr, &computeDescriptorSetLayout_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create compute descriptor set layout!");
+    }
+}
+
+// Create compute command buffers
+void VulkanEngine::createComputeCommandBuffers() {
+    computeCommandBuffers_.resize(MAX_FRAMES_IN_FLIGHT);
+
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = computeCommandPool_;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = static_cast<uint32_t>(computeCommandBuffers_.size());
+
+    if (vkAllocateCommandBuffers(vulkanContext_->getDevice(), &allocInfo, computeCommandBuffers_.data()) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate compute command buffers!");
+    }
+}
+
+// Create compute command pool
+void VulkanEngine::createComputeCommandPool() {
+    QueueFamilyIndices queueFamilyIndices = findQueueFamilies(vulkanContext_->getPhysicalDevice(), vulkanContext_->getSurface());
+
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = queueFamilyIndices.computeFamily.value();
+
+    if (vkCreateCommandPool(vulkanContext_->getDevice(), &poolInfo, nullptr, &computeCommandPool_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create compute command pool!");
+    }
+}
+
+// Create synchronization objects
+void VulkanEngine::createSyncObjects() {
+    imageAvailableSemaphores_.resize(MAX_FRAMES_IN_FLIGHT);
+    renderFinishedSemaphores_.resize(MAX_FRAMES_IN_FLIGHT);
+    inFlightFences_.resize(MAX_FRAMES_IN_FLIGHT);
+    computeFences_.resize(MAX_FRAMES_IN_FLIGHT);
+
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        if (vkCreateSemaphore(vulkanContext_->getDevice(), &semaphoreInfo, nullptr, &imageAvailableSemaphores_[i]) != VK_SUCCESS ||
+            vkCreateSemaphore(vulkanContext_->getDevice(), &semaphoreInfo, nullptr, &renderFinishedSemaphores_[i]) != VK_SUCCESS ||
+            vkCreateFence(vulkanContext_->getDevice(), &fenceInfo, nullptr, &inFlightFences_[i]) != VK_SUCCESS ||
+            vkCreateFence(vulkanContext_->getDevice(), &fenceInfo, nullptr, &computeFences_[i]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create synchronization objects for a frame!");
+        }
+    }
+}
+
+QueueFamilyIndices VulkanEngine::findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface) {
+    QueueFamilyIndices indices;
+
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+    std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+    int i = 0;
+    for (const auto& queueFamily : queueFamilies) {
+        if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+            indices.graphicsFamily = i;
+        }
+
+        if (queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT) {
+            indices.computeFamily = i;
+        }
+
+        VkBool32 presentSupport = false;
+        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+
+        if (presentSupport) {
+            indices.presentFamily = i;
+        }
+
+        if (indices.isComplete()) {
+            break;
+        }
+
+        i++;
+    }
+
+    return indices;
 }
 
 } // namespace VulkanHIP

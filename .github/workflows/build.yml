@@ -1,0 +1,104 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Vulkan SDK
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgGitCommitId: '2023-11-15'
+        vcpkgArguments: 'vulkan:x64-windows'
+    
+    - name: Configure CMake
+      run: cmake -B ${{github.workspace}}/build -S ${{github.workspace}} -DCMAKE_BUILD_TYPE=Release
+    
+    - name: Build
+      run: cmake --build ${{github.workspace}}/build --config Release
+    
+    - name: Run Tests
+      run: |
+        cd ${{github.workspace}}/build
+        ctest -C Release --output-on-failure
+    
+    - name: Run Benchmarks
+      run: |
+        cd ${{github.workspace}}/build
+        ./benchmarks/ComputeShaderBenchmark --benchmark_format=json > benchmark_results.json
+    
+    - name: Upload Test Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: windows-test-results
+        path: ${{github.workspace}}/build/Testing
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y vulkan-sdk cmake build-essential
+    
+    - name: Configure CMake
+      run: cmake -B ${{github.workspace}}/build -S ${{github.workspace}} -DCMAKE_BUILD_TYPE=Release
+    
+    - name: Build
+      run: cmake --build ${{github.workspace}}/build --config Release
+    
+    - name: Run Tests
+      run: |
+        cd ${{github.workspace}}/build
+        ctest -C Release --output-on-failure
+    
+    - name: Run Benchmarks
+      run: |
+        cd ${{github.workspace}}/build
+        ./benchmarks/ComputeShaderBenchmark --benchmark_format=json > benchmark_results.json
+    
+    - name: Upload Test Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: linux-test-results
+        path: ${{github.workspace}}/build/Testing
+
+  package:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Download Windows Artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: windows-test-results
+        path: windows-results
+    
+    - name: Download Linux Artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: linux-test-results
+        path: linux-results
+    
+    - name: Create Release Package
+      run: |
+        mkdir -p release
+        cp -r windows-results/* release/
+        cp -r linux-results/* release/
+        tar -czf release.tar.gz release/
+    
+    - name: Upload Release Package
+      uses: actions/upload-artifact@v3
+      with:
+        name: release-package
+        path: release.tar.gz 

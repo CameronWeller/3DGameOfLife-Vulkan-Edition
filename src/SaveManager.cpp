@@ -1,4 +1,9 @@
 #include "SaveManager.h"
+#include "VulkanEngine.h"
+#include "VulkanContext.h"
+#include "VulkanMemoryManager.h"
+#include "Logger.h"
+#include <vulkan/vulkan.h>
 #include <filesystem>
 #include <fstream>
 #include <chrono>

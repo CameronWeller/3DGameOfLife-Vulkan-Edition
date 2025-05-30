@@ -10,7 +10,10 @@ layout(push_constant) uniform PushConstants {
     uint height;
     uint depth;
     float time;
-    uint ruleSet;  // 0: Classic, 1: HighLife, 2: Day & Night, 3: Custom
+    uint ruleSet;  // 0: Classic, 1: HighLife, 2: Day & Night, 3: Custom, 4: 5766, 5: 4555
+    uint surviveMin;
+    uint surviveMax;
+    uint birthCount;
 } constants;
 
 // Current and next state buffers
@@ -22,7 +25,10 @@ layout(binding = 1) buffer NextStateBuffer {
     uint nextState[];
 } nextState;
 
-// Helper function to get cell state
+// Shared memory for faster neighbor access
+shared uint sharedState[10][10][10];  // 8x8x8 workgroup + 1 cell border
+
+// Helper function to get cell state with boundary handling
 uint getCellState(uint x, uint y, uint z) {
     // Handle toroidal boundary conditions
     x = (x + constants.width) % constants.width;
@@ -33,16 +39,70 @@ uint getCellState(uint x, uint y, uint z) {
     return currentState.state[index];
 }
 
-// Count live neighbors in 3D space
-uint countNeighbors(uint x, uint y, uint z) {
+// Load shared memory for the workgroup
+void loadSharedMemory(uint localX, uint localY, uint localZ, uint globalX, uint globalY, uint globalZ) {
+    // Load center cells
+    sharedState[localX + 1][localY + 1][localZ + 1] = getCellState(globalX, globalY, globalZ);
+    
+    // Load border cells
+    if (localX == 0) {
+        sharedState[0][localY + 1][localZ + 1] = getCellState(globalX - 1, globalY, globalZ);
+    }
+    if (localX == 7) {
+        sharedState[9][localY + 1][localZ + 1] = getCellState(globalX + 1, globalY, globalZ);
+    }
+    if (localY == 0) {
+        sharedState[localX + 1][0][localZ + 1] = getCellState(globalX, globalY - 1, globalZ);
+    }
+    if (localY == 7) {
+        sharedState[localX + 1][9][localZ + 1] = getCellState(globalX, globalY + 1, globalZ);
+    }
+    if (localZ == 0) {
+        sharedState[localX + 1][localY + 1][0] = getCellState(globalX, globalY, globalZ - 1);
+    }
+    if (localZ == 7) {
+        sharedState[localX + 1][localY + 1][9] = getCellState(globalX, globalY, globalZ + 1);
+    }
+    
+    // Load corner cells
+    if (localX == 0 && localY == 0) {
+        sharedState[0][0][localZ + 1] = getCellState(globalX - 1, globalY - 1, globalZ);
+    }
+    if (localX == 7 && localY == 0) {
+        sharedState[9][0][localZ + 1] = getCellState(globalX + 1, globalY - 1, globalZ);
+    }
+    if (localX == 0 && localY == 7) {
+        sharedState[0][9][localZ + 1] = getCellState(globalX - 1, globalY + 1, globalZ);
+    }
+    if (localX == 7 && localY == 7) {
+        sharedState[9][9][localZ + 1] = getCellState(globalX + 1, globalY + 1, globalZ);
+    }
+    
+    // Load remaining corners for Z borders
+    if (localZ == 0) {
+        if (localX == 0) sharedState[0][localY + 1][0] = getCellState(globalX - 1, globalY, globalZ - 1);
+        if (localX == 7) sharedState[9][localY + 1][0] = getCellState(globalX + 1, globalY, globalZ - 1);
+        if (localY == 0) sharedState[localX + 1][0][0] = getCellState(globalX, globalY - 1, globalZ - 1);
+        if (localY == 7) sharedState[localX + 1][9][0] = getCellState(globalX, globalY + 1, globalZ - 1);
+    }
+    if (localZ == 7) {
+        if (localX == 0) sharedState[0][localY + 1][9] = getCellState(globalX - 1, globalY, globalZ + 1);
+        if (localX == 7) sharedState[9][localY + 1][9] = getCellState(globalX + 1, globalY, globalZ + 1);
+        if (localY == 0) sharedState[localX + 1][0][9] = getCellState(globalX, globalY - 1, globalZ + 1);
+        if (localY == 7) sharedState[localX + 1][9][9] = getCellState(globalX, globalY + 1, globalZ + 1);
+    }
+}
+
+// Count live neighbors using shared memory
+uint countNeighbors(uint localX, uint localY, uint localZ) {
     uint count = 0;
     
-    // Check all 26 neighbors in 3D space
+    // Check all 26 neighbors in 3D space using shared memory
     for (int dz = -1; dz <= 1; dz++) {
         for (int dy = -1; dy <= 1; dy++) {
             for (int dx = -1; dx <= 1; dx++) {
                 if (dx == 0 && dy == 0 && dz == 0) continue;
-                count += getCellState(x + dx, y + dy, z + dz);
+                count += sharedState[localX + 1 + dx][localY + 1 + dy][localZ + 1 + dz];
             }
         }
     }
@@ -76,7 +136,21 @@ uint applyRules(uint currentState, uint neighbors) {
             
         case 3: // Custom 3D rules
             if (currentState == 1) {
+                return (neighbors >= constants.surviveMin && neighbors <= constants.surviveMax) ? 1u : 0u;
+            } else {
+                return (neighbors == constants.birthCount) ? 1u : 0u;
+            }
+            
+        case 4: // 5766 Rule
+            if (currentState == 1) {
                 return (neighbors >= 5 && neighbors <= 7) ? 1u : 0u;
+            } else {
+                return (neighbors == 6) ? 1u : 0u;
+            }
+            
+        case 5: // 4555 Rule
+            if (currentState == 1) {
+                return (neighbors >= 4 && neighbors <= 5) ? 1u : 0u;
             } else {
                 return (neighbors == 5) ? 1u : 0u;
             }
@@ -87,17 +161,28 @@ uint applyRules(uint currentState, uint neighbors) {
 }
 
 void main() {
-    uint x = gl_GlobalInvocationID.x;
-    uint y = gl_GlobalInvocationID.y;
-    uint z = gl_GlobalInvocationID.z;
+    uint globalX = gl_GlobalInvocationID.x;
+    uint globalY = gl_GlobalInvocationID.y;
+    uint globalZ = gl_GlobalInvocationID.z;
     
-    if (x >= constants.width || y >= constants.height || z >= constants.depth) {
+    if (globalX >= constants.width || globalY >= constants.height || globalZ >= constants.depth) {
         return;
     }
     
-    uint index = z * constants.width * constants.height + y * constants.width + x;
-    uint currentCellState = currentState.state[index];
-    uint neighbors = countNeighbors(x, y, z);
+    uint localX = gl_LocalInvocationID.x;
+    uint localY = gl_LocalInvocationID.y;
+    uint localZ = gl_LocalInvocationID.z;
     
+    // Load shared memory for the workgroup
+    loadSharedMemory(localX, localY, localZ, globalX, globalY, globalZ);
+    
+    // Ensure all threads have loaded shared memory
+    memoryBarrierShared();
+    barrier();
+    
+    uint currentCellState = sharedState[localX + 1][localY + 1][localZ + 1];
+    uint neighbors = countNeighbors(localX, localY, localZ);
+    
+    uint index = globalZ * constants.width * constants.height + globalY * constants.width + globalX;
     nextState.nextState[index] = applyRules(currentCellState, neighbors);
 } 

@@ -3,6 +3,7 @@
 #include "WindowManager.h"
 #include <vector>
 #include <GLFW/glfw3.h>
+#include <memory>
 
 class VulkanContextFixture : public benchmark::Fixture {
 public:
@@ -124,5 +125,57 @@ BENCHMARK_DEFINE_F(VulkanContextFixture, BM_ValidationLayerSetup)(benchmark::Sta
 BENCHMARK_REGISTER_F(VulkanContextFixture, BM_ValidationLayerSetup)
     ->Unit(benchmark::kMillisecond)
     ->Iterations(10);
+
+static void BM_VulkanContextInitialization(benchmark::State& state) {
+    for (auto _ : state) {
+        auto context = std::make_unique<VulkanContext>();
+        benchmark::DoNotOptimize(context);
+    }
+}
+BENCHMARK(BM_VulkanContextInitialization);
+
+static void BM_CommandPoolCreation(benchmark::State& state) {
+    auto context = std::make_unique<VulkanContext>();
+    for (auto _ : state) {
+        auto commandPool = context->createCommandPool();
+        benchmark::DoNotOptimize(commandPool);
+        context->destroyCommandPool(commandPool);
+    }
+}
+BENCHMARK(BM_CommandPoolCreation);
+
+static void BM_DevicePropertiesQuery(benchmark::State& state) {
+    auto context = std::make_unique<VulkanContext>();
+    for (auto _ : state) {
+        auto properties = context->getDeviceProperties();
+        benchmark::DoNotOptimize(properties);
+    }
+}
+BENCHMARK(BM_DevicePropertiesQuery);
+
+static void BM_QueueFamilyIndicesQuery(benchmark::State& state) {
+    auto context = std::make_unique<VulkanContext>();
+    for (auto _ : state) {
+        auto indices = context->getQueueFamilyIndices();
+        benchmark::DoNotOptimize(indices);
+    }
+}
+BENCHMARK(BM_QueueFamilyIndicesQuery);
+
+static void BM_MemoryAllocation(benchmark::State& state) {
+    auto context = std::make_unique<VulkanContext>();
+    VkMemoryRequirements memRequirements;
+    // Set up memory requirements (this is a placeholder - actual implementation will depend on your memory allocation strategy)
+    memRequirements.size = 1024;
+    memRequirements.alignment = 256;
+    memRequirements.memoryTypeBits = 0xFFFFFFFF;
+
+    for (auto _ : state) {
+        auto memory = context->allocateMemory(memRequirements, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+        benchmark::DoNotOptimize(memory);
+        context->freeMemory(memory);
+    }
+}
+BENCHMARK(BM_MemoryAllocation);
 
 BENCHMARK_MAIN(); 
