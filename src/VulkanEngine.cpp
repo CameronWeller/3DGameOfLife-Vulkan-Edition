@@ -334,8 +334,10 @@ void VulkanEngine::drawFrame() {
 }
 
 void VulkanEngine::waitForComputeCompletion() {
-    vkWaitForFences(vulkanContext_->getDevice(), 1, &computeFences_[currentComputeFrame_], VK_TRUE, UINT64_MAX);
-    vkResetFences(vulkanContext_->getDevice(), 1, &computeFences_[currentComputeFrame_]);
+    // Delegate to compute manager
+    if (computeManager_) {
+        computeManager_->waitForCompletion();
+    }
 }
 
 void VulkanEngine::submitComputeCommand(VkCommandBuffer commandBuffer) {
@@ -522,6 +524,13 @@ void VulkanEngine::updateSimulation(float deltaTime) {
     waitForComputeCompletion();
 }
 
+void VulkanEngine::updateSimulation() {
+    // Delegate to compute manager
+    if (computeManager_) {
+        computeManager_->updateSimulation();
+    }
+}
+
 // Record a command buffer for drawing a frame
 void VulkanEngine::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
     VkCommandBufferBeginInfo beginInfo{};
@@ -573,17 +582,21 @@ void VulkanEngine::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t i
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
     vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
-    // Bind instance buffer
-    VkBuffer instanceBuffers[] = {voxelInstanceBuffer_};
-    vkCmdBindVertexBuffers(commandBuffer, 1, 1, instanceBuffers, offsets);
+    // Bind instance buffer using VoxelRenderer
+    if (voxelRenderer_) {
+        auto instanceBuffer = voxelRenderer_->getInstanceBuffer();
+        VkBuffer instanceBuffers[] = {instanceBuffer};
+        vkCmdBindVertexBuffers(commandBuffer, 1, 1, instanceBuffers, offsets);
 
-    // Draw instanced
-    vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices_.size()), static_cast<uint32_t>(voxelInstances_.size()), 0, 0, 0);
+        // Draw instanced using VoxelRenderer instance count
+        uint32_t instanceCount = voxelRenderer_->getInstanceCount();
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices_.size()), instanceCount, 0, 0, 0);
+    }
 
-    // End ImGui frame
-    ImGui::Render();
-    ImDrawData* draw_data = ImGui::GetDrawData();
-    ImGui::RenderForVulkan(commandBuffer);
+    // Render ImGui using manager
+    if (imguiManager_) {
+        imguiManager_->render(commandBuffer);
+    }
 
     vkCmdEndRenderPass(commandBuffer);
 
@@ -780,30 +793,17 @@ void VulkanEngine::createComputeBuffers() {
 }
 
 void VulkanEngine::updateComputePushConstants() {
-    computePipeline_.pushConstants.width = gridWidth_;
-    computePipeline_.pushConstants.height = gridHeight_;
-    computePipeline_.pushConstants.depth = gridDepth_;
-    computePipeline_.pushConstants.ruleSet = currentRuleSet_; // Add this member variable
-    computePipeline_.pushConstants.surviveMin = surviveMin_; // Add these member variables
-    computePipeline_.pushConstants.surviveMax = surviveMax_;
-    computePipeline_.pushConstants.birthCount = birthCount_;
+    // Delegate to compute manager
+    if (computeManager_) {
+        computeManager_->updatePushConstants();
+    }
 }
 
 void VulkanEngine::submitComputeWork() {
-    VkCommandBuffer commandBuffer = beginSingleTimeCommands();
-
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline_.pipeline);
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline_.layout, 0, 1, &computePipeline_.descriptorSets[0], 0, nullptr);
-    vkCmdPushConstants(commandBuffer, computePipeline_.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &computePipeline_.pushConstants);
-
-    // Calculate workgroup size
-    uint32_t workgroupSizeX = (gridWidth_ + 7) / 8;
-    uint32_t workgroupSizeY = (gridHeight_ + 7) / 8;
-    uint32_t workgroupSizeZ = (gridDepth_ + 7) / 8;
-
-    vkCmdDispatch(commandBuffer, workgroupSizeX, workgroupSizeY, workgroupSizeZ);
-
-    endSingleTimeCommands(commandBuffer);
+    // Delegate to compute manager
+    if (computeManager_) {
+        computeManager_->submitWork();
+    }
 }
 
 // Destroy a compute pipeline
@@ -929,7 +929,7 @@ void VulkanEngine::cleanup() {
 
     // Cleanup surface
     if (surface_ != VK_NULL_HANDLE) {
-        vkDestroySurfaceKHR(vulkanContext_->getVkInstance(), surface_, nullptr);
+        vkDestroySurfaceKHR(vulkanContext_->getInstance(), surface_, nullptr);
         surface_ = VK_NULL_HANDLE;
     }
 
@@ -1400,9 +1400,11 @@ void VulkanEngine::updateUniformBuffer(uint32_t currentImage) {
     ubo.maxLODDistance = maxLODDistance_;
 
     void* data;
-    vmaMapMemory(memoryManager_->getAllocator(), uniformBufferAllocations_[currentImage], &data);
-    memcpy(data, &ubo, sizeof(ubo));
-    vmaUnmapMemory(memoryManager_->getAllocator(), uniformBufferAllocations_[currentImage]);
+    VkResult result = vmaMapMemory(memoryManager_->getAllocator(), uniformBuffersAllocations_[currentImage], &data);
+    if (result == VK_SUCCESS) {
+        memcpy(data, &ubo, sizeof(ubo));
+        vmaUnmapMemory(memoryManager_->getAllocator(), uniformBuffersAllocations_[currentImage]);
+    }
 }
 
 void VulkanEngine::drawMenu() {
@@ -1448,7 +1450,7 @@ void VulkanEngine::drawSavePicker() {
     ImGui::Begin("Load Save", &showSavePicker_,
                  ImGuiWindowFlags_NoResize |
                  ImGuiWindowFlags_NoCollapse);
-    saveFiles_ = saveManager_->getPatternFiles();
+    saveFiles_ = saveManager_->listSaveFiles();
     for (size_t i = 0; i < saveFiles_.size(); ++i) {
         if (ImGui::Selectable(saveFiles_[i].displayName.c_str(), selectedSaveIndex_ == i)) {
             selectedSaveIndex_ = i;
@@ -1497,7 +1499,7 @@ void VulkanEngine::newProject() {
 }
 
 void VulkanEngine::loadLastSave() {
-    std::string lastSave = saveManager_->getLastPatternFile();
+    std::string lastSave = saveManager_->getLastSaveFileName();
     if (!lastSave.empty()) {
         loadSave(lastSave);
     }
@@ -1525,12 +1527,15 @@ void VulkanEngine::loadSave(const std::string& filename) {
             
             VoxelData temp;
             PatternMetadata metadata;
-            bool ok = saveManager_->loadPattern(filename, temp, metadata);
+            bool ok = saveManager_->loadState(filename);
             if (!ok) {
                 std::string error = saveManager_->getLastError();
                 updateLoadingState("Failed to load save file: " + error, 0.0f);
                 return false;
             }
+            // Get the loaded data from save manager
+            temp = saveManager_->getCurrentState();
+            metadata = saveManager_->getCurrentMetadata();
 
             // Phase 2: Process voxel data (50%)
             updateLoadingState("Processing voxel data...", 0.75f);
@@ -1568,7 +1573,7 @@ void VulkanEngine::saveCurrent() {
     metadata.creationDate = std::chrono::system_clock::now();
     metadata.tags = {};
     metadata.version = "1.0";
-    saveManager_->savePattern(filename, loadedVoxelData_, metadata);
+    saveManager_->saveState(filename, loadedVoxelData_);
 }
 
 void VulkanEngine::setAppState(App::State newState) {
@@ -1638,39 +1643,20 @@ void VulkanEngine::cancelLoading() {
 }
 
 bool VulkanEngine::isAutoSaveDue() const {
-    std::lock_guard<std::mutex> lock(saveMutex_);
-    if (!autoSaveEnabled_) return false;
-    auto now = std::chrono::steady_clock::now();
-    return (now - lastAutoSave_) >= AUTO_SAVE_INTERVAL;
+    // Delegate to save manager
+    return saveManager_ ? saveManager_->isAutoSaveDue() : false;
 }
 
 void VulkanEngine::performAutoSave() {
-    try {
-        std::string filename = generateSaveFileName(AUTO_SAVE_PREFIX);
-        PatternMetadata metadata;
-        metadata.name = filename;
-        metadata.description = "Auto-save pattern";
-        metadata.author = "VulkanEngine";
-        metadata.creationDate = std::chrono::system_clock::now();
-        metadata.tags = {};
-        metadata.version = "1.0";
-        if (saveManager_->savePattern(filename, loadedVoxelData_, metadata)) {
-            std::cout << "Auto-save completed: " << filename << std::endl;
-        } else {
-            std::cerr << "Auto-save failed: " << saveManager_->getLastError() << std::endl;
-        }
-    }
-    catch (const SaveManager::SaveError& e) {
-        std::cerr << "Auto-save error: " << e.what() << std::endl;
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Unexpected auto-save error: " << e.what() << std::endl;
+    // Delegate to save manager
+    if (saveManager_) {
+        saveManager_->performAutoSave();
     }
 }
 
 void VulkanEngine::cleanupOldAutoSaves() {
     try {
-        auto saves = saveManager_->getPatternFiles();
+        auto saves = saveManager_->listSaveFiles();
         std::vector<std::string> autoSaves;
         
         // Collect auto-save filenames
@@ -1685,7 +1671,7 @@ void VulkanEngine::cleanupOldAutoSaves() {
 
         // Remove oldest auto-saves if we have too many
         while (autoSaves.size() > MAX_AUTO_SAVES) {
-            if (!saveManager_->deletePattern(autoSaves.front())) {
+            if (!saveManager_->deleteSave(autoSaves.front())) {
                 std::cerr << "Failed to delete old auto-save: " << saveManager_->getLastError() << std::endl;
             }
             autoSaves.erase(autoSaves.begin());
@@ -1709,7 +1695,7 @@ void VulkanEngine::performManualSave() {
         metadata.creationDate = std::chrono::system_clock::now();
         metadata.tags = {};
         metadata.version = "1.0";
-        if (saveManager_->savePattern(filename, loadedVoxelData_, metadata)) {
+        if (saveManager_->saveState(filename, loadedVoxelData_)) {
             std::cout << "Manual save completed: " << filename << std::endl;
         } else {
             std::cerr << "Manual save failed: " << saveManager_->getLastError() << std::endl;
@@ -2128,7 +2114,7 @@ void VulkanEngine::cleanupImGuiDescriptorPool() {
 }
 
 VkSurfaceKHR VulkanEngine::createWindowSurface() const {
-    return windowManager_->createSurface(vulkanContext_->getVkInstance());
+    return windowManager_->createSurface(vulkanContext_->getInstance());
 }
 
 void VulkanEngine::createComputeCommandPool() {
@@ -2257,8 +2243,10 @@ void VulkanEngine::submitComputeCommand(VkCommandBuffer commandBuffer) {
 }
 
 void VulkanEngine::waitForComputeCompletion() {
-    vkWaitForFences(vulkanContext_->getDevice(), 1, &computeFences_[currentComputeFrame_], VK_TRUE, UINT64_MAX);
-    vkResetFences(vulkanContext_->getDevice(), 1, &computeFences_[currentComputeFrame_]);
+    // Delegate to compute manager
+    if (computeManager_) {
+        computeManager_->waitForCompletion();
+    }
 }
 
 // Update voxel instances
@@ -2268,9 +2256,11 @@ void VulkanEngine::updateVoxelInstances() {
     // Read current state from compute buffer
     std::vector<uint32_t> currentState(gridWidth_ * gridHeight_ * gridDepth_);
     void* data;
-    vmaMapMemory(memoryManager_->getAllocator(), computePipelines_[0].currentStateBufferAllocation, &data);
-    memcpy(currentState.data(), data, currentState.size() * sizeof(uint32_t));
-    vmaUnmapMemory(memoryManager_->getAllocator(), computePipelines_[0].currentStateBufferAllocation);
+    VkResult result = vmaMapMemory(memoryManager_->getAllocator(), computePipelines_[0].currentStateBufferAllocation, &data);
+    if (result == VK_SUCCESS) {
+        memcpy(currentState.data(), data, currentState.size() * sizeof(uint32_t));
+        vmaUnmapMemory(memoryManager_->getAllocator(), computePipelines_[0].currentStateBufferAllocation);
+    }
 
     // Create instances for active cells
     for (uint32_t z = 0; z < gridDepth_; z++) {
@@ -2292,9 +2282,11 @@ void VulkanEngine::updateVoxelInstances() {
     // Update instance buffer
     if (!voxelInstances_.empty()) {
         void* instanceData;
-        vmaMapMemory(memoryManager_->getAllocator(), voxelInstanceBufferAllocation_, &instanceData);
-        memcpy(instanceData, voxelInstances_.data(), voxelInstances_.size() * sizeof(VoxelInstance));
-        vmaUnmapMemory(memoryManager_->getAllocator(), voxelInstanceBufferAllocation_);
+        VkResult mapResult = vmaMapMemory(memoryManager_->getAllocator(), voxelInstanceBufferAllocation_, &instanceData);
+        if (mapResult == VK_SUCCESS) {
+            memcpy(instanceData, voxelInstances_.data(), voxelInstances_.size() * sizeof(VoxelInstance));
+            vmaUnmapMemory(memoryManager_->getAllocator(), voxelInstanceBufferAllocation_);
+        }
     }
 }
 

@@ -741,113 +741,85 @@ private:
     void createImageViews();
     void createRenderPass();
     void createFramebuffers();
-    void submitComputeCommand(VkCommandBuffer commandBuffer);
+    void createDepthResources();
+    void createColorResources();
+    void createSyncObjects();
+    void recreateSwapChain();
+    void cleanupSwapChain();
+    void updateUniformBuffer(uint32_t currentImage);
+    void createCommandBuffers();
+    void createDescriptorPool();
+    void createDescriptorSets();
+    VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) const;
+    VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) const;
+    VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) const;
+    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) const;
+    VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
+    VkFormat findDepthFormat();
+    bool hasStencilComponent(VkFormat format);
+    VkSampleCountFlagBits getMaxUsableSampleCount();
+    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface);
 
-    /**
-     * @brief Get the memory manager
-     * @return Reference to the memory manager
-     */
-    VulkanMemoryManager& getMemoryManager() const { return *memoryManager_; }
+    std::vector<const char*> getRequiredInstanceExtensions();
+    void applyEnabledDeviceFeatures(VkPhysicalDeviceFeatures& features);
 
-    /**
-     * @brief Get the camera
-     * @return Pointer to the camera
-     */
-    Camera* getCamera() { return &camera_; }
-
-    /**
-     * @brief Get the grid
-     * @return Pointer to the grid
-     */
-    Grid3D* getGrid() { return &grid_; }
-
-    /**
-     * @brief Create an index buffer for the vertices
-     */
-    void createIndexBuffer();
-
-    /**
-     * @brief Callback for window framebuffer resize events
-     * @param window The GLFW window
-     * @param width New width
-     * @param height New height
-     */
-    static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
-
-    // New public methods for menu system
-    void drawMenu();
-    void drawSavePicker();
-    // Add these method declarations
-    void updateLoading(float deltaTime);
-    void updateSimulation(float deltaTime);
-    bool isAutoSaveDue();
-    void performAutoSave();
-    void loadSave(const std::string& filename);
-    void saveCurrent();
-    void newProject();
-    void loadLastSave();
-    void updateLoadingState(const std::string& status, float progress);
-    std::string generateSaveFileName(const std::string& prefix);
-    void setAppState(App::State newState);
-
-    void drawLoading();
-
-    // Auto-save members
-    bool autoSaveEnabled_ = true;
-    std::chrono::steady_clock::time_point lastAutoSave_;
-    static constexpr auto AUTO_SAVE_INTERVAL = std::chrono::minutes(5);
-    static constexpr const char* AUTO_SAVE_PREFIX = "autosave_";
-
-    // Save management members
-    static constexpr size_t MAX_AUTO_SAVES = 5;  // Keep last 5 auto-saves
-    static constexpr const char* MANUAL_SAVE_PREFIX = "save_";
-    std::mutex saveMutex_;  // Protect save operations
+    // Voxel rendering resources
+    VkBuffer voxelVertexBuffer_ = VK_NULL_HANDLE;
+    VmaAllocation voxelVertexBufferAllocation_ = VK_NULL_HANDLE;
+    VkBuffer voxelIndexBuffer_ = VK_NULL_HANDLE;
+    VmaAllocation voxelIndexBufferAllocation_ = VK_NULL_HANDLE;
+    std::vector<Vertex> voxelVertices_;
+    std::vector<uint32_t> voxelIndices_;
 
     // Helper methods
-    void performAutoSave();
-    void updateLoadingState(const std::string& status, float progress);
-    bool isAutoSaveDue() const;
-    void cleanupOldAutoSaves();
-    void performManualSave();
-    std::string generateSaveFileName(const char* prefix) const;
+    void createVoxelBuffers();
+    void updateVoxelBuffers();
+    void createVoxelVertexData(const VoxelData& voxelData);
+    void cleanupVoxelBuffers();
 
-    // Loading screen members
-    // Add these to the private section around line 620
-    
-    // Loading state management
-    float loadingElapsed_ = 0.0f;
-    std::future<bool> loadingFuture_;
-    bool isLoading_ = false;
-    float loadingProgress_ = 0.0f;
-    std::string loadingStatus_;
-    bool shouldCancelLoading_ = false;
-    std::mutex loadingMutex_;
-    
-    // Rendering configuration
-    int renderMode_ = 0;
-    float minLODDistance_ = 10.0f;
-    float maxLODDistance_ = 100.0f;
-    
-    // Voxel data and rendering
-    VoxelData loadedVoxelData_;
-    VkBuffer voxelInstanceBuffer_ = VK_NULL_HANDLE;
-    VmaAllocation voxelInstanceBufferAllocation_ = VK_NULL_HANDLE;
-    std::vector<VoxelInstance> voxelInstances_;
-    
-    // Timing
-    std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
+    // ImGui members
+    bool imguiInitialized_ = false;
+    VkDescriptorPool imguiDescriptorPool_ = VK_NULL_HANDLE;
 
-    // Helper methods
-    void cancelLoading();
-    bool isCancelling() const { return shouldCancelLoading_; }
-
-    // ImGui functions
-    void initImGui();
-    void cleanupImGui();
-    void beginImGuiFrame();
-    void endImGuiFrame();
     void createImGuiDescriptorPool();
     void cleanupImGuiDescriptorPool();
+
+    void createComputePipeline();
+    void createComputeDescriptorSetLayout();
+    void createComputeDescriptorPool();
+    void createComputeDescriptorSets();
+    void createComputeBuffers();
+    void updateComputePushConstants();
+    void submitComputeWork();
+
+    // Grid dimensions
+    uint32_t gridWidth_ = 64;
+    uint32_t gridHeight_ = 64;
+    uint32_t gridDepth_ = 64;
+
+    // Rule settings
+    uint32_t ruleSet_ = 0;  // 0: Classic, 1: HighLife, 2: Day & Night, 3: Custom, 4: 5766, 5: 4555
+    uint32_t surviveMin_ = 4;
+    uint32_t surviveMax_ = 6;
+    uint32_t birthCount_ = 4;
+
+    // Compute pipeline resources
+    VkDescriptorPool computeDescriptorPool_ = VK_NULL_HANDLE;
+    std::vector<ComputePipelineInfo> computePipelines_;
+    std::vector<VkCommandBuffer> computeCommandBuffers_;
+    std::vector<VkSemaphore> computeSemaphores_;
+    std::vector<VkFence> computeFences_;
+    uint32_t currentComputeFrame_ = 0;
+
+    // Helper functions for compute pipeline
+    void createComputeCommandPool();
+    void createComputeCommandBuffers();
+    void createComputeBuffers(ComputePipelineInfo& pipelineInfo, uint32_t width, uint32_t height, uint32_t depth);
+    void createComputeDescriptorPool();
+    void createComputeDescriptorSets(ComputePipelineInfo& pipelineInfo);
+    void updateComputePushConstants(const GameOfLifePushConstants& constants);
+    void submitComputeCommand(VkCommandBuffer commandBuffer);
+    void waitForComputeCompletion();
 
 private:
     static VulkanEngine* instance_;
@@ -1097,7 +1069,6 @@ private:
     uint32_t birthCount_ = 4;
 
     // Compute pipeline resources
-    VkCommandPool computeCommandPool_ = VK_NULL_HANDLE;
     VkDescriptorPool computeDescriptorPool_ = VK_NULL_HANDLE;
     std::vector<ComputePipelineInfo> computePipelines_;
     std::vector<VkCommandBuffer> computeCommandBuffers_;
@@ -1114,6 +1085,14 @@ private:
     void updateComputePushConstants(const GameOfLifePushConstants& constants);
     void submitComputeCommand(VkCommandBuffer commandBuffer);
     void waitForComputeCompletion();
+
+    // Add missing member variables
+    int currentRuleSet_ = 0;
+    VkSampleCountFlagBits msaaSamples_ = VK_SAMPLE_COUNT_1_BIT;
+    std::vector<VmaAllocation> uniformBuffersAllocations_;
+    VkCommandBuffer commandBuffer_ = VK_NULL_HANDLE;
+    Camera camera_;
+    Grid3D grid_;
 
 #ifdef _MSC_VER
 #pragma message("If you see an error about vk_mem_alloc.h, ensure VMA is installed via vcpkg and your includePath is set to vcpkg/installed/<triplet>/include.")
