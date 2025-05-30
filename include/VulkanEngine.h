@@ -95,26 +95,51 @@ using PipelineLayout = VulkanResource<VkPipelineLayout, struct PipelineLayoutDel
 using ShaderModule = VulkanResource<VkShaderModule, struct ShaderModuleDeleter>;
 
 /**
- * @brief Uniform buffer object for shader transformation matrices
- */
-struct UniformBufferObject {
-    alignas(16) glm::mat4 model;
-    alignas(16) glm::mat4 view;
-    alignas(16) glm::mat4 proj;
-    alignas(16) glm::vec3 cameraPos;
-    alignas(4) float time;
-    alignas(4) int renderMode;
-    alignas(4) float minLODDistance;
-    alignas(4) float maxLODDistance;
-};
-
-/**
  * @brief Details about swap chain capabilities
  */
 struct SwapChainSupportDetails {
     VkSurfaceCapabilitiesKHR capabilities;
     std::vector<VkSurfaceFormatKHR> formats;
     std::vector<VkPresentModeKHR> presentModes;
+};
+
+/**
+ * @brief Game of Life push constants for compute shader
+ */
+struct GameOfLifePushConstants {
+    uint32_t width;
+    uint32_t height;
+    uint32_t depth;
+    uint32_t ruleSet;  // 0: Classic, 1: HighLife, 2: Day & Night, 3: Custom, 4: 5766, 5: 4555
+    uint32_t surviveMin;
+    uint32_t surviveMax;
+    uint32_t birthCount;
+};
+
+/**
+ * @brief Compute pipeline information
+ */
+struct ComputePipelineInfo {
+    VkPipeline pipeline;
+    VkPipelineLayout layout;
+    VkDescriptorSetLayout descriptorSetLayout;
+    VkDescriptorPool descriptorPool;
+    std::vector<VkDescriptorSet> descriptorSets;
+    VkBuffer stateBuffer;
+    VkBuffer nextStateBuffer;
+    VmaAllocation stateBufferAllocation;
+    VmaAllocation nextStateBufferAllocation;
+    GameOfLifePushConstants pushConstants;
+};
+
+/**
+ * @brief Voxel instance data
+ */
+struct VoxelInstance {
+    glm::vec3 position;
+    glm::vec4 color;
+    float age;
+    float lod;
 };
 
 class VulkanError : public std::runtime_error {
@@ -265,290 +290,86 @@ private:
 };
 
 /**
- * @brief Push constants for compute shader
- */
-struct ComputePushConstants {
-    uint32_t width;
-    uint32_t height;
-    uint32_t depth;
-    uint32_t ruleSet;  // 0: 5766, 1: 4555, 2: Custom
-    uint32_t surviveMin;
-    uint32_t surviveMax;
-    uint32_t birthCount;
-};
-
-/**
- * @brief Game of life push constants
- */
-struct GameOfLifePushConstants {
-    uint32_t width;
-    uint32_t height;
-    uint32_t depth;
-    uint32_t ruleSet;  // 0: Classic, 1: HighLife, 2: Day & Night, 3: Custom, 4: 5766, 5: 4555
-    uint32_t surviveMin;
-    uint32_t surviveMax;
-    uint32_t birthCount;
-};
-
-/**
- * @brief Compute pipeline information
- */
-struct ComputePipelineInfo {
-    VkPipeline pipeline;
-    VkPipelineLayout layout;
-    VkDescriptorSetLayout descriptorSetLayout;
-    VkDescriptorPool descriptorPool;
-    std::vector<VkDescriptorSet> descriptorSets;
-    VkBuffer stateBuffer;
-    VkBuffer nextStateBuffer;
-    VmaAllocation stateBufferAllocation;
-    VmaAllocation nextStateBufferAllocation;
-    GameOfLifePushConstants pushConstants;
-};
-
-/**
- * @brief Voxel instance data
- */
-struct VoxelInstance {
-    glm::vec3 position;
-    glm::vec4 color;
-    float age;
-    float lod;
-};
-
-/**
- * @brief Main engine class for Vulkan-based rendering
- * 
- * This class manages the Vulkan instance, device, swap chain, and rendering pipeline.
- * It provides a high-level interface for creating and managing Vulkan resources.
- * The engine is designed to be modular, with separate managers for different aspects:
- * - VulkanContext: Core Vulkan instance and device management
- * - VulkanMemoryManager: Buffer and memory management
- * - Future managers for pipelines, swapchain, etc.
+ * @brief Main Vulkan engine class
  */
 class VulkanEngine {
 public:
-    /** @brief Default window width */
-    static constexpr int WIDTH = 1280;
-    
-    /** @brief Default window height */
-    static constexpr int HEIGHT = 720;
-    
-    /** @brief Maximum number of frames in flight */
-    static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
-    
-    /** @brief Default window title */
-    static constexpr const char* WINDOW_TITLE = "3D Game of Life - Vulkan Edition";
-    
-    /** @brief Whether validation layers are enabled */
-    static constexpr bool enableValidationLayers = true;
+    static VulkanEngine* getInstance() {
+        static VulkanEngine instance;
+        return &instance;
+    }
 
-    /**
-     * @brief Construct a new Vulkan Engine object
-     */
-    VulkanEngine();
+    void init();
+    void run();
+    void cleanup();
 
-    /**
-     * @brief Destroy the Vulkan Engine object and clean up resources
-     */
-    ~VulkanEngine();
+    // Getters
+    VkInstance getVkInstance() const { return vulkanContext_->getVkInstance(); }
+    VkDevice getDevice() const { return vulkanContext_->getDevice(); }
+    VkPhysicalDevice getPhysicalDevice() const { return vulkanContext_->getPhysicalDevice(); }
+    VkQueue getGraphicsQueue() const { return vulkanContext_->getGraphicsQueue(); }
+    VkQueue getComputeQueue() const { return vulkanContext_->getComputeQueue(); }
+    VkQueue getPresentQueue() const { return vulkanContext_->getPresentQueue(); }
 
-    // Delete copy constructor and assignment operator
+private:
+    VulkanEngine() = default;
+    ~VulkanEngine() = default;
     VulkanEngine(const VulkanEngine&) = delete;
     VulkanEngine& operator=(const VulkanEngine&) = delete;
 
-    /**
-     * @brief Initialize the Vulkan instance and device
-     * @throws std::runtime_error if initialization fails
-     */
-    void init();
-    
-    /**
-     * @brief Run the main application loop
-     */
-    void run();
+    // Core initialization
+    void initializeStateMachine();
+    void createCommandPools();
+    void createDescriptorSetLayout();
+    void createGraphicsPipeline();
+    void createShaderStages(const std::string& vertPath, const std::string& fragPath,
+                           VkPipelineShaderStageCreateInfo& vertStageInfo,
+                           VkPipelineShaderStageCreateInfo& fragStageInfo);
 
-    /**
-     * @brief Get the singleton instance
-     * @return Pointer to the singleton instance
-     */
-    static VulkanEngine* getInstance() { return instance_; }
-
-    /**
-     * @brief Get the Vulkan context
-     * @return Pointer to the Vulkan context
-     */
-    VulkanContext* getVulkanContext() const { return vulkanContext_.get(); }
-
-    /**
-     * @brief Get the window manager
-     * @return Pointer to the window manager
-     */
-    WindowManager* getWindowManager() const { return windowManager_.get(); }
-
-    /**
-     * @brief Get a compute semaphore
-     * @param index Index of the semaphore
-     * @return Reference to the semaphore
-     */
-    VkSemaphore& getComputeSemaphore(uint32_t index) { return computeSemaphores[index]; }
-    
-    /**
-     * @brief Get a compute fence
-     * @param index Index of the fence
-     * @return Reference to the fence
-     */
-    VkFence& getComputeFence(uint32_t index) { return computeFences[index]; }
-
-    /**
-     * @brief Create a shader module from SPIR-V code
-     * @param code Vector containing the SPIR-V code
-     * @return The created shader module
-     * @throws std::runtime_error if shader module creation fails
-     */
-    VkShaderModule createShaderModule(const std::vector<char>& code);
-
-    /**
-     * @brief Get the current Vulkan instance
-     * @return The current Vulkan instance
-     */
-    VkInstance getVkInstance() const { return vulkanContext_->getVkInstance(); }
-    
-    /**
-     * @brief Draw a single frame
-     */
-    void drawFrame();
-    
-    /**
-     * @brief Create a compute pipeline
-     * @param shaderPath Path to the compute shader
-     * @return The created compute pipeline
-     */
-    VkPipeline createComputePipeline(const std::string& shaderPath);
-    
-    /**
-     * @brief Destroy a compute pipeline
-     * @param pipeline The pipeline to destroy
-     */
-    void destroyComputePipeline(VkPipeline pipeline);
-    
-    /**
-     * @brief Begin a single-time command buffer
-     * @return A command buffer ready for recording
-     */
-    VkCommandBuffer beginSingleTimeCommands();
-    
-    /**
-     * @brief End and submit a single-time command buffer
-     * @param commandBuffer The command buffer to submit
-     */
-    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
-    
-    /**
-     * @brief Submit a compute command buffer
-     * @param commandBuffer The command buffer to submit
-     */
+    // Compute pipeline
+    void createComputePipeline();
+    void createComputeDescriptorSetLayout();
+    void createComputeDescriptorPool();
+    void createComputeDescriptorSets();
+    void createComputeBuffers();
+    void updateComputePushConstants();
+    void submitComputeWork();
+    void createComputeCommandPool();
+    void createComputeCommandBuffers();
+    void createComputeBuffers(ComputePipelineInfo& pipelineInfo, uint32_t width, uint32_t height, uint32_t depth);
+    void updateComputePushConstants(const GameOfLifePushConstants& constants);
     void submitComputeCommand(VkCommandBuffer commandBuffer);
+    void waitForComputeCompletion();
 
-    /**
-     * @brief Get the memory manager
-     * @return Reference to the memory manager
-     */
-    VulkanMemoryManager& getMemoryManager() const { return *memoryManager_; }
+    // Swap chain
+    void createSwapChain();
+    void createImageViews();
+    void createRenderPass();
+    void createFramebuffers();
+    void createDepthResources();
+    void createColorResources();
+    void createSyncObjects();
+    void recreateSwapChain();
+    void cleanupSwapChain();
 
-    /**
-     * @brief Get the camera
-     * @return Pointer to the camera
-     */
-    Camera* getCamera() { return &camera_; }
+    // Command buffers
+    void createCommandBuffers();
+    VkCommandBuffer beginSingleTimeCommands();
+    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
+    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 
-    /**
-     * @brief Get the grid
-     * @return Pointer to the grid
-     */
-    Grid3D* getGrid() { return &grid_; }
+    // Descriptors
+    void createDescriptorPool();
+    void createDescriptorSets();
+    void updateUniformBuffer(uint32_t currentImage);
 
-    /**
-     * @brief Create an index buffer for the vertices
-     */
-    void createIndexBuffer();
+    // Voxel rendering
+    void createVoxelBuffers();
+    void updateVoxelBuffers();
+    void createVoxelVertexData(const VoxelData& voxelData);
+    void cleanupVoxelBuffers();
 
-    /**
-     * @brief Callback for window framebuffer resize events
-     * @param window The GLFW window
-     * @param width New width
-     * @param height New height
-     */
-    static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
-
-    // New public methods for menu system
-    void drawMenu();
-    void drawSavePicker();
-    // Add these method declarations
-    void updateLoading(float deltaTime);
-    void updateSimulation(float deltaTime);
-    bool isAutoSaveDue();
-    void performAutoSave();
-    void loadSave(const std::string& filename);
-    void saveCurrent();
-    void newProject();
-    void loadLastSave();
-    void updateLoadingState(const std::string& status, float progress);
-    std::string generateSaveFileName(const std::string& prefix);
-    void setAppState(App::State newState);
-
-    void drawLoading();
-
-    // Auto-save members
-    bool autoSaveEnabled_ = true;
-    std::chrono::steady_clock::time_point lastAutoSave_;
-    static constexpr auto AUTO_SAVE_INTERVAL = std::chrono::minutes(5);
-    static constexpr const char* AUTO_SAVE_PREFIX = "autosave_";
-
-    // Save management members
-    static constexpr size_t MAX_AUTO_SAVES = 5;  // Keep last 5 auto-saves
-    static constexpr const char* MANUAL_SAVE_PREFIX = "save_";
-    std::mutex saveMutex_;  // Protect save operations
-
-    // Helper methods
-    void performAutoSave();
-    void updateLoadingState(const std::string& status, float progress);
-    bool isAutoSaveDue() const;
-    void cleanupOldAutoSaves();
-    void performManualSave();
-    std::string generateSaveFileName(const char* prefix) const;
-
-    // Loading screen members
-    // Add these to the private section around line 620
-    
-    // Loading state management
-    float loadingElapsed_ = 0.0f;
-    std::future<bool> loadingFuture_;
-    bool isLoading_ = false;
-    float loadingProgress_ = 0.0f;
-    std::string loadingStatus_;
-    bool shouldCancelLoading_ = false;
-    std::mutex loadingMutex_;
-    
-    // Rendering configuration
-    int renderMode_ = 0;
-    float minLODDistance_ = 10.0f;
-    float maxLODDistance_ = 100.0f;
-    
-    // Voxel data and rendering
-    VoxelData loadedVoxelData_;
-    VkBuffer voxelInstanceBuffer_ = VK_NULL_HANDLE;
-    VmaAllocation voxelInstanceBufferAllocation_ = VK_NULL_HANDLE;
-    std::vector<VoxelInstance> voxelInstances_;
-    
-    // Timing
-    std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
-
-    // Helper methods
-    void cancelLoading();
-    bool isCancelling() const { return shouldCancelLoading_; }
-
-    // ImGui functions
+    // ImGui
     void initImGui();
     void cleanupImGui();
     void beginImGuiFrame();
@@ -556,200 +377,9 @@ public:
     void createImGuiDescriptorPool();
     void cleanupImGuiDescriptorPool();
 
-private:
-    static VulkanEngine* instance_;
-    std::shared_ptr<WindowManager> windowManager_;
-    VkSurfaceKHR surface_;
-    std::unique_ptr<VulkanContext> vulkanContext_;
-    std::unique_ptr<VulkanMemoryManager> memoryManager_;
-    VkInstance vkInstance_;
-    VkPhysicalDevice physicalDevice_;
-    VkDevice device_;
-    VkQueue graphicsQueue_;
-    VkQueue presentQueue_;
-    VkQueue computeQueue_;
-    VkPipelineLayout pipelineLayout_;
-    VkPipeline graphicsPipeline_;
-
-    // Command pools
-    VkCommandPool graphicsCommandPool_ = VK_NULL_HANDLE;
-    VkCommandPool computeCommandPool_ = VK_NULL_HANDLE;
-
-    // Swap chain resources
-    VkSwapchainKHR swapChain_ = VK_NULL_HANDLE;
-    std::vector<VkImage> swapChainImages_;
-    std::vector<VkImageView> swapChainImageViews_;
-    std::vector<VkFramebuffer> swapChainFramebuffers_;
-    VkFormat swapChainImageFormat_;
-    VkExtent2D swapChainExtent_;
-    VkRenderPass renderPass_ = VK_NULL_HANDLE;
-
-    // Depth and color resources
-    VkImage depthImage_ = VK_NULL_HANDLE;
-    VmaAllocation depthImageAllocation_ = VK_NULL_HANDLE;
-    VkImageView depthImageView_ = VK_NULL_HANDLE;
-    VkImage colorImage_ = VK_NULL_HANDLE;
-    VmaAllocation colorImageAllocation_ = VK_NULL_HANDLE;
-    VkImageView colorImageView_ = VK_NULL_HANDLE;
-
-    // Command buffers and synchronization
-    std::vector<VkCommandBuffer> commandBuffers_;
-    std::vector<VkSemaphore> imageAvailableSemaphores_;
-    std::vector<VkSemaphore> renderFinishedSemaphores_;
-    std::vector<VkFence> inFlightFences_;
-    uint32_t currentFrame_ = 0;
-    bool framebufferResized_ = false;
-
-    // Descriptor resources
-    VkDescriptorSetLayout descriptorSetLayout_ = VK_NULL_HANDLE;
-    VkDescriptorPool descriptorPool_ = VK_NULL_HANDLE;
-    std::vector<VkDescriptorSet> descriptorSets_;
-
-    // Texture resources
-    VkImageView textureImageView_ = VK_NULL_HANDLE;
-    VkSampler textureSampler_ = VK_NULL_HANDLE;
-
-    // Vulkan handles
-    std::vector<VkShaderModule> shaderModules;
-
-    std::vector<VkCommandBuffer> graphicsCommandBuffers;
-    std::vector<VkCommandBuffer> computeCommandBuffers;
-
-    std::vector<VkSemaphore> computeSemaphores;
-    std::vector<VkFence> computeFences;
-
-    VkPhysicalDeviceFeatures enabledFeatures_{};
-    const std::vector<const char*> deviceExtensions_ = {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-        VK_KHR_MAINTENANCE1_EXTENSION_NAME,
-        VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,
-        VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME
-    };
-    const std::vector<const char*> validationLayers_ = {
-        "VK_LAYER_KHRONOS_validation"
-    };
-    const std::vector<const char*> instanceExtensions_ = {
-        VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME
-    };
-
-    QueueFamilyIndices queueFamilyIndices_;
-
-    // Buffers and resources
-    std::unique_ptr<VulkanBufferManager> bufferManager_;
-    std::unique_ptr<VulkanImageManager> imageManager_;
-    std::unique_ptr<VulkanSwapChain> swapChainManager_;
-    std::unique_ptr<VulkanRenderer> renderer_;
-    std::unique_ptr<VoxelRenderer> voxelRenderer_;
-    std::unique_ptr<VulkanFramebuffer> framebufferManager_;
-    std::unique_ptr<VulkanCompute> computeManager_;
-    std::unique_ptr<VulkanImGui> imguiManager_;
-    std::vector<Vertex> vertices_;
-    std::vector<uint32_t> indices_;
-
-    // New private members for menu system
-    App::State currentState_ = App::State::Menu;
-    App::MenuState menuState_;
-    std::unique_ptr<SaveManager> saveManager_;
-    bool showSavePicker_ = false;
-    bool showNewProjectDialog_ = false;
-    bool showSettings_ = false;
-    std::vector<App::SaveInfo> saveFiles_;
-    int selectedSaveIndex_ = -1;
-
-    // Add new member for compute pipeline layout tracking
-    struct ComputePipelineInfo {
-        VkPipeline pipeline;
-        VkPipelineLayout layout;
-        VkDescriptorSetLayout descriptorSetLayout;
-        VkDescriptorPool descriptorPool;
-        std::vector<VkDescriptorSet> descriptorSets;
-        VkBuffer stateBuffer;
-        VkBuffer nextStateBuffer;
-        VmaAllocation stateBufferAllocation;
-        VmaAllocation nextStateBufferAllocation;
-        GameOfLifePushConstants pushConstants;
-    } computePipeline_;
-
-    EngineStateMachine stateMachine_;
-    void initializeStateMachine();
-
-    /**
-     * @brief Create command pools for graphics and compute operations
-     * @throws std::runtime_error if command pool creation fails
-     */
-    void createCommandPools();
-
-    /**
-     * @brief Create the descriptor set layout for shader resources
-     * @throws std::runtime_error if descriptor set layout creation fails
-     */
-    void createDescriptorSetLayout();
-
-    /**
-     * @brief Create the graphics pipeline
-     * @throws std::runtime_error if pipeline creation fails
-     */
-    void createGraphicsPipeline();
-
-    /**
-     * @brief Read a file into a vector of chars
-     * @param filename Path to the file to read
-     * @return Vector containing the file contents
-     * @throws std::runtime_error if file cannot be opened
-     */
-    std::vector<char> readFile(const std::string& filename);
-
-    /**
-     * @brief Create shader stages for the graphics pipeline
-     * @param vertPath Path to the vertex shader
-     * @param fragPath Path to the fragment shader
-     * @param vertStageInfo Output parameter for vertex shader stage info
-     * @param fragStageInfo Output parameter for fragment shader stage info
-     * @throws std::runtime_error if shader creation fails
-     */
-    void createShaderStages(const std::string& vertPath, const std::string& fragPath,
-                           VkPipelineShaderStageCreateInfo& vertStageInfo,
-                           VkPipelineShaderStageCreateInfo& fragStageInfo);
-
-    /**
-     * @brief Wait for compute operations to complete
-     */
-    void waitForComputeCompletion();
-
-    /**
-     * @brief Copy data between buffers
-     * @param srcBuffer Source buffer
-     * @param dstBuffer Destination buffer
-     * @param size Size of data to copy
-     */
+    // Utility functions
+    VkShaderModule createShaderModule(const std::vector<char>& code);
     void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
-
-    /**
-     * @brief Record commands for drawing a frame
-     * @param commandBuffer Command buffer to record into
-     * @param imageIndex Index of the swap chain image to render to
-     */
-    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
-
-    /**
-     * @brief Clean up all Vulkan resources
-     */
-    void cleanup();
-
-    void createSwapChain();
-    void createImageViews();
-    void createRenderPass();
-    void createFramebuffers();
-    void createDepthResources();
-    void createColorResources();
-    void createSyncObjects();
-    void recreateSwapChain();
-    void cleanupSwapChain();
-    void updateUniformBuffer(uint32_t currentImage);
-    void createCommandBuffers();
-    void createDescriptorPool();
-    void createDescriptorSets();
     VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) const;
     VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) const;
     VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) const;
@@ -759,351 +389,49 @@ private:
     bool hasStencilComponent(VkFormat format);
     VkSampleCountFlagBits getMaxUsableSampleCount();
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface);
-
-    std::vector<const char*> getRequiredInstanceExtensions();
     void applyEnabledDeviceFeatures(VkPhysicalDeviceFeatures& features);
 
-    // Voxel rendering resources
-    VkBuffer voxelVertexBuffer_ = VK_NULL_HANDLE;
-    VmaAllocation voxelVertexBufferAllocation_ = VK_NULL_HANDLE;
-    VkBuffer voxelIndexBuffer_ = VK_NULL_HANDLE;
-    VmaAllocation voxelIndexBufferAllocation_ = VK_NULL_HANDLE;
-    std::vector<Vertex> voxelVertices_;
-    std::vector<uint32_t> voxelIndices_;
-
-    // Helper methods
-    void createVoxelBuffers();
-    void updateVoxelBuffers();
-    void createVoxelVertexData(const VoxelData& voxelData);
-    void cleanupVoxelBuffers();
-
-    // ImGui members
-    bool imguiInitialized_ = false;
-    VkDescriptorPool imguiDescriptorPool_ = VK_NULL_HANDLE;
-
-    void createImGuiDescriptorPool();
-    void cleanupImGuiDescriptorPool();
-
-    void createComputePipeline();
-    void createComputeDescriptorSetLayout();
-    void createComputeDescriptorPool();
-    void createComputeDescriptorSets();
-    void createComputeBuffers();
-    void updateComputePushConstants();
-    void submitComputeWork();
-
-    // Grid dimensions
-    uint32_t gridWidth_ = 64;
-    uint32_t gridHeight_ = 64;
-    uint32_t gridDepth_ = 64;
-
-    // Rule settings
-    uint32_t ruleSet_ = 0;  // 0: Classic, 1: HighLife, 2: Day & Night, 3: Custom, 4: 5766, 5: 4555
-    uint32_t surviveMin_ = 4;
-    uint32_t surviveMax_ = 6;
-    uint32_t birthCount_ = 4;
-
-    // Compute pipeline resources
-    VkDescriptorPool computeDescriptorPool_ = VK_NULL_HANDLE;
-    std::vector<ComputePipelineInfo> computePipelines_;
-    std::vector<VkCommandBuffer> computeCommandBuffers_;
-    std::vector<VkSemaphore> computeSemaphores_;
-    std::vector<VkFence> computeFences_;
-    uint32_t currentComputeFrame_ = 0;
-
-    // Helper functions for compute pipeline
-    void createComputeCommandPool();
-    void createComputeCommandBuffers();
-    void createComputeBuffers(ComputePipelineInfo& pipelineInfo, uint32_t width, uint32_t height, uint32_t depth);
-    void createComputeDescriptorPool();
-    void createComputeDescriptorSets(ComputePipelineInfo& pipelineInfo);
-    void updateComputePushConstants(const GameOfLifePushConstants& constants);
-    void submitComputeCommand(VkCommandBuffer commandBuffer);
-    void waitForComputeCompletion();
-
-private:
-    static VulkanEngine* instance_;
-    std::shared_ptr<WindowManager> windowManager_;
-    VkSurfaceKHR surface_;
+    // Member variables
     std::unique_ptr<VulkanContext> vulkanContext_;
+    std::unique_ptr<WindowManager> windowManager_;
     std::unique_ptr<VulkanMemoryManager> memoryManager_;
-    VkInstance vkInstance_;
-    VkPhysicalDevice physicalDevice_;
-    VkDevice device_;
-    VkQueue graphicsQueue_;
-    VkQueue presentQueue_;
-    VkQueue computeQueue_;
-    VkPipelineLayout pipelineLayout_;
-    VkPipeline graphicsPipeline_;
-
-    // Command pools
-    VkCommandPool graphicsCommandPool_ = VK_NULL_HANDLE;
-    VkCommandPool computeCommandPool_ = VK_NULL_HANDLE;
-
-    // Swap chain resources
-    VkSwapchainKHR swapChain_ = VK_NULL_HANDLE;
-    std::vector<VkImage> swapChainImages_;
-    std::vector<VkImageView> swapChainImageViews_;
-    std::vector<VkFramebuffer> swapChainFramebuffers_;
-    VkFormat swapChainImageFormat_;
-    VkExtent2D swapChainExtent_;
-    VkRenderPass renderPass_ = VK_NULL_HANDLE;
-
-    // Depth and color resources
-    VkImage depthImage_ = VK_NULL_HANDLE;
-    VmaAllocation depthImageAllocation_ = VK_NULL_HANDLE;
-    VkImageView depthImageView_ = VK_NULL_HANDLE;
-    VkImage colorImage_ = VK_NULL_HANDLE;
-    VmaAllocation colorImageAllocation_ = VK_NULL_HANDLE;
-    VkImageView colorImageView_ = VK_NULL_HANDLE;
-
-    // Command buffers and synchronization
-    std::vector<VkCommandBuffer> commandBuffers_;
-    std::vector<VkSemaphore> imageAvailableSemaphores_;
-    std::vector<VkSemaphore> renderFinishedSemaphores_;
-    std::vector<VkFence> inFlightFences_;
-    uint32_t currentFrame_ = 0;
-    bool framebufferResized_ = false;
-
-    // Descriptor resources
-    VkDescriptorSetLayout descriptorSetLayout_ = VK_NULL_HANDLE;
-    VkDescriptorPool descriptorPool_ = VK_NULL_HANDLE;
-    std::vector<VkDescriptorSet> descriptorSets_;
-
-    // Texture resources
-    VkImageView textureImageView_ = VK_NULL_HANDLE;
-    VkSampler textureSampler_ = VK_NULL_HANDLE;
-
-    // Vulkan handles
-    std::vector<VkShaderModule> shaderModules;
-
-    std::vector<VkCommandBuffer> graphicsCommandBuffers;
-    std::vector<VkCommandBuffer> computeCommandBuffers;
-
-    std::vector<VkSemaphore> computeSemaphores;
-    std::vector<VkFence> computeFences;
-
-    VkPhysicalDeviceFeatures enabledFeatures_{};
-    const std::vector<const char*> deviceExtensions_ = {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-        VK_KHR_MAINTENANCE1_EXTENSION_NAME,
-        VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,
-        VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME
-    };
-    const std::vector<const char*> validationLayers_ = {
-        "VK_LAYER_KHRONOS_validation"
-    };
-    const std::vector<const char*> instanceExtensions_ = {
-        VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME
-    };
-
-    QueueFamilyIndices queueFamilyIndices_;
-
-    // Buffers and resources
-    std::unique_ptr<VulkanBufferManager> bufferManager_;
-    std::unique_ptr<VulkanImageManager> imageManager_;
-    std::unique_ptr<VulkanSwapChain> swapChainManager_;
-    std::unique_ptr<VulkanRenderer> renderer_;
-    std::unique_ptr<VoxelRenderer> voxelRenderer_;
-    std::unique_ptr<VulkanFramebuffer> framebufferManager_;
-    std::unique_ptr<VulkanCompute> computeManager_;
-    std::unique_ptr<VulkanImGui> imguiManager_;
-    std::vector<Vertex> vertices_;
-    std::vector<uint32_t> indices_;
-
-    // New private members for menu system
-    App::State currentState_ = App::State::Menu;
-    App::MenuState menuState_;
     std::unique_ptr<SaveManager> saveManager_;
-    bool showSavePicker_ = false;
-    bool showNewProjectDialog_ = false;
-    bool showSettings_ = false;
-    std::vector<App::SaveInfo> saveFiles_;
-    int selectedSaveIndex_ = -1;
-
-    // Add new member for compute pipeline layout tracking
-    struct ComputePipelineInfo {
-        VkPipeline pipeline;
-        VkPipelineLayout layout;
-        VkDescriptorSetLayout descriptorSetLayout;
-        VkDescriptorPool descriptorPool;
-        std::vector<VkDescriptorSet> descriptorSets;
-        VkBuffer stateBuffer;
-        VkBuffer nextStateBuffer;
-        VmaAllocation stateBufferAllocation;
-        VmaAllocation nextStateBufferAllocation;
-        GameOfLifePushConstants pushConstants;
-    } computePipeline_;
-
+    std::unique_ptr<Camera> camera_;
+    std::unique_ptr<Grid3D> grid_;
     EngineStateMachine stateMachine_;
-    void initializeStateMachine();
 
-    /**
-     * @brief Create command pools for graphics and compute operations
-     * @throws std::runtime_error if command pool creation fails
-     */
-    void createCommandPools();
+    // Compute pipeline
+    ComputePipelineInfo computePipeline_;
 
-    /**
-     * @brief Create the descriptor set layout for shader resources
-     * @throws std::runtime_error if descriptor set layout creation fails
-     */
-    void createDescriptorSetLayout();
+    // Loading state
+    float loadingElapsed_ = 0.0f;
+    std::future<bool> loadingFuture_;
+    bool isLoading_ = false;
+    float loadingProgress_ = 0.0f;
+    std::string loadingStatus_;
+    bool shouldCancelLoading_ = false;
+    std::mutex loadingMutex_;
 
-    /**
-     * @brief Create the graphics pipeline
-     * @throws std::runtime_error if pipeline creation fails
-     */
-    void createGraphicsPipeline();
+    // Rendering configuration
+    int renderMode_ = 0;
+    float minLODDistance_ = 10.0f;
+    float maxLODDistance_ = 100.0f;
 
-    /**
-     * @brief Read a file into a vector of chars
-     * @param filename Path to the file to read
-     * @return Vector containing the file contents
-     * @throws std::runtime_error if file cannot be opened
-     */
-    std::vector<char> readFile(const std::string& filename);
+    // Voxel data
+    VoxelData loadedVoxelData_;
+    VkBuffer voxelInstanceBuffer_ = VK_NULL_HANDLE;
+    VmaAllocation voxelInstanceBufferAllocation_ = VK_NULL_HANDLE;
+    std::vector<VoxelInstance> voxelInstances_;
 
-    /**
-     * @brief Create shader stages for the graphics pipeline
-     * @param vertPath Path to the vertex shader
-     * @param fragPath Path to the fragment shader
-     * @param vertStageInfo Output parameter for vertex shader stage info
-     * @param fragStageInfo Output parameter for fragment shader stage info
-     * @throws std::runtime_error if shader creation fails
-     */
-    void createShaderStages(const std::string& vertPath, const std::string& fragPath,
-                           VkPipelineShaderStageCreateInfo& vertStageInfo,
-                           VkPipelineShaderStageCreateInfo& fragStageInfo);
-
-    /**
-     * @brief Wait for compute operations to complete
-     */
-    void waitForComputeCompletion();
-
-    /**
-     * @brief Copy data between buffers
-     * @param srcBuffer Source buffer
-     * @param dstBuffer Destination buffer
-     * @param size Size of data to copy
-     */
-    void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
-
-    /**
-     * @brief Record commands for drawing a frame
-     * @param commandBuffer Command buffer to record into
-     * @param imageIndex Index of the swap chain image to render to
-     */
-    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
-
-    /**
-     * @brief Clean up all Vulkan resources
-     */
-    void cleanup();
-
-    void createSwapChain();
-    void createImageViews();
-    void createRenderPass();
-    void createFramebuffers();
-    void createDepthResources();
-    void createColorResources();
-    void createSyncObjects();
-    void recreateSwapChain();
-    void cleanupSwapChain();
-    void updateUniformBuffer(uint32_t currentImage);
-    void createCommandBuffers();
-    void createDescriptorPool();
-    void createDescriptorSets();
-    VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) const;
-    VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) const;
-    VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) const;
-    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) const;
-    VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
-    VkFormat findDepthFormat();
-    bool hasStencilComponent(VkFormat format);
-    VkSampleCountFlagBits getMaxUsableSampleCount();
-    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface);
-
-    std::vector<const char*> getRequiredInstanceExtensions();
-    void applyEnabledDeviceFeatures(VkPhysicalDeviceFeatures& features);
-
-    // Voxel rendering resources
-    VkBuffer voxelVertexBuffer_ = VK_NULL_HANDLE;
-    VmaAllocation voxelVertexBufferAllocation_ = VK_NULL_HANDLE;
-    VkBuffer voxelIndexBuffer_ = VK_NULL_HANDLE;
-    VmaAllocation voxelIndexBufferAllocation_ = VK_NULL_HANDLE;
-    std::vector<Vertex> voxelVertices_;
-    std::vector<uint32_t> voxelIndices_;
-
-    // Helper methods
-    void createVoxelBuffers();
-    void updateVoxelBuffers();
-    void createVoxelVertexData(const VoxelData& voxelData);
-    void cleanupVoxelBuffers();
-
-    // ImGui members
-    bool imguiInitialized_ = false;
-    VkDescriptorPool imguiDescriptorPool_ = VK_NULL_HANDLE;
-
-    void createImGuiDescriptorPool();
-    void cleanupImGuiDescriptorPool();
-
-    void createComputePipeline();
-    void createComputeDescriptorSetLayout();
-    void createComputeDescriptorPool();
-    void createComputeDescriptorSets();
-    void createComputeBuffers();
-    void updateComputePushConstants();
-    void submitComputeWork();
-
-    // Grid dimensions
-    uint32_t gridWidth_ = 64;
-    uint32_t gridHeight_ = 64;
-    uint32_t gridDepth_ = 64;
-
-    // Rule settings
-    uint32_t ruleSet_ = 0;  // 0: Classic, 1: HighLife, 2: Day & Night, 3: Custom, 4: 5766, 5: 4555
-    uint32_t surviveMin_ = 4;
-    uint32_t surviveMax_ = 6;
-    uint32_t birthCount_ = 4;
-
-    // Compute pipeline resources
-    VkDescriptorPool computeDescriptorPool_ = VK_NULL_HANDLE;
-    std::vector<ComputePipelineInfo> computePipelines_;
-    std::vector<VkCommandBuffer> computeCommandBuffers_;
-    std::vector<VkSemaphore> computeSemaphores_;
-    std::vector<VkFence> computeFences_;
-    uint32_t currentComputeFrame_ = 0;
-
-    // Helper functions for compute pipeline
-    void createComputeCommandPool();
-    void createComputeCommandBuffers();
-    void createComputeBuffers(ComputePipelineInfo& pipelineInfo, uint32_t width, uint32_t height, uint32_t depth);
-    void createComputeDescriptorPool();
-    void createComputeDescriptorSets(ComputePipelineInfo& pipelineInfo);
-    void updateComputePushConstants(const GameOfLifePushConstants& constants);
-    void submitComputeCommand(VkCommandBuffer commandBuffer);
-    void waitForComputeCompletion();
-
-    // Add missing member variables
-    int currentRuleSet_ = 0;
-    VkSampleCountFlagBits msaaSamples_ = VK_SAMPLE_COUNT_1_BIT;
-    std::vector<VmaAllocation> uniformBuffersAllocations_;
-    VkCommandBuffer commandBuffer_ = VK_NULL_HANDLE;
-    Camera camera_;
-    Grid3D grid_;
-
-#ifdef _MSC_VER
-#pragma message("If you see an error about vk_mem_alloc.h, ensure VMA is installed via vcpkg and your includePath is set to vcpkg/installed/<triplet>/include.")
-#endif
+    // Timing
+    std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
 };
 
 // Resource deleters
 struct PipelineDeleter {
     void operator()(VkPipeline pipeline) const {
         if (pipeline != VK_NULL_HANDLE) {
-            vkDestroyPipeline(VulkanEngine::getInstance()->getVulkanContext()->getDevice(), pipeline, nullptr);
+            vkDestroyPipeline(VulkanEngine::getInstance()->getDevice(), pipeline, nullptr);
         }
     }
 };
@@ -1111,7 +439,7 @@ struct PipelineDeleter {
 struct PipelineLayoutDeleter {
     void operator()(VkPipelineLayout layout) const {
         if (layout != VK_NULL_HANDLE) {
-            vkDestroyPipelineLayout(VulkanEngine::getInstance()->getVulkanContext()->getDevice(), layout, nullptr);
+            vkDestroyPipelineLayout(VulkanEngine::getInstance()->getDevice(), layout, nullptr);
         }
     }
 };
@@ -1119,7 +447,7 @@ struct PipelineLayoutDeleter {
 struct ShaderModuleDeleter {
     void operator()(VkShaderModule module) const {
         if (module != VK_NULL_HANDLE) {
-            vkDestroyShaderModule(VulkanEngine::getInstance()->getVulkanContext()->getDevice(), module, nullptr);
+            vkDestroyShaderModule(VulkanEngine::getInstance()->getDevice(), module, nullptr);
         }
     }
 };

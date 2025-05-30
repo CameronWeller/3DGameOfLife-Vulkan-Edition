@@ -108,6 +108,7 @@ void VulkanContext::init(const std::vector<const char*>& requiredExtensions) {
     setupDebugMessenger();
     pickPhysicalDevice();
     createLogicalDevice();
+    createCommandPools();
     createSurface();
 }
 
@@ -144,6 +145,18 @@ void VulkanContext::cleanup() {
             func(device_, validationCache_, nullptr);
         }
         validationCache_ = VK_NULL_HANDLE;
+    }
+
+    // Clean up command pools
+    if (device_ != VK_NULL_HANDLE) {
+        if (graphicsCommandPool_ != VK_NULL_HANDLE) {
+            vkDestroyCommandPool(device_, graphicsCommandPool_, nullptr);
+            graphicsCommandPool_ = VK_NULL_HANDLE;
+        }
+        if (computeCommandPool_ != VK_NULL_HANDLE) {
+            vkDestroyCommandPool(device_, computeCommandPool_, nullptr);
+            computeCommandPool_ = VK_NULL_HANDLE;
+        }
     }
 
     // Clean up debug messenger
@@ -539,6 +552,29 @@ void VulkanContext::createLogicalDevice() {
     result = vkCreateSemaphore(device_, &semaphoreCreateInfo, nullptr, &computePresentSemaphore_);
     if (result != VK_SUCCESS) {
         throw VulkanError(result, "Failed to create compute-present synchronization semaphore!");
+    }
+}
+
+void VulkanContext::createCommandPools() {
+    QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice_);
+
+    // Create graphics command pool
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value();
+
+    VkResult result = vkCreateCommandPool(device_, &poolInfo, nullptr, &graphicsCommandPool_);
+    if (result != VK_SUCCESS) {
+        throw VulkanError(result, "Failed to create graphics command pool!");
+    }
+
+    // Create compute command pool
+    poolInfo.queueFamilyIndex = queueFamilyIndices.computeFamily.value();
+
+    result = vkCreateCommandPool(device_, &poolInfo, nullptr, &computeCommandPool_);
+    if (result != VK_SUCCESS) {
+        throw VulkanError(result, "Failed to create compute command pool!");
     }
 }
 

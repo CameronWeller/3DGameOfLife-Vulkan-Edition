@@ -4,6 +4,7 @@
 #include <vk_mem_alloc.h>
 #include <vector>
 #include <memory>
+#include <string>
 
 namespace VulkanHIP {
 
@@ -21,8 +22,8 @@ public:
     
     // Image creation and management
     void createDepthResources(uint32_t width, uint32_t height, VkSampleCountFlagBits msaaSamples);
-    void createColorResources(uint32_t width, uint32_t height, VkSampleCountFlagBits msaaSamples);
-    void createTextureImage(const std::string& texturePath);
+    void createColorResources(uint32_t width, uint32_t height, VkFormat format, VkSampleCountFlagBits msaaSamples);
+    void createTextureImage(unsigned char* pixels, uint32_t width, uint32_t height, int channels);
     void createTextureImageView();
     void createTextureSampler();
     
@@ -41,7 +42,7 @@ public:
     void cleanup();
     
 private:
-    VulkanContext* context_;
+    VulkanContext* vulkanContext_;
     VulkanMemoryManager* memoryManager_;
     
     // Image resources
@@ -59,6 +60,7 @@ private:
     VkSampler textureSampler_ = VK_NULL_HANDLE;
     
     // Helper methods
+    VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
     VkFormat findDepthFormat();
     VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
     bool hasStencilComponent(VkFormat format);
