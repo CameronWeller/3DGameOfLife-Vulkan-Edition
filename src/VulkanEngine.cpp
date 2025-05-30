@@ -286,6 +286,11 @@ void VulkanEngine::createCommandPools() {
 void VulkanEngine::run() {
     while (!windowManager_->shouldClose() && currentState_ != App::State::Exiting) {
         windowManager_->pollEvents();
+
+        // Begin ImGui frame
+        beginImGuiFrame();
+
+        // Draw ImGui windows based on state
         switch (currentState_) {
             case App::State::Menu:
                 drawMenu();
@@ -302,6 +307,9 @@ void VulkanEngine::run() {
             case App::State::Exiting:
                 break;
         }
+
+        // End ImGui frame
+        endImGuiFrame();
     }
 
     vkDeviceWaitIdle(vulkanContext_->getDevice());
