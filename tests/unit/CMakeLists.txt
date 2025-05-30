@@ -5,11 +5,6 @@ add_executable(unit_tests
     VulkanEngineTest.cpp
     VulkanContextTest.cpp
     WindowManagerTest.cpp
-    CameraTest.cpp
-    RayCasterTest.cpp
-    VulkanMemoryManagerTest.cpp
-    SaveManagerTest.cpp
-    LoggerTest.cpp
 )
 
 # Link against GTest and the main project

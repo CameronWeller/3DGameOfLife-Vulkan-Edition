@@ -423,27 +423,39 @@ void VulkanEngine::destroyComputePipeline(VkPipeline pipeline) {
 // Begin a single-time command buffer
 VkCommandBuffer VulkanEngine::beginSingleTimeCommands() {
     VkDevice currentDevice = vulkanContext_->getDevice();
-    VkCommandPool poolToUse = graphicsCommandPool_; // Default to graphics pool, will be passed from CommandManager
+    if (currentDevice == VK_NULL_HANDLE) {
+        throw std::runtime_error("Cannot begin single-time commands: Device is null");
+    }
+
+    VkCommandPool poolToUse = graphicsCommandPool_;
+    if (poolToUse == VK_NULL_HANDLE) {
+        throw std::runtime_error("Cannot begin single-time commands: Command pool is null");
+    }
     
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = poolToUse; 
+    allocInfo.commandPool = poolToUse;
     allocInfo.commandBufferCount = 1;
 
     VkCommandBuffer commandBuffer;
-    if (vkAllocateCommandBuffers(currentDevice, &allocInfo, &commandBuffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate single-time command buffer");
+    VkResult result = vkAllocateCommandBuffers(currentDevice, &allocInfo, &commandBuffer);
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate single-time command buffer: " + 
+            std::to_string(static_cast<int>(result)));
     }
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
-        // Need to free the command buffer if begin fails
+    
+    result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
+    if (result != VK_SUCCESS) {
         vkFreeCommandBuffers(currentDevice, poolToUse, 1, &commandBuffer);
-        throw std::runtime_error("Failed to begin single-time command buffer");
+        throw std::runtime_error("Failed to begin single-time command buffer: " + 
+            std::to_string(static_cast<int>(result)));
     }
+    
     return commandBuffer;
 }
 
@@ -496,10 +508,24 @@ std::vector<char> VulkanEngine::readFile(const std::string& filename) {
 }
 
 void VulkanEngine::cleanup() {
-    vkDeviceWaitIdle(vulkanContext_->getDevice());
+    // Wait for device to finish operations
+    if (vulkanContext_ && vulkanContext_->getDevice() != VK_NULL_HANDLE) {
+        vkDeviceWaitIdle(vulkanContext_->getDevice());
+    }
 
-    // Cleanup ImGui
+    // Cleanup ImGui first as it depends on other resources
     cleanupImGui();
+
+    // Cleanup compute pipelines before swap chain
+    for (const auto& pipeline : computePipelines_) {
+        if (pipeline.pipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(vulkanContext_->getDevice(), pipeline.pipeline, nullptr);
+        }
+        if (pipeline.layout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(vulkanContext_->getDevice(), pipeline.layout, nullptr);
+        }
+    }
+    computePipelines_.clear();
 
     // Cleanup swap chain
     cleanupSwapChain();
@@ -536,7 +562,7 @@ void VulkanEngine::cleanup() {
         }
     }
 
-    // Cleanup Vulkan context
+    // Cleanup Vulkan context last as other resources depend on it
     vulkanContext_.reset();
 
     // Cleanup window manager
@@ -1670,18 +1696,16 @@ void VulkanEngine::createGraphicsPipeline() {
 }
 
 void VulkanEngine::initImGui() {
-    // Create descriptor pool for ImGui
-    createImGuiDescriptorPool();
-
-    // Setup ImGui context
+    // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
 
-    // Setup ImGui style
+    // Setup Dear ImGui style
     ImGui::StyleColorsDark();
 
     // Setup Platform/Renderer backends
@@ -1690,22 +1714,22 @@ void VulkanEngine::initImGui() {
     init_info.Instance = vulkanContext_->getVkInstance();
     init_info.PhysicalDevice = vulkanContext_->getPhysicalDevice();
     init_info.Device = vulkanContext_->getDevice();
-    init_info.QueueFamily = queueFamilyIndices_.graphicsFamily.value();
+    init_info.QueueFamily = vulkanContext_->getGraphicsQueueFamily();
     init_info.Queue = vulkanContext_->getGraphicsQueue();
     init_info.PipelineCache = VK_NULL_HANDLE;
     init_info.DescriptorPool = imguiDescriptorPool_;
     init_info.Subpass = 0;
     init_info.MinImageCount = 2;
-    init_info.ImageCount = MAX_FRAMES_IN_FLIGHT;
+    init_info.ImageCount = swapChainImages_.size();
     init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     init_info.Allocator = nullptr;
     init_info.CheckVkResultFn = nullptr;
-    ImGui_ImplVulkan_Init(&init_info, renderPass_);
+    ImGui_ImplVulkan_Init(&init_info);
 
-    // Upload fonts
-    VkCommandBuffer command_buffer = beginSingleTimeCommands();
-    ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
-    endSingleTimeCommands(command_buffer);
+    // Upload Fonts
+    VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+    ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
+    endSingleTimeCommands(commandBuffer);
     ImGui_ImplVulkan_DestroyFontUploadObjects();
 
     imguiInitialized_ = true;
@@ -1713,11 +1737,9 @@ void VulkanEngine::initImGui() {
 
 void VulkanEngine::cleanupImGui() {
     if (imguiInitialized_) {
-        vkDeviceWaitIdle(vulkanContext_->getDevice());
         ImGui_ImplVulkan_Shutdown();
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
-        cleanupImGuiDescriptorPool();
         imguiInitialized_ = false;
     }
 }
@@ -1733,15 +1755,12 @@ void VulkanEngine::beginImGuiFrame() {
 void VulkanEngine::endImGuiFrame() {
     if (imguiInitialized_) {
         ImGui::Render();
-        ImDrawData* draw_data = ImGui::GetDrawData();
-        if (draw_data) {
-            ImGui_ImplVulkan_RenderDrawData(draw_data, commandBuffers_[currentFrame_]);
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData());
 
-            // Update and Render additional Platform Windows
-            if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-                ImGui::UpdatePlatformWindows();
-                ImGui::RenderPlatformWindowsDefault();
-            }
+        // Update and Render additional Platform Windows
+        if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+            ImGui::UpdatePlatformWindows();
+            ImGui::RenderPlatformWindowsDefault();
         }
     }
 }

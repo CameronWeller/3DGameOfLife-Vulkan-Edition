@@ -125,7 +125,7 @@ void VulkanContext::cleanup() {
     // Save validation cache before cleanup
     saveValidationCache();
 
-    // Clean up synchronization primitives
+    // Clean up synchronization primitives first
     if (device_ != VK_NULL_HANDLE) {
         if (graphicsComputeSemaphore_ != VK_NULL_HANDLE) {
             vkDestroySemaphore(device_, graphicsComputeSemaphore_, nullptr);
@@ -162,12 +162,12 @@ void VulkanContext::cleanup() {
     }
 
     // Clean up surface
-    if (surface_ != VK_NULL_HANDLE) {
+    if (surface_ != VK_NULL_HANDLE && vkInstance_ != VK_NULL_HANDLE) {
         vkDestroySurfaceKHR(vkInstance_, surface_, nullptr);
         surface_ = VK_NULL_HANDLE;
     }
 
-    // Clean up instance
+    // Clean up instance last
     if (vkInstance_ != VK_NULL_HANDLE) {
         vkDestroyInstance(vkInstance_, nullptr);
         vkInstance_ = VK_NULL_HANDLE;
@@ -543,9 +543,15 @@ void VulkanContext::createLogicalDevice() {
 }
 
 void VulkanContext::createSurface() {
-    auto windowManager = WindowManager::getInstance();
-    if (windowManager.createWindowSurface(vkInstance_, &surface_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create window surface!");
+    std::lock_guard<std::mutex> lock(contextMutex_);
+    surface_ = WindowManager::getInstance().createSurface(vkInstance_);
+}
+
+void VulkanContext::destroySurface() {
+    std::lock_guard<std::mutex> lock(contextMutex_);
+    if (surface_ != VK_NULL_HANDLE) {
+        WindowManager::getInstance().destroySurface(vkInstance_, surface_);
+        surface_ = VK_NULL_HANDLE;
     }
 }
 
@@ -719,7 +725,7 @@ uint32_t VulkanContext::findMemoryType(VkPhysicalDevice physicalDevice, uint32_t
 
 void VulkanContext::saveValidationCache() {
     if (!enableValidationLayers_ || !validationConfig_.enableCache || 
-        validationCache_ == VK_NULL_HANDLE || device_ == VK_NULL_HANDLE) {
+        validationCache_ == VK_NULL_HANDLE || device_ != VK_NULL_HANDLE) {
         return;
     }
 

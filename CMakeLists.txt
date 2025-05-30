@@ -47,6 +47,7 @@ find_package(glm REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(imgui CONFIG REQUIRED)
 
 # Find glslc compiler
 find_program(GLSLC_EXECUTABLE glslc HINTS ${Vulkan_GLSLC_EXECUTABLE} ENV VULKAN_SDK PATH_SUFFIXES bin)
@@ -73,7 +74,12 @@ function(compile_shader SHADER_PATH)
         COMMAND ${GLSLC_EXECUTABLE} -o ${OUTPUT_PATH} ${SHADER_PATH}
         DEPENDS ${SHADER_PATH}
         COMMENT "Compiling shader ${SHADER_FILENAME}"
+        VERBATIM
     )
+    
+    if(NOT EXISTS ${OUTPUT_PATH})
+        message(FATAL_ERROR "Failed to compile shader: ${SHADER_PATH}")
+    endif()
     
     list(APPEND SHADER_SPV_FILES ${OUTPUT_PATH})
     set(SHADER_SPV_FILES ${SHADER_SPV_FILES} PARENT_SCOPE)
@@ -114,6 +120,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     spdlog::spdlog
     GPUOpen::VulkanMemoryAllocator
     nlohmann_json::nlohmann_json
+    imgui::imgui
 )
 
 # Include directories
@@ -124,6 +131,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
     ${GLFW_INCLUDE_DIRS}
     ${GLM_INCLUDE_DIRS}
     $<TARGET_PROPERTY:nlohmann_json::nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>
+    $<TARGET_PROPERTY:imgui::imgui,INTERFACE_INCLUDE_DIRECTORIES>
 )
 
 # Add shader files to the build

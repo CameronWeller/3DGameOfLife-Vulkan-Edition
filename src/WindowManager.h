@@ -24,7 +24,6 @@ public:
         return instance;
     }
 
-    WindowManager();
     ~WindowManager();
 
     void init(const WindowConfig& config);
@@ -97,9 +96,10 @@ private:
     std::atomic<GLFWwindow*> window_{nullptr};
     std::atomic<bool> glfwInitialized_{false};
     WindowConfig config_;
+    std::mutex callbackMutex_;
+    std::mutex initMutex_;
 
     // Thread-safe callbacks
-    mutable std::mutex callbackMutex_;
     std::function<void(int, int)> framebufferResizeCallback_;
     std::function<void(int, int, int, int)> keyCallback_;
     std::function<void(int, int, int)> mouseButtonCallback_;

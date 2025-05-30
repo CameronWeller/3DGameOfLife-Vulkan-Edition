@@ -1,50 +1,84 @@
+#include <gtest/gtest.h>
+#include <vulkan/vulkan.h>
 #include "VulkanPerformanceTestBase.hpp"
 #include <benchmark/benchmark.h>
 
 class MemoryPerformanceTest : public VulkanPerformanceTestBase {
-protected:
+public:
     void SetUp() override {
         VulkanPerformanceTestBase::SetUp();
-        // Get queue for memory operations
-        vkGetDeviceQueue(device, 0, 0, &queue);
     }
 
     void TearDown() override {
         VulkanPerformanceTestBase::TearDown();
     }
+
+    void TestBody() override {} // Add empty TestBody implementation
 };
 
-// Test buffer allocation performance
 TEST_F(MemoryPerformanceTest, BufferAllocation) {
-    const VkDeviceSize bufferSize = 1024 * 1024; // 1MB buffer
-    
-    VkBuffer buffer;
+    const VkDeviceSize bufferSize = 1024 * 1024; // 1MB
+
+    measureExecutionTime("Buffer Allocation", [this, bufferSize]() {
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = bufferSize;
+        bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        VkBuffer buffer;
+        if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create buffer");
+        }
+
+        vkDestroyBuffer(device, buffer, nullptr);
+    });
+}
+
+TEST_F(MemoryPerformanceTest, MemoryAllocation) {
+    const VkDeviceSize bufferSize = 1024 * 1024; // 1MB
+
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     bufferInfo.size = bufferSize;
     bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    measureMemoryOperation("Buffer Allocation", [&]() {
-        if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create buffer");
+    VkBuffer buffer;
+    if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create buffer");
+    }
+
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(device, buffer, &memRequirements);
+
+    measureExecutionTime("Memory Allocation", [this, &memRequirements]() {
+        VkMemoryAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memRequirements.size;
+        allocInfo.memoryTypeIndex = 0; // TODO: Find the right memory type
+
+        VkDeviceMemory memory;
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &memory) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate memory");
         }
+
+        vkFreeMemory(device, memory, nullptr);
     });
 
     vkDestroyBuffer(device, buffer, nullptr);
 }
 
-// Test memory allocation and mapping
-TEST_F(MemoryPerformanceTest, MemoryAllocationAndMapping) {
-    const VkDeviceSize allocationSize = 1024 * 1024; // 1MB
-    
-    VkBuffer buffer;
+TEST_F(MemoryPerformanceTest, MemoryMapping) {
+    const VkDeviceSize bufferSize = 1024 * 1024; // 1MB
+
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = allocationSize;
+    bufferInfo.size = bufferSize;
     bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
+    VkBuffer buffer;
     if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create buffer");
     }
@@ -55,25 +89,29 @@ TEST_F(MemoryPerformanceTest, MemoryAllocationAndMapping) {
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = 0; // TODO: Find suitable memory type
+    allocInfo.memoryTypeIndex = 0; // TODO: Find the right memory type
 
     VkDeviceMemory memory;
-    measureMemoryOperation("Memory Allocation", [&]() {
-        if (vkAllocateMemory(device, &allocInfo, nullptr, &memory) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate memory");
-        }
-    });
+    if (vkAllocateMemory(device, &allocInfo, nullptr, &memory) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate memory");
+    }
 
-    void* data;
-    measureMemoryOperation("Memory Mapping", [&]() {
-        if (vkMapMemory(device, memory, 0, allocationSize, 0, &data) != VK_SUCCESS) {
+    vkBindBufferMemory(device, buffer, memory, 0);
+
+    measureExecutionTime("Memory Mapping", [this, memory, bufferSize]() {
+        void* data;
+        if (vkMapMemory(device, memory, 0, bufferSize, 0, &data) != VK_SUCCESS) {
             throw std::runtime_error("Failed to map memory");
         }
+
+        // Write some data
+        memset(data, 0, bufferSize);
+
+        vkUnmapMemory(device, memory);
     });
 
-    vkUnmapMemory(device, memory);
-    vkFreeMemory(device, memory, nullptr);
     vkDestroyBuffer(device, buffer, nullptr);
+    vkFreeMemory(device, memory, nullptr);
 }
 
 // Benchmark buffer creation with different sizes

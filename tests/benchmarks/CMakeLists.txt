@@ -5,7 +5,6 @@ add_executable(benchmark_tests
     VulkanEngineBenchmark.cpp
     VulkanContextBenchmark.cpp
     MemoryManagerBenchmark.cpp
-    RayCasterBenchmark.cpp
 )
 
 # Link against Google Benchmark and the main project

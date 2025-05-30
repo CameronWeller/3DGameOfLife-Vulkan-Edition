@@ -78,6 +78,7 @@ target_link_libraries(engine_tests PRIVATE
     GTest::Main
     ${Vulkan_LIBRARIES}
     Threads::Threads
+    cpp-vulkan-hip-engine
 )
 
 # Enable test discovery

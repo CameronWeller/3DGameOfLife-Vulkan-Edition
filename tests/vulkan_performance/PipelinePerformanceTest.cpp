@@ -1,133 +1,115 @@
+#include <gtest/gtest.h>
+#include <vulkan/vulkan.h>
 #include "VulkanPerformanceTestBase.hpp"
-#include <benchmark/benchmark.h>
 
 class PipelinePerformanceTest : public VulkanPerformanceTestBase {
 protected:
     void SetUp() override {
         VulkanPerformanceTestBase::SetUp();
-        // Additional setup specific to pipeline testing
     }
 
     void TearDown() override {
-        // Cleanup pipeline-specific resources
         VulkanPerformanceTestBase::TearDown();
     }
 };
 
-// Test pipeline creation performance
 TEST_F(PipelinePerformanceTest, PipelineCreation) {
-    // Create a simple graphics pipeline
-    VkPipelineLayout pipelineLayout;
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    
-    measurePipelineCreation("Simple Graphics Pipeline", [&]() {
+    measureExecutionTime("Pipeline Layout Creation", [this]() {
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.setLayoutCount = 0;
+        pipelineLayoutInfo.pushConstantRangeCount = 0;
+
+        VkPipelineLayout pipelineLayout;
         if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create pipeline layout");
         }
+
+        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+    });
+}
+
+TEST_F(PipelinePerformanceTest, PipelineCache) {
+    measureExecutionTime("Pipeline Cache Creation", [this]() {
+        VkPipelineCacheCreateInfo cacheInfo{};
+        cacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+
+        VkPipelineCache pipelineCache;
+        if (vkCreatePipelineCache(device, &cacheInfo, nullptr, &pipelineCache) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create pipeline cache");
+        }
+
+        vkDestroyPipelineCache(device, pipelineCache, nullptr);
+    });
+}
+
+TEST_F(PipelinePerformanceTest, PipelineCompilation) {
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 0;
+    pipelineLayoutInfo.pushConstantRangeCount = 0;
+
+    VkPipelineLayout pipelineLayout;
+    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create pipeline layout");
+    }
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_FALSE;
+
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttachment.blendEnable = VK_FALSE;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending{};
+    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.logicOpEnable = VK_FALSE;
+    colorBlending.attachmentCount = 1;
+    colorBlending.pAttachments = &colorBlendAttachment;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.sampleShadingEnable = VK_FALSE;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 0; // No shader stages for this test
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &multisampling;
+    pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.layout = pipelineLayout;
+
+    measureExecutionTime("Pipeline Compilation", [this, &pipelineInfo]() {
+        VkPipeline pipeline;
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create graphics pipeline");
+        }
+
+        vkDestroyPipeline(device, pipeline, nullptr);
     });
 
     vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 }
-
-// Benchmark pipeline creation with different configurations
-static void BM_PipelineCreation(benchmark::State& state) {
-    PipelinePerformanceTest test;
-    test.SetUp();
-
-    for (auto _ : state) {
-        VkPipelineLayout pipelineLayout;
-        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        
-        if (vkCreatePipelineLayout(test.device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
-            state.SkipWithError("Failed to create pipeline layout");
-            break;
-        }
-        
-        vkDestroyPipelineLayout(test.device, pipelineLayout, nullptr);
-    }
-
-    test.TearDown();
-}
-BENCHMARK(BM_PipelineCreation);
-
-// Test pipeline binding performance
-TEST_F(PipelinePerformanceTest, PipelineBinding) {
-    VkCommandPool commandPool;
-    VkCommandPoolCreateInfo poolInfo{};
-    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    poolInfo.queueFamilyIndex = 0; // TODO: Use correct queue family
-    
-    if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create command pool");
-    }
-
-    VkCommandBuffer commandBuffer;
-    VkCommandBufferAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.commandPool = commandPool;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandBufferCount = 1;
-
-    if (vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate command buffer");
-    }
-
-    // Measure pipeline binding performance
-    measurePipelineCreation("Pipeline Binding", [&]() {
-        recordCommandBuffer(commandBuffer, [](VkCommandBuffer cmdBuffer) {
-            // Record pipeline binding commands
-            // This is a placeholder - actual pipeline binding would go here
-        });
-    });
-
-    vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
-    vkDestroyCommandPool(device, commandPool, nullptr);
-}
-
-// Benchmark pipeline binding with different configurations
-static void BM_PipelineBinding(benchmark::State& state) {
-    PipelinePerformanceTest test;
-    test.SetUp();
-
-    VkCommandPool commandPool;
-    VkCommandPoolCreateInfo poolInfo{};
-    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    poolInfo.queueFamilyIndex = 0;
-    
-    if (vkCreateCommandPool(test.device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS) {
-        state.SkipWithError("Failed to create command pool");
-        test.TearDown();
-        return;
-    }
-
-    VkCommandBuffer commandBuffer;
-    VkCommandBufferAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.commandPool = commandPool;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandBufferCount = 1;
-
-    if (vkAllocateCommandBuffers(test.device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
-        state.SkipWithError("Failed to allocate command buffer");
-        vkDestroyCommandPool(test.device, commandPool, nullptr);
-        test.TearDown();
-        return;
-    }
-
-    for (auto _ : state) {
-        test.recordCommandBuffer(commandBuffer, [](VkCommandBuffer cmdBuffer) {
-            // Record pipeline binding commands
-            // This is a placeholder - actual pipeline binding would go here
-        });
-    }
-
-    vkFreeCommandBuffers(test.device, commandPool, 1, &commandBuffer);
-    vkDestroyCommandPool(test.device, commandPool, nullptr);
-    test.TearDown();
-}
-BENCHMARK(BM_PipelineBinding);
 
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);

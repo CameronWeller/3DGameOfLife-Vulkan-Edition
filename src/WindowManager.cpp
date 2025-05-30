@@ -9,27 +9,25 @@ namespace VulkanHIP {
 
 static Logger& logger = Logger::getInstance();
 
-WindowManager::WindowManager() {
-    if (!glfwInit()) {
-        throw std::runtime_error("Failed to initialize GLFW!");
-    }
-
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-}
-
 WindowManager::~WindowManager() {
     cleanup();
 }
 
 void WindowManager::init(const WindowConfig& config) {
+    std::lock_guard<std::mutex> lock(initMutex_);
+    
+    if (glfwInitialized_.load()) {
+        logger.log(Logger::LogLevel::Warning, "GLFW already initialized!");
+        return;
+    }
+
     config_ = config;
 
     if (!glfwInit()) {
         logger.log(Logger::LogLevel::Error, "Failed to initialize GLFW!");
         throw std::runtime_error("Failed to initialize GLFW!");
     }
-    glfwInitialized_ = true;
+    glfwInitialized_.store(true);
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, config.resizable ? GLFW_TRUE : GLFW_FALSE);
@@ -45,7 +43,7 @@ void WindowManager::init(const WindowConfig& config) {
     if (!newWindow) {
         logger.log(Logger::LogLevel::Error, "Failed to create GLFW window!");
         glfwTerminate();
-        glfwInitialized_ = false;
+        glfwInitialized_.store(false);
         throw std::runtime_error("Failed to create GLFW window!");
     }
 
@@ -61,6 +59,8 @@ void WindowManager::init(const WindowConfig& config) {
 }
 
 void WindowManager::cleanup() {
+    std::lock_guard<std::mutex> lock(initMutex_);
+    
     if (window_.load()) {
         glfwDestroyWindow(window_.load());
         window_.store(nullptr);
@@ -202,13 +202,21 @@ void WindowManager::scrollCallback(GLFWwindow* window, double xoffset, double yo
 
 void WindowManager::setupCallbacks() {
     GLFWwindow* window = window_.load();
-    if (!window) return;
+    if (!window) {
+        logger.log(Logger::LogLevel::Error, "Cannot setup callbacks: Window is null!");
+        return;
+    }
 
-    glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
-    glfwSetKeyCallback(window, keyCallback);
-    glfwSetMouseButtonCallback(window, mouseButtonCallback);
-    glfwSetCursorPosCallback(window, cursorPosCallback);
-    glfwSetScrollCallback(window, scrollCallback);
+    try {
+        glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+        glfwSetKeyCallback(window, keyCallback);
+        glfwSetMouseButtonCallback(window, mouseButtonCallback);
+        glfwSetCursorPosCallback(window, cursorPosCallback);
+        glfwSetScrollCallback(window, scrollCallback);
+    } catch (const std::exception& e) {
+        logger.log(Logger::LogLevel::Error, std::string("Failed to setup callbacks: ") + e.what());
+        throw;
+    }
 }
 
 VkSurfaceKHR WindowManager::createWindowSurface() const {

@@ -6,9 +6,11 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <chrono>
+#include <functional>
 
 class VulkanPerformanceTestBase : public ::testing::Test {
-protected:
+public:
     void SetUp() override {
         // Initialize Vulkan instance
         VkApplicationInfo appInfo{};
@@ -98,29 +100,23 @@ protected:
     }
 
     // Performance measurement functions
-    void measurePipelineCreation(const std::string& pipelineName, const std::function<void()>& createFunc) {
-        auto start = std::chrono::high_resolution_clock::now();
-        createFunc();
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-        
-        // Log or store the measurement
-        std::cout << "Pipeline creation time for " << pipelineName << ": " 
-                  << duration.count() << " microseconds" << std::endl;
-    }
-
-    void measureMemoryOperation(const std::string& operationName, const std::function<void()>& operation) {
-        auto start = std::chrono::high_resolution_clock::now();
+    void measureExecutionTime(const std::string& operationName, std::function<void()> operation) {
+        auto start = std::chrono::steady_clock::now();
         operation();
-        auto end = std::chrono::high_resolution_clock::now();
+        auto end = std::chrono::steady_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-        
-        // Log or store the measurement
-        std::cout << "Memory operation time for " << operationName << ": " 
-                  << duration.count() << " microseconds" << std::endl;
+        std::cout << operationName << " took " << duration.count() << " microseconds" << std::endl;
     }
 
-protected:
+    void measureMemoryOperation(const std::string& operationName, std::function<void()> operation) {
+        auto start = std::chrono::steady_clock::now();
+        operation();
+        auto end = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << operationName << " took " << duration.count() << " microseconds" << std::endl;
+    }
+
+public:
     VkInstance instance = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
