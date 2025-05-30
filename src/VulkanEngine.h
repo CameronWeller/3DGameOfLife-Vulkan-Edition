@@ -250,6 +250,46 @@ private:
 };
 
 /**
+ * @brief Push constants for compute shader
+ */
+struct ComputePushConstants {
+    uint32_t width;
+    uint32_t height;
+    uint32_t depth;
+    uint32_t ruleSet;  // 0: 5766, 1: 4555, 2: Custom
+    uint32_t surviveMin;
+    uint32_t surviveMax;
+    uint32_t birthCount;
+};
+
+/**
+ * @brief Game of life push constants
+ */
+struct GameOfLifePushConstants {
+    uint32_t width;
+    uint32_t height;
+    uint32_t depth;
+    uint32_t ruleSet;  // 0: 5766, 1: 4555, 2: Custom
+    uint32_t surviveMin;
+    uint32_t surviveMax;
+    uint32_t birthCount;
+};
+
+/**
+ * @brief Compute pipeline information
+ */
+struct ComputePipelineInfo {
+    VkPipeline pipeline;
+    VkPipelineLayout layout;
+    VkDescriptorSetLayout descriptorSetLayout;
+    VkBuffer currentStateBuffer;
+    VkBuffer nextStateBuffer;
+    VmaAllocation currentStateBufferAllocation;
+    VmaAllocation nextStateBufferAllocation;
+    VkDescriptorSet descriptorSet;
+};
+
+/**
  * @brief Main engine class for Vulkan-based rendering
  * 
  * This class manages the Vulkan instance, device, swap chain, and rendering pipeline.
@@ -555,8 +595,15 @@ private:
     struct ComputePipelineInfo {
         VkPipeline pipeline;
         VkPipelineLayout layout;
-    };
-    std::vector<ComputePipelineInfo> computePipelines_;
+        VkDescriptorSetLayout descriptorSetLayout;
+        VkDescriptorPool descriptorPool;
+        std::vector<VkDescriptorSet> descriptorSets;
+        VkBuffer stateBuffer;
+        VkBuffer nextStateBuffer;
+        VmaAllocation stateBufferAllocation;
+        VmaAllocation nextStateBufferAllocation;
+        ComputePushConstants pushConstants;
+    } computePipeline_;
 
     EngineStateMachine stateMachine_;
     void initializeStateMachine();
@@ -671,6 +718,44 @@ private:
 
     void createImGuiDescriptorPool();
     void cleanupImGuiDescriptorPool();
+
+    void createComputePipeline();
+    void createComputeDescriptorSetLayout();
+    void createComputeDescriptorPool();
+    void createComputeDescriptorSets();
+    void createComputeBuffers();
+    void updateComputePushConstants();
+    void submitComputeWork();
+
+    // Grid dimensions
+    uint32_t gridWidth_ = 64;
+    uint32_t gridHeight_ = 64;
+    uint32_t gridDepth_ = 64;
+
+    // Rule settings
+    uint32_t ruleSet_ = 0;  // 0: 5766, 1: 4555, 2: Custom
+    uint32_t surviveMin_ = 5;
+    uint32_t surviveMax_ = 7;
+    uint32_t birthCount_ = 6;
+
+    // Compute pipeline resources
+    VkCommandPool computeCommandPool_ = VK_NULL_HANDLE;
+    VkDescriptorPool computeDescriptorPool_ = VK_NULL_HANDLE;
+    std::vector<ComputePipelineInfo> computePipelines_;
+    std::vector<VkCommandBuffer> computeCommandBuffers_;
+    std::vector<VkSemaphore> computeSemaphores_;
+    std::vector<VkFence> computeFences_;
+    uint32_t currentComputeFrame_ = 0;
+
+    // Helper functions for compute pipeline
+    void createComputeCommandPool();
+    void createComputeCommandBuffers();
+    void createComputeBuffers(ComputePipelineInfo& pipelineInfo, uint32_t width, uint32_t height, uint32_t depth);
+    void createComputeDescriptorPool();
+    void createComputeDescriptorSets(ComputePipelineInfo& pipelineInfo);
+    void updateComputePushConstants(const GameOfLifePushConstants& constants);
+    void submitComputeCommand(VkCommandBuffer commandBuffer);
+    void waitForComputeCompletion();
 
 #ifdef _MSC_VER
 #pragma message("If you see an error about vk_mem_alloc.h, ensure VMA is installed via vcpkg and your includePath is set to vcpkg/installed/<triplet>/include.")
