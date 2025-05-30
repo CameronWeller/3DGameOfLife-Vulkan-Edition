@@ -264,6 +264,34 @@ function Setup-VisualStudioEnvironment {
             }
         }
         
+        # Modified environment variable handling
+        $windowsKitsRoot = "${env:ProgramFiles(x86)}/Windows Kits/10/bin"
+        $sdkVersions = @()
+        
+        if (Test-Path $windowsKitsRoot) {
+            $sdkVersions = Get-ChildItem -Path $windowsKitsRoot -Filter 10.* | 
+                Sort-Object Name -Descending | 
+                Select-Object -First 1
+        }
+        
+        if ($sdkVersions.Count -gt 0) {
+            $latestSdk = $sdkVersions[0].Name
+            $sdkBinPath = "${windowsKitsRoot}/${latestSdk}/x64"
+            
+            if (Test-Path $sdkBinPath) {
+                $env:PATH = "${sdkBinPath};${env:PATH}"
+                
+                # Handle LIB environment variable safely
+                $msvcLibPath = "${sdkBinPath}/../Lib"
+                if (Test-Path $msvcLibPath) {
+                    if (-not $env:LIB) {
+                        $env:LIB = ""
+                    }
+                    $env:LIB = "${msvcLibPath};${env:LIB}"
+                }
+            }
+        }
+        
         if (Test-Path $windowsKitsRoot) {
             Write-Host "[DIAG] Found Windows Kits at: $windowsKitsRoot"
             
@@ -635,4 +663,14 @@ if (Test-Path $exePath) {
     Write-Host "Executable location: $exePath"
 } else {
     Write-Host "Warning: Could not find the executable at the expected location."
-} 
+}
+# Add Vulkan SDK detection
+$vulkanPath = "${env:VULKAN_SDK}"
+if (-not $vulkanPath) {
+    Write-Error "Vulkan SDK not found. Please install and set VULKAN_SDK environment variable"
+    exit 1
+}
+
+# Add build steps
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release --parallel
