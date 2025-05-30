@@ -90,9 +90,8 @@ foreach(SHADER ${SHADER_FILES})
     compile_shader(${SHADER})
 endforeach()
 
-# Add executable
-add_executable(${PROJECT_NAME} 
-    src/main.cpp
+# Add library target for the main project
+add_library(${PROJECT_NAME} STATIC
     src/VulkanEngine.cpp
     src/VulkanContext.cpp
     src/WindowManager.cpp
@@ -103,8 +102,12 @@ add_executable(${PROJECT_NAME}
     src/Logger.cpp
 )
 
+# Add executable target
+add_executable(${PROJECT_NAME}_exe src/main.cpp)
+target_link_libraries(${PROJECT_NAME}_exe PRIVATE ${PROJECT_NAME})
+
 # Link libraries
-target_link_libraries(${PROJECT_NAME} PRIVATE
+target_link_libraries(${PROJECT_NAME} PUBLIC
     Vulkan::Vulkan
     glfw
     glm::glm
@@ -114,7 +117,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 # Include directories
-target_include_directories(${PROJECT_NAME} PRIVATE
+target_include_directories(${PROJECT_NAME} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${Vulkan_INCLUDE_DIRS}
@@ -129,10 +132,10 @@ add_dependencies(${PROJECT_NAME} shaders)
 
 # Copy shaders to build directory on Windows
 if(WIN32)
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    add_custom_command(TARGET ${PROJECT_NAME}_exe POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${SHADER_OUTPUT_DIR}
-        $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders
+        $<TARGET_FILE_DIR:${PROJECT_NAME}_exe>/shaders
     )
 endif()
 
@@ -160,4 +163,35 @@ add_custom_target(distclean
 find_program(GIT_EXECUTABLE git)
 if(NOT GIT_EXECUTABLE)
     message(WARNING "git not found. Some features may not work.")
+endif()
+
+# Add testing
+option(BUILD_TESTING "Build tests" ON)
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
+
+# Add code coverage
+option(ENABLE_COVERAGE "Enable coverage reporting" OFF)
+if(ENABLE_COVERAGE)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${PROJECT_NAME} PRIVATE --coverage)
+        target_link_options(${PROJECT_NAME} PRIVATE --coverage)
+    endif()
+endif()
+
+# Add sanitizers
+option(ENABLE_SANITIZERS "Enable sanitizers" OFF)
+if(ENABLE_SANITIZERS)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${PROJECT_NAME} PRIVATE
+            -fsanitize=address
+            -fsanitize=undefined
+            -fno-omit-frame-pointer
+        )
+        target_link_options(${PROJECT_NAME} PRIVATE
+            -fsanitize=address
+            -fsanitize=undefined
+        )
+    endif()
 endif() 

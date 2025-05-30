@@ -13,7 +13,10 @@
     },
     "spdlog",
     "vulkan-memory-allocator",
-    "nlohmann-json"
+    "nlohmann-json",
+    "gtest",
+    "benchmark",
+    "vulkan-tools"
   ],
   "builtin-baseline": "d9ccd77bb554e67137f3f754a2e2f11f4188c82c",
   "overrides": [
