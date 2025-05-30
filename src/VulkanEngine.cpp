@@ -21,6 +21,14 @@
 #include "VulkanContext.h"
 #include "WindowManager.h"
 #include "SaveManager.h"
+#include "VulkanBufferManager.h"
+#include "vulkan/resources/VulkanImageManager.h"
+#include "vulkan/rendering/VulkanSwapChain.h"
+#include "vulkan/rendering/VulkanRenderer.h"
+#include "vulkan/rendering/VoxelRenderer.h"
+#include "vulkan/resources/VulkanFramebuffer.h"
+#include "vulkan/compute/VulkanCompute.h"
+#include "vulkan/ui/VulkanImGui.h"
 
 namespace VulkanHIP {
 
@@ -29,43 +37,64 @@ VulkanEngine* VulkanEngine::instance_ = nullptr;
 
 // Constructor
 VulkanEngine::VulkanEngine()
-    : swapChain_(VK_NULL_HANDLE),
-      swapChainImageFormat_(VK_FORMAT_UNDEFINED),
-      renderPass_(VK_NULL_HANDLE),
-      depthImage_(VK_NULL_HANDLE),
-      depthImageAllocation_(VK_NULL_HANDLE),
-      depthImageView_(VK_NULL_HANDLE),
-      colorImage_(VK_NULL_HANDLE),
-      colorImageAllocation_(VK_NULL_HANDLE),
-      colorImageView_(VK_NULL_HANDLE),
-      vertexBuffer_(VK_NULL_HANDLE),
-      vertexBufferAllocation_(VK_NULL_HANDLE),
-      indexBuffer_(VK_NULL_HANDLE),
-      indexBufferAllocation_(VK_NULL_HANDLE),
-      descriptorPool_(VK_NULL_HANDLE),
-      textureImageView_(VK_NULL_HANDLE),
-      textureSampler_(VK_NULL_HANDLE),
-      currentFrame_(0),
+    : currentFrame_(0),
       framebufferResized_(false),
-      graphicsCommandPool_(VK_NULL_HANDLE),
-      computeCommandPool_(VK_NULL_HANDLE),
-      descriptorSetLayout_(VK_NULL_HANDLE),
-      pipelineLayout_(VK_NULL_HANDLE),
-      graphicsPipeline_(VK_NULL_HANDLE),
-      surface_(VK_NULL_HANDLE),
       device_(VK_NULL_HANDLE),
       physicalDevice_(VK_NULL_HANDLE),
       graphicsQueue_(VK_NULL_HANDLE),
       presentQueue_(VK_NULL_HANDLE),
       computeQueue_(VK_NULL_HANDLE),
-      imguiDescriptorPool_(VK_NULL_HANDLE),
+      surface_(VK_NULL_HANDLE),
       imguiInitialized_(false),
       loadingElapsed_(0.0f),
       isLoading_(false),
       lastAutoSave_(std::chrono::steady_clock::now()),
       shouldCancelLoading_(false),
       loadingProgress_(0.0f),
-      camera_(nullptr)  // Will be initialized properly in init()
+      camera_(nullptr),  // Will be initialized properly in init()
+      currentState_(App::State::Menu),
+      isPaused_(false),
+      showSavePicker_(false),
+      selectedSaveIndex_(-1),
+      autoSaveEnabled_(true),
+      gridWidth_(64),
+      gridHeight_(64),
+      gridDepth_(64),
+      currentRuleSet_(0),
+      surviveMin_(2),
+      surviveMax_(3),
+      birthCount_(3),
+      ruleSet_(0),
+      renderMode_(0),
+      minLODDistance_(10.0f),
+      maxLODDistance_(100.0f),
+      msaaSamples_(VK_SAMPLE_COUNT_1_BIT),
+      currentComputeFrame_(0),
+      renderPass_(VK_NULL_HANDLE),
+      graphicsPipeline_(VK_NULL_HANDLE),
+      pipelineLayout_(VK_NULL_HANDLE),
+      descriptorSetLayout_(VK_NULL_HANDLE),
+      descriptorPool_(VK_NULL_HANDLE),
+      imguiDescriptorPool_(VK_NULL_HANDLE),
+      computeDescriptorSetLayout_(VK_NULL_HANDLE),
+      computeDescriptorPool_(VK_NULL_HANDLE),
+      graphicsCommandPool_(VK_NULL_HANDLE),
+      computeCommandPool_(VK_NULL_HANDLE),
+      swapChain_(VK_NULL_HANDLE),
+      swapChainImageFormat_(VK_FORMAT_UNDEFINED),
+      swapChainExtent_({0, 0}),
+      depthImage_(VK_NULL_HANDLE),
+      depthImageView_(VK_NULL_HANDLE),
+      depthImageAllocation_(VK_NULL_HANDLE),
+      colorImage_(VK_NULL_HANDLE),
+      colorImageView_(VK_NULL_HANDLE),
+      colorImageAllocation_(VK_NULL_HANDLE),
+      voxelVertexBuffer_(VK_NULL_HANDLE),
+      voxelVertexBufferAllocation_(VK_NULL_HANDLE),
+      voxelIndexBuffer_(VK_NULL_HANDLE),
+      voxelIndexBufferAllocation_(VK_NULL_HANDLE),
+      voxelInstanceBuffer_(VK_NULL_HANDLE),
+      voxelInstanceBufferAllocation_(VK_NULL_HANDLE)
 {
     if (instance_ != nullptr) {
         throw std::runtime_error("VulkanEngine instance already exists!");
@@ -159,62 +188,47 @@ void VulkanEngine::init() {
         // Initialize memory manager
         memoryManager_ = std::make_unique<VulkanMemoryManager>(device_, physicalDevice_);
 
-        // Create command pools
-        createCommandPools();
-
-        // Create surface
-        surface_ = windowManager_->createSurface(vulkanContext_->getVkInstance());
-
+        // Initialize managers in correct order
+        bufferManager_ = std::make_unique<VulkanBufferManager>(vulkanContext_.get(), memoryManager_.get());
+        imageManager_ = std::make_unique<VulkanImageManager>(vulkanContext_.get(), memoryManager_.get());
+        swapChainManager_ = std::make_unique<VulkanSwapChain>(vulkanContext_.get(), windowManager_.get());
+        
         // Create swap chain
-        createSwapChain();
-
-        // Create image views
-        createImageViews();
-
-        // Create render pass
-        createRenderPass();
-
-        // Create descriptor set layout
-        createDescriptorSetLayout();
-
-        // Create graphics pipeline
-        createGraphicsPipeline();
-
-        // Create framebuffers
-        createFramebuffers();
-
-        // Create depth resources
-        createDepthResources();
-
-        // Create color resources
-        createColorResources();
-
-        // Create uniform buffers
-        createUniformBuffers();
-
-        // Create descriptor pool
-        createDescriptorPool();
-
-        // Create descriptor sets
-        createDescriptorSets();
-
-        // Create command buffers
-        createCommandBuffers();
-
-        // Create compute pipelines
-        createComputePipelines();
-
-        // Create compute buffers
-        createComputeBuffers();
-
-        // Create compute descriptor sets
-        createComputeDescriptorSets();
-
-        // Create synchronization objects
-        createSyncObjects();
-
+        swapChainManager_->createSwapChain();
+        swapChainManager_->createImageViews();
+        
+        // Create image resources
+        imageManager_->createDepthResources();
+        imageManager_->createColorResources();
+        
+        // Initialize framebuffer manager
+        framebufferManager_ = std::make_unique<VulkanFramebuffer>(vulkanContext_.get(), swapChainManager_.get(), imageManager_.get());
+        framebufferManager_->createRenderPass();
+        framebufferManager_->createFramebuffers();
+        
+        // Initialize renderer
+        renderer_ = std::make_unique<VulkanRenderer>(vulkanContext_.get(), swapChainManager_.get(), imageManager_.get());
+        renderer_->createDescriptorSetLayout();
+        renderer_->createGraphicsPipeline();
+        renderer_->createDescriptorPool();
+        renderer_->createDescriptorSets();
+        
+        // Initialize voxel renderer
+        voxelRenderer_ = std::make_unique<VoxelRenderer>(vulkanContext_.get(), memoryManager_.get());
+        voxelRenderer_->createVoxelRenderingResources();
+        
+        // Initialize compute manager
+        computeManager_ = std::make_unique<VulkanCompute>(vulkanContext_.get());
+        computeManager_->createComputePipeline();
+        
+        // Create buffers using buffer manager
+        bufferManager_->createVertexBuffer(vertices_);
+        bufferManager_->createIndexBuffer(indices_);
+        bufferManager_->createUniformBuffers();
+        
         // Initialize ImGui
-        initImGui();
+        imguiManager_ = std::make_unique<VulkanImGui>(vulkanContext_.get(), windowManager_.get(), framebufferManager_->getRenderPass());
+        imguiManager_->initialize();
 
         // Initialize camera with window
         camera_ = Camera(windowManager_->getWindow());
@@ -285,124 +299,38 @@ std::vector<const char*> VulkanEngine::getRequiredInstanceExtensions() {
 
 // Draw a frame
 void VulkanEngine::drawFrame() {
-    // Wait for the previous frame to finish
-    vkWaitForFences(vulkanContext_->getDevice(), 1, &inFlightFences_[currentFrame_], VK_TRUE, UINT64_MAX);
+    try {
+        // Update simulation if running
+        if (currentState_ == App::State::Running && !isPaused_) {
+            compute_->update();
+        }
 
-    // Acquire an image from the swap chain
-    uint32_t imageIndex;
-    VkResult result = vkAcquireNextImageKHR(vulkanContext_->getDevice(), swapChain_, UINT64_MAX,
-                                           imageAvailableSemaphores_[currentFrame_], VK_NULL_HANDLE, &imageIndex);
+        // Begin frame
+        uint32_t imageIndex;
+        if (!renderer_->beginFrame(imageIndex)) {
+            return; // Swap chain needs recreation
+        }
 
-    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        recreateSwapChain();
-        return;
-    } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-        throw std::runtime_error("Failed to acquire swap chain image!");
+        // Update camera and uniform data
+        camera_.update(0.016f); // Assume 60fps for now
+        
+        // Begin render pass
+        renderer_->beginRenderPass(imageIndex);
+        
+        // Render voxels
+        voxelRenderer_->render(camera_.getViewMatrix(), camera_.getProjectionMatrix());
+        
+        // Render ImGui
+        imguiManager_->render();
+        
+        // End render pass and present
+        renderer_->endRenderPass();
+        renderer_->endFrame(imageIndex);
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error in drawFrame: " << e.what() << std::endl;
+        throw;
     }
-
-    // Update uniform buffer
-    updateUniformBuffer(currentFrame_);
-
-    // Update voxel instances
-    updateVoxelInstances();
-
-    // Record compute command buffer
-    VkCommandBuffer computeCommandBuffer = computeCommandBuffers_[currentComputeFrame_];
-    VkCommandBufferBeginInfo computeBeginInfo{};
-    computeBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-
-    if (vkBeginCommandBuffer(computeCommandBuffer, &computeBeginInfo) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to begin recording compute command buffer!");
-    }
-
-    // Bind compute pipeline and descriptor sets
-    for (const auto& pipeline : computePipelines_) {
-        vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline);
-        vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                               pipeline.layout, 0, 1, &pipeline.descriptorSets[currentFrame_], 0, nullptr);
-
-        // Update push constants
-        GameOfLifePushConstants constants{
-            pipeline.pushConstants.width,
-            pipeline.pushConstants.height,
-            pipeline.pushConstants.depth,
-            ruleSet_,
-            surviveMin_,
-            surviveMax_,
-            birthCount_
-        };
-        vkCmdPushConstants(computeCommandBuffer, pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT,
-                          0, sizeof(GameOfLifePushConstants), &constants);
-
-        // Dispatch compute shader
-        uint32_t groupCountX = (pipeline.pushConstants.width + 7) / 8;
-        uint32_t groupCountY = (pipeline.pushConstants.height + 7) / 8;
-        uint32_t groupCountZ = (pipeline.pushConstants.depth + 7) / 8;
-        vkCmdDispatch(computeCommandBuffer, groupCountX, groupCountY, groupCountZ);
-    }
-
-    if (vkEndCommandBuffer(computeCommandBuffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to record compute command buffer!");
-    }
-
-    // Submit compute command buffer
-    VkSubmitInfo computeSubmitInfo{};
-    computeSubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    computeSubmitInfo.commandBufferCount = 1;
-    computeSubmitInfo.pCommandBuffers = &computeCommandBuffer;
-
-    if (vkQueueSubmit(vulkanContext_->getComputeQueue(), 1, &computeSubmitInfo, computeFences_[currentComputeFrame_]) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to submit compute command buffer!");
-    }
-
-    // Wait for compute to finish
-    vkWaitForFences(vulkanContext_->getDevice(), 1, &computeFences_[currentComputeFrame_], VK_TRUE, UINT64_MAX);
-    vkResetFences(vulkanContext_->getDevice(), 1, &computeFences_[currentComputeFrame_]);
-
-    // Record and submit graphics command buffer
-    recordCommandBuffer(commandBuffers_[currentFrame_], imageIndex);
-
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-
-    VkSemaphore waitSemaphores[] = {imageAvailableSemaphores_[currentFrame_]};
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-    submitInfo.waitSemaphoreCount = 1;
-    submitInfo.pWaitSemaphores = waitSemaphores;
-    submitInfo.pWaitDstStageMask = waitStages;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffers_[currentFrame_];
-
-    VkSemaphore signalSemaphores[] = {renderFinishedSemaphores_[currentFrame_]};
-    submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = signalSemaphores;
-
-    if (vkQueueSubmit(vulkanContext_->getGraphicsQueue(), 1, &submitInfo, inFlightFences_[currentFrame_]) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to submit draw command buffer!");
-    }
-
-    // Present
-    VkPresentInfoKHR presentInfo{};
-    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores = signalSemaphores;
-
-    VkSwapchainKHR swapChains[] = {swapChain_};
-    presentInfo.swapchainCount = 1;
-    presentInfo.pSwapchains = swapChains;
-    presentInfo.pImageIndices = &imageIndex;
-
-    result = vkQueuePresentKHR(vulkanContext_->getPresentQueue(), &presentInfo);
-
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized_) {
-        framebufferResized_ = false;
-        recreateSwapChain();
-    } else if (result != VK_SUCCESS) {
-        throw std::runtime_error("Failed to present swap chain image!");
-    }
-
-    currentFrame_ = (currentFrame_ + 1) % MAX_FRAMES_IN_FLIGHT;
-    currentComputeFrame_ = (currentComputeFrame_ + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 void VulkanEngine::waitForComputeCompletion() {
@@ -638,10 +566,12 @@ void VulkanEngine::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t i
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descriptorSets_[currentFrame_], 0, nullptr);
 
     // Bind vertex and index buffers
-    VkBuffer vertexBuffers[] = {vertexBuffer_};
+    auto vertexBuffer = bufferManager_->getVertexBuffer();
+    auto indexBuffer = bufferManager_->getIndexBuffer();
+    VkBuffer vertexBuffers[] = {vertexBuffer};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-    vkCmdBindIndexBuffer(commandBuffer, indexBuffer_, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
     // Bind instance buffer
     VkBuffer instanceBuffers[] = {voxelInstanceBuffer_};
@@ -951,137 +881,57 @@ void VulkanEngine::cleanup() {
 
     vkDeviceWaitIdle(device_);
 
-    // Cleanup ImGui
-    if (imguiInitialized_) {
-        ImGui::ShutdownForVulkan();
-        ImGui_ImplGlfw_Shutdown();
-        ImGui::DestroyContext();
-        imguiInitialized_ = false;
+    // Cleanup in reverse order
+    if (imguiManager_) {
+        imguiManager_->cleanup();
+        imguiManager_.reset();
     }
-
-    // Cleanup swap chain
-    cleanupSwapChain();
-
-    // Cleanup vertex buffer
-    if (vertexBuffer_ != VK_NULL_HANDLE) {
-        vmaDestroyBuffer(memoryManager_->getAllocator(), vertexBuffer_, vertexBufferAllocation_);
-        vertexBuffer_ = VK_NULL_HANDLE;
+    
+    if (computeManager_) {
+        computeManager_->cleanup();
+        computeManager_.reset();
     }
-
-    // Cleanup index buffer
-    if (indexBuffer_ != VK_NULL_HANDLE) {
-        vmaDestroyBuffer(memoryManager_->getAllocator(), indexBuffer_, indexBufferAllocation_);
-        indexBuffer_ = VK_NULL_HANDLE;
+    
+    if (voxelRenderer_) {
+        voxelRenderer_->cleanup();
+        voxelRenderer_.reset();
     }
-
-    // Cleanup voxel buffers
-    cleanupVoxelBuffers();
-
-    // Cleanup uniform buffers
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        if (uniformBuffers_[i] != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(memoryManager_->getAllocator(), uniformBuffers_[i], uniformBufferAllocations_[i]);
-            uniformBuffers_[i] = VK_NULL_HANDLE;
-        }
+    
+    if (renderer_) {
+        renderer_->cleanup();
+        renderer_.reset();
     }
-
-    // Cleanup compute pipelines
-    for (auto& pipeline : computePipelines_) {
-        if (pipeline.pipeline != VK_NULL_HANDLE) {
-            vkDestroyPipeline(device_, pipeline.pipeline, nullptr);
-            pipeline.pipeline = VK_NULL_HANDLE;
-        }
-        if (pipeline.layout != VK_NULL_HANDLE) {
-            vkDestroyPipelineLayout(device_, pipeline.layout, nullptr);
-            pipeline.layout = VK_NULL_HANDLE;
-        }
-        if (pipeline.currentStateBuffer != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(memoryManager_->getAllocator(), pipeline.currentStateBuffer, pipeline.currentStateBufferAllocation);
-            pipeline.currentStateBuffer = VK_NULL_HANDLE;
-        }
-        if (pipeline.nextStateBuffer != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(memoryManager_->getAllocator(), pipeline.nextStateBuffer, pipeline.nextStateBufferAllocation);
-            pipeline.nextStateBuffer = VK_NULL_HANDLE;
-        }
-        if (pipeline.descriptorPool != VK_NULL_HANDLE) {
-            vkDestroyDescriptorPool(device_, pipeline.descriptorPool, nullptr);
-            pipeline.descriptorPool = VK_NULL_HANDLE;
-        }
+    
+    if (framebufferManager_) {
+        framebufferManager_->cleanup();
+        framebufferManager_.reset();
     }
-
-    // Cleanup graphics pipeline
-    if (graphicsPipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device_, graphicsPipeline_, nullptr);
-        graphicsPipeline_ = VK_NULL_HANDLE;
+    
+    if (bufferManager_) {
+        bufferManager_->cleanup();
+        bufferManager_.reset();
     }
-    if (pipelineLayout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(device_, pipelineLayout_, nullptr);
-        pipelineLayout_ = VK_NULL_HANDLE;
+    
+    if (imageManager_) {
+        imageManager_->cleanup();
+        imageManager_.reset();
     }
-    if (renderPass_ != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(device_, renderPass_, nullptr);
-        renderPass_ = VK_NULL_HANDLE;
+    
+    if (swapChainManager_) {
+        swapChainManager_->cleanup();
+        swapChainManager_.reset();
     }
-
-    // Cleanup descriptor set layout
-    if (descriptorSetLayout_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(device_, descriptorSetLayout_, nullptr);
-        descriptorSetLayout_ = VK_NULL_HANDLE;
-    }
-
-    // Cleanup descriptor pool
-    if (descriptorPool_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(device_, descriptorPool_, nullptr);
-        descriptorPool_ = VK_NULL_HANDLE;
-    }
-
-    // Cleanup ImGui descriptor pool
-    if (imguiDescriptorPool_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(device_, imguiDescriptorPool_, nullptr);
-        imguiDescriptorPool_ = VK_NULL_HANDLE;
-    }
-
-    // Cleanup command pools
-    if (graphicsCommandPool_ != VK_NULL_HANDLE) {
-        vkDestroyCommandPool(device_, graphicsCommandPool_, nullptr);
-        graphicsCommandPool_ = VK_NULL_HANDLE;
-    }
-    if (computeCommandPool_ != VK_NULL_HANDLE) {
-        vkDestroyCommandPool(device_, computeCommandPool_, nullptr);
-        computeCommandPool_ = VK_NULL_HANDLE;
-    }
-
-    // Cleanup synchronization objects
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        if (imageAvailableSemaphores_[i] != VK_NULL_HANDLE) {
-            vkDestroySemaphore(device_, imageAvailableSemaphores_[i], nullptr);
-            imageAvailableSemaphores_[i] = VK_NULL_HANDLE;
-        }
-        if (renderFinishedSemaphores_[i] != VK_NULL_HANDLE) {
-            vkDestroySemaphore(device_, renderFinishedSemaphores_[i], nullptr);
-            renderFinishedSemaphores_[i] = VK_NULL_HANDLE;
-        }
-        if (inFlightFences_[i] != VK_NULL_HANDLE) {
-            vkDestroyFence(device_, inFlightFences_[i], nullptr);
-            inFlightFences_[i] = VK_NULL_HANDLE;
-        }
-        if (computeFences_[i] != VK_NULL_HANDLE) {
-            vkDestroyFence(device_, computeFences_[i], nullptr);
-            computeFences_[i] = VK_NULL_HANDLE;
-        }
-    }
+    
+    saveManager_.reset();
+    memoryManager_.reset();
+    vulkanContext_.reset();
+    windowManager_.reset();
 
     // Cleanup surface
     if (surface_ != VK_NULL_HANDLE) {
         vkDestroySurfaceKHR(vulkanContext_->getVkInstance(), surface_, nullptr);
         surface_ = VK_NULL_HANDLE;
     }
-
-    // Cleanup managers
-    saveManager_.reset();
-    memoryManager_.reset();
-    vulkanContext_.reset();
-    windowManager_.reset();
 
     // Reset device handle to indicate cleanup is complete
     device_ = VK_NULL_HANDLE;
@@ -1450,79 +1300,15 @@ bool VulkanEngine::hasStencilComponent(VkFormat format) {
 }
 
 void VulkanEngine::createVertexBuffer() {
-    VkDeviceSize bufferSize = sizeof(vertices_[0]) * vertices_.size();
-    auto& memoryManager = vulkanContext_->getMemoryManager();
-
-    // Create staging buffer
-    auto stagingBuffer = memoryManager.createStagingBuffer(bufferSize);
-    void* data = memoryManager.mapStagingBuffer(stagingBuffer);
-    memcpy(data, vertices_.data(), (size_t)bufferSize);
-    memoryManager.unmapStagingBuffer(stagingBuffer);
-
-    // Create vertex buffer
-    auto vertexBufferAlloc = memoryManager.createBuffer(
-        bufferSize,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
-    );
-    vertexBuffer_ = vertexBufferAlloc.buffer;
-    vertexBufferAllocation_ = vertexBufferAlloc.allocation;
-
-    // Copy data
-    copyBuffer(stagingBuffer.buffer, vertexBuffer_, bufferSize);
-
-    // Destroy staging buffer
-    memoryManager.destroyStagingBuffer(stagingBuffer);
+    bufferManager_->createVertexBuffer(vertices_);
 }
 
 void VulkanEngine::createIndexBuffer() {
-    VkDeviceSize bufferSize = sizeof(indices_[0]) * indices_.size();
-    auto& memoryManager = vulkanContext_->getMemoryManager();
-
-    // Create staging buffer
-    auto stagingBuffer = memoryManager.createStagingBuffer(bufferSize);
-    void* data = memoryManager.mapStagingBuffer(stagingBuffer);
-    memcpy(data, indices_.data(), (size_t)bufferSize);
-    memoryManager.unmapStagingBuffer(stagingBuffer);
-
-    // Create index buffer
-    auto indexBufferAlloc = memoryManager.createBuffer(
-        bufferSize,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
-    );
-    indexBuffer_ = indexBufferAlloc.buffer;
-    indexBufferAllocation_ = indexBufferAlloc.allocation;
-
-    // Copy data
-    copyBuffer(stagingBuffer.buffer, indexBuffer_, bufferSize);
-
-    // Destroy staging buffer
-    memoryManager.destroyStagingBuffer(stagingBuffer);
+    bufferManager_->createIndexBuffer(indices_);
 }
 
 void VulkanEngine::createUniformBuffers() {
-    VkDeviceSize bufferSize = sizeof(UniformBufferObject);
-
-    uniformBuffers_.resize(MAX_FRAMES_IN_FLIGHT);
-    uniformBufferAllocations_.resize(MAX_FRAMES_IN_FLIGHT);
-
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        VkBufferCreateInfo bufferInfo{};
-        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufferInfo.size = bufferSize;
-        bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-        VmaAllocationCreateInfo allocInfo{};
-        allocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
-        allocInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-
-        if (vmaCreateBuffer(memoryManager_->getAllocator(), &bufferInfo, &allocInfo,
-            &uniformBuffers_[i], &uniformBufferAllocations_[i], nullptr) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create uniform buffer!");
-        }
-    }
+    bufferManager_->createUniformBuffers();
 }
 
 void VulkanEngine::createDescriptorPool() {
@@ -2296,23 +2082,14 @@ void VulkanEngine::cleanupImGui() {
 }
 
 void VulkanEngine::beginImGuiFrame() {
-    if (imguiInitialized_) {
-        ImGui::NewFrameForVulkan();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
+    if (imguiManager_) {
+        imguiManager_->beginFrame();
     }
 }
 
 void VulkanEngine::endImGuiFrame() {
-    if (imguiInitialized_) {
-        ImGui::Render();
-        ImGui::RenderForVulkan(commandBuffer_);
-
-        // Update and Render additional Platform Windows
-        if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-            ImGui::UpdatePlatformWindows();
-            ImGui::RenderPlatformWindowsDefault();
-        }
+    if (imguiManager_) {
+        imguiManager_->endFrame();
     }
 }
 

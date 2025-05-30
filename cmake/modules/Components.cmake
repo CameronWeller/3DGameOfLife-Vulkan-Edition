@@ -163,7 +163,7 @@ function(create_vulkan_resources_component)
     target_link_libraries(vulkan_resources PUBLIC Vulkan::Vulkan glm::glm GPUOpen::VulkanMemoryAllocator)
 endfunction()
 
-# Add after existing components
+# Add after existing vulkan_resources component
 
 # Vulkan Image Management Component
 function(create_vulkan_image_component)
@@ -188,6 +188,7 @@ function(create_vulkan_rendering_component)
     add_library(vulkan_rendering STATIC
         src/vulkan/rendering/VulkanSwapChain.cpp
         src/vulkan/rendering/VulkanRenderer.cpp
+        src/vulkan/rendering/VoxelRenderer.cpp
     )
     
     target_include_directories(vulkan_rendering PUBLIC
@@ -199,6 +200,7 @@ function(create_vulkan_rendering_component)
         core_engine
         vulkan_resources
         vulkan_image
+        rendering
         ${Vulkan_LIBRARIES}
     )
 endfunction()
@@ -221,7 +223,25 @@ function(create_vulkan_compute_component)
     )
 endfunction()
 
-# Update create_all_components
+# Vulkan UI Component
+function(create_vulkan_ui_component)
+    add_library(vulkan_ui STATIC
+        src/vulkan/ui/VulkanImGui.cpp
+    )
+    
+    target_include_directories(vulkan_ui PUBLIC
+        include/vulkan/ui
+        ${CMAKE_SOURCE_DIR}/include
+    )
+    
+    target_link_libraries(vulkan_ui PUBLIC
+        core_engine
+        ${Vulkan_LIBRARIES}
+        imgui
+    )
+endfunction()
+
+# Update create_all_components function
 function(create_all_components)
     create_core_engine_component()
     create_memory_management_component()
@@ -231,6 +251,7 @@ function(create_all_components)
     create_vulkan_image_component()
     create_vulkan_rendering_component()
     create_vulkan_compute_component()
+    create_vulkan_ui_component()
 endfunction()
 
 function(create_vulkan_ui_component)
