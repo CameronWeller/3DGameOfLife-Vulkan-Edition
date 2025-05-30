@@ -6,9 +6,12 @@
 #include <memory>
 #include <string>
 #include <functional>
+#include <unordered_map>
 #include <glm/glm.hpp>
 #include "Camera.h"
 #include "RayCaster.h"
+#include "VoxelData.h"
+#include "PatternMetadata.h"
 
 class VulkanEngine;
 
@@ -44,73 +47,60 @@ public:
     void setPopulation(uint32_t count) { population = count; }
     void setGeneration(uint32_t count) { generation = count; }
     
+    // Performance metrics
+    void setPerformanceMetrics(float fps, float frameTime, float updateTime) {
+        fps_ = fps;
+        frameTime_ = frameTime;
+        updateTime_ = updateTime;
+    }
+    
+    void setMemoryUsage(size_t total, size_t used) {
+        totalMemory_ = total;
+        usedMemory_ = used;
+    }
+    
+    // Rule analysis
+    bool showRuleAnalysisWindow_ = false;
+    std::unique_ptr<RuleAnalyzer> ruleAnalyzer_;
+    std::vector<RuleAnalyzer::AnalysisResult> analysisResults_;
+    bool isAnalyzing_ = false;
+    float analysisProgress_ = 0.0f;
+
+    void renderRuleAnalysis();
+    void startRuleAnalysis();
+    void updateRuleAnalysis();
+    void generateAnalysisReports();
+
 private:
     VulkanEngine* engine_;
+    GLFWwindow* window;
     bool isPaused_;
-    bool showDemoWindow_;
-    bool showMetricsWindow_;
-    bool showAboutWindow_;
-    bool showSettingsWindow_;
-    bool showDebugWindow_;
-    bool showPerformanceWindow_;
-    bool showMemoryWindow_;
-    bool showShaderWindow_;
-    bool showTextureWindow_;
-    bool showModelWindow_;
-    bool showCameraWindow_;
-    bool showLightWindow_;
-    bool showEnvironmentWindow_;
-    bool showPostProcessWindow_;
-    bool showRenderingWindow_;
-    bool showComputeWindow_;
-    bool showRayTracingWindow_;
-    bool showAnimationWindow_;
-    bool showPhysicsWindow_;
-    bool showAudioWindow_;
-    bool showNetworkWindow_;
-    bool showInputWindow_;
-    bool showSystemWindow_;
-    bool showLogWindow_;
-    bool showConsoleWindow_;
-    bool showProfilerWindow_;
-    bool showDebuggerWindow_;
-    bool showInspectorWindow_;
-    bool showHierarchyWindow_;
-    bool showProjectWindow_;
-    bool showAssetWindow_;
-    bool showSceneWindow_;
-    bool showGameWindow_;
-    bool showPreviewWindow_;
-    bool showTimelineWindow_;
-    bool showAnimationEditorWindow_;
-    bool showMaterialEditorWindow_;
-    bool showShaderEditorWindow_;
-    bool showTextureEditorWindow_;
-    bool showModelEditorWindow_;
-    bool showCameraEditorWindow_;
-    bool showLightEditorWindow_;
-    bool showEnvironmentEditorWindow_;
-    bool showPostProcessEditorWindow_;
-    bool showRenderingEditorWindow_;
-    bool showComputeEditorWindow_;
-    bool showRayTracingEditorWindow_;
-    bool showPhysicsEditorWindow_;
-    bool showAudioEditorWindow_;
-    bool showNetworkEditorWindow_;
-    bool showInputEditorWindow_;
-    bool showSystemEditorWindow_;
-    bool showLogEditorWindow_;
-    bool showConsoleEditorWindow_;
-    bool showProfilerEditorWindow_;
-    bool showDebuggerEditorWindow_;
-    bool showInspectorEditorWindow_;
-    bool showHierarchyEditorWindow_;
-    bool showProjectEditorWindow_;
-    bool showAssetEditorWindow_;
-    bool showSceneEditorWindow_;
-    bool showGameEditorWindow_;
-    bool showPreviewEditorWindow_;
-    bool showTimelineEditorWindow_;
+    
+    // Window visibility flags
+    bool showStatsWindow_ = true;
+    bool showControlsWindow_ = true;
+    bool showSettingsWindow_ = false;
+    bool showPerformanceWindow_ = false;
+    bool showAboutWindow_ = false;
+    
+    // Pattern management
+    bool showPatternBrowser_ = false;
+    bool showSavePatternDialog_ = false;
+    bool showLoadPatternDialog_ = false;
+    
+    // Preview textures
+    std::unordered_map<std::string, VkDescriptorSet> previewTextures_;
+    std::unordered_map<std::string, VkImage> previewImages_;
+    std::unordered_map<std::string, VkDeviceMemory> previewImageMemory_;
+    std::unordered_map<std::string, VkImageView> previewImageViews_;
+    std::unordered_map<std::string, VkSampler> previewSamplers_;
+    
+    // Performance metrics
+    float fps_ = 0.0f;
+    float frameTime_ = 0.0f;
+    float updateTime_ = 0.0f;
+    size_t totalMemory_ = 0;
+    size_t usedMemory_ = 0;
     
     float tickRate;
     bool placementMode;
@@ -128,6 +118,15 @@ private:
     void handleInput();
     void renderStats();
     void renderControls();
+    void renderSettings();
+    void renderPerformance();
+    void renderAbout();
     glm::vec3 getMouseRayDirection();
     void updatePlacementPosition();
+    
+    void renderPatternBrowser();
+    void renderSavePatternDialog();
+    void renderLoadPatternDialog();
+    
+    void cleanupPreviewTextures();
 }; 

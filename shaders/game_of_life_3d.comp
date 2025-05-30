@@ -1,65 +1,48 @@
 #version 450
 
+// Optimize workgroup size based on device capabilities
+// Most modern GPUs support at least 1024 threads per workgroup
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
-// Constants for 3D Game of Life rules
-const int SURVIVE_MIN = 4;
-const int SURVIVE_MAX = 6;
-const int BIRTH_COUNT = 4;
-
-// Grid dimensions
+// Configurable rules through push constants
 layout(push_constant) uniform PushConstants {
     uint width;
     uint height;
     uint depth;
-} pc;
+    float time;
+    uint ruleSet;  // 0: Classic, 1: HighLife, 2: Day & Night, 3: Custom
+} constants;
 
 // Current and next state buffers
 layout(binding = 0) buffer StateBuffer {
-    uint states[];
-} stateBuffer;
+    uint state[];
+} currentState;
 
 layout(binding = 1) buffer NextStateBuffer {
-    uint states[];
-} nextStateBuffer;
+    uint nextState[];
+} nextState;
 
 // Helper function to get cell state
 uint getCellState(uint x, uint y, uint z) {
-    if (x >= pc.width || y >= pc.height || z >= pc.depth) {
-        return 0;
-    }
-    uint index = z * pc.width * pc.height + y * pc.width + x;
-    return stateBuffer.states[index];
-}
-
-// Helper function to set cell state
-void setCellState(uint x, uint y, uint z, uint state) {
-    if (x >= pc.width || y >= pc.height || z >= pc.depth) {
-        return;
-    }
-    uint index = z * pc.width * pc.height + y * pc.width + x;
-    nextStateBuffer.states[index] = state;
+    // Handle toroidal boundary conditions
+    x = (x + constants.width) % constants.width;
+    y = (y + constants.height) % constants.height;
+    z = (z + constants.depth) % constants.depth;
+    
+    uint index = z * constants.width * constants.height + y * constants.width + x;
+    return currentState.state[index];
 }
 
 // Count live neighbors in 3D space
 uint countNeighbors(uint x, uint y, uint z) {
     uint count = 0;
     
-    // Check all 26 neighbors
-    for (int dx = -1; dx <= 1; dx++) {
+    // Check all 26 neighbors in 3D space
+    for (int dz = -1; dz <= 1; dz++) {
         for (int dy = -1; dy <= 1; dy++) {
-            for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
                 if (dx == 0 && dy == 0 && dz == 0) continue;
-                
-                int nx = int(x) + dx;
-                int ny = int(y) + dy;
-                int nz = int(z) + dz;
-                
-                if (nx >= 0 && nx < int(pc.width) &&
-                    ny >= 0 && ny < int(pc.height) &&
-                    nz >= 0 && nz < int(pc.depth)) {
-                    count += getCellState(uint(nx), uint(ny), uint(nz));
-                }
+                count += getCellState(x + dx, y + dy, z + dz);
             }
         }
     }
@@ -67,31 +50,54 @@ uint countNeighbors(uint x, uint y, uint z) {
     return count;
 }
 
+// Apply rules based on selected rule set
+uint applyRules(uint currentState, uint neighbors) {
+    switch (constants.ruleSet) {
+        case 0: // Classic 3D Game of Life
+            if (currentState == 1) {
+                return (neighbors >= 4 && neighbors <= 6) ? 1u : 0u;
+            } else {
+                return (neighbors == 4) ? 1u : 0u;
+            }
+            
+        case 1: // HighLife 3D
+            if (currentState == 1) {
+                return (neighbors >= 4 && neighbors <= 6) ? 1u : 0u;
+            } else {
+                return (neighbors == 3 || neighbors == 6) ? 1u : 0u;
+            }
+            
+        case 2: // Day & Night 3D
+            if (currentState == 1) {
+                return (neighbors >= 3 && neighbors <= 8) ? 1u : 0u;
+            } else {
+                return (neighbors == 3 || neighbors == 6 || neighbors == 7 || neighbors == 8) ? 1u : 0u;
+            }
+            
+        case 3: // Custom 3D rules
+            if (currentState == 1) {
+                return (neighbors >= 5 && neighbors <= 7) ? 1u : 0u;
+            } else {
+                return (neighbors == 5) ? 1u : 0u;
+            }
+            
+        default:
+            return currentState;
+    }
+}
+
 void main() {
     uint x = gl_GlobalInvocationID.x;
     uint y = gl_GlobalInvocationID.y;
     uint z = gl_GlobalInvocationID.z;
     
-    if (x >= pc.width || y >= pc.height || z >= pc.depth) {
+    if (x >= constants.width || y >= constants.height || z >= constants.depth) {
         return;
     }
     
-    uint currentState = getCellState(x, y, z);
-    uint neighborCount = countNeighbors(x, y, z);
-    uint nextState = 0;
+    uint index = z * constants.width * constants.height + y * constants.width + x;
+    uint currentCellState = currentState.state[index];
+    uint neighbors = countNeighbors(x, y, z);
     
-    // Apply 3D Game of Life rules
-    if (currentState == 1) {
-        // Survival rules
-        if (neighborCount >= SURVIVE_MIN && neighborCount <= SURVIVE_MAX) {
-            nextState = 1;
-        }
-    } else {
-        // Birth rules
-        if (neighborCount == BIRTH_COUNT) {
-            nextState = 1;
-        }
-    }
-    
-    setCellState(x, y, z, nextState);
+    nextState.nextState[index] = applyRules(currentCellState, neighbors);
 } 

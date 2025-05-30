@@ -6,8 +6,24 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <nlohmann/json.hpp>
 
 namespace VulkanHIP {
+
+struct PatternMetadata {
+    std::string name;
+    std::string description;
+    std::string author;
+    std::string version;
+    std::string ruleSet;
+    glm::vec3 gridSize;
+    float voxelSize;
+    std::time_t creationTime;
+    std::time_t modificationTime;
+    uint32_t population;
+    uint32_t generation;
+    std::vector<std::string> tags;
+};
 
 class SaveManager {
 public:
@@ -33,40 +49,52 @@ public:
     };
 
     // Save file operations
-    bool saveCurrentState(const std::string& filename, const VoxelData& voxelData);
-    bool loadSaveFile(const std::string& filename, VoxelData& voxelData);
-    bool deleteSaveFile(const std::string& filename);
+    bool savePattern(const std::string& filename, const VoxelData& voxelData, const PatternMetadata& metadata);
+    bool loadPattern(const std::string& filename, VoxelData& voxelData, PatternMetadata& metadata);
+    bool deletePattern(const std::string& filename);
     
-    // Save file management
-    std::vector<App::SaveInfo> getSaveFiles();
-    std::string getLastSaveFile() const;
-    bool hasSaveFiles() const;
+    // Pattern file management
+    std::vector<App::SaveInfo> getPatternFiles();
+    std::string getLastPatternFile() const;
+    bool hasPatternFiles() const;
     
-    // Save directory management
-    void setSaveDirectory(const std::filesystem::path& path);
-    std::filesystem::path getSaveDirectory() const;
-    bool createSaveDirectory();
+    // Pattern directory management
+    void setPatternDirectory(const std::filesystem::path& path);
+    std::filesystem::path getPatternDirectory() const;
+    bool createPatternDirectory();
 
     // Additional utility functions
-    std::string getSavePath(const std::string& filename) const;
-    std::vector<std::string> listSaves() const;
+    std::string getPatternPath(const std::string& filename) const;
+    std::vector<std::string> listPatterns() const;
     void cleanupOldAutoSaves(int maxAutoSaves = 5);
+    
+    // Pattern preview
+    bool generatePreview(const std::string& filename, const std::string& previewPath);
+    bool hasPreview(const std::string& filename) const;
+    std::string getPreviewPath(const std::string& filename) const;
 
     // Error handling
     std::string getLastError() const { return lastError_; }
     void clearLastError() { lastError_.clear(); }
 
 private:
-    std::filesystem::path saveDirectory_;
-    std::string lastSaveFile_;
+    std::filesystem::path patternDirectory_;
+    std::filesystem::path previewDirectory_;
+    std::string lastPatternFile_;
     std::string lastError_;
     
     // Helper functions
-    bool validateSaveFile(const std::filesystem::path& path) const;
+    bool validatePatternFile(const std::filesystem::path& path) const;
     App::SaveInfo createSaveInfo(const std::filesystem::path& path) const;
-    std::string generateSaveFileName() const;
+    std::string generatePatternFileName() const;
     void setLastError(const std::string& error) { lastError_ = error; }
     void handleSaveError(const SaveError& error);
+    
+    // JSON serialization
+    nlohmann::json serializeVoxelData(const VoxelData& voxelData) const;
+    bool deserializeVoxelData(const nlohmann::json& json, VoxelData& voxelData) const;
+    nlohmann::json serializeMetadata(const PatternMetadata& metadata) const;
+    bool deserializeMetadata(const nlohmann::json& json, PatternMetadata& metadata) const;
 };
 
 } // namespace VulkanHIP 
