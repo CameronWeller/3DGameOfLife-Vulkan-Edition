@@ -72,6 +72,8 @@ public:
     VkQueue getComputeQueue() const { return computeQueue_; }
     QueueFamilyIndices getQueueFamilyIndices() const { return queueFamilyIndices_; }
     VulkanMemoryManager& getMemoryManager() { return *memoryManager_; }
+    VkCommandPool getGraphicsCommandPool() const { return graphicsCommandPool_; }
+    VkCommandPool getComputeCommandPool() const { return computeCommandPool_; }
 
     SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) const;
     void createSurface();
@@ -94,6 +96,7 @@ private:
     void setupDebugMessenger();
     void pickPhysicalDevice();
     void createLogicalDevice();
+    void createCommandPools();
     bool checkValidationLayerSupport() const;
     bool checkDeviceExtensionSupport(VkPhysicalDevice device) const;
     bool isDeviceSuitable(VkPhysicalDevice device) const;
@@ -116,6 +119,8 @@ private:
     VkQueue graphicsQueue_ = VK_NULL_HANDLE;
     VkQueue presentQueue_ = VK_NULL_HANDLE;
     VkQueue computeQueue_ = VK_NULL_HANDLE;
+    VkCommandPool graphicsCommandPool_ = VK_NULL_HANDLE;
+    VkCommandPool computeCommandPool_ = VK_NULL_HANDLE;
     QueueFamilyIndices queueFamilyIndices_;
     
     // Validation layer configuration

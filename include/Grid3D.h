@@ -131,15 +131,10 @@ private:
     VkCommandBuffer computeCommandBuffer;
     VkDescriptorSetLayout descriptorSetLayout;
     VkDescriptorPool descriptorPool;
-    VkDescriptorSet descriptorSet;
-    VkPipelineLayout pipelineLayout;
-    VkPipeline computePipeline;
     VkPipeline populationPipeline;
     VkBuffer populationBuffer;
     VmaAllocation populationMemory;
     
-    void createComputeResources();
-    void destroyComputeResources();
     void recordComputeCommands();
     
     // State synchronization

@@ -4,12 +4,27 @@
 #include <vk_mem_alloc.h>
 #include <vector>
 #include <memory>
+#include <glm/glm.hpp>
 #include "Vertex.h"
 
 namespace VulkanHIP {
 
 class VulkanContext;
 class VulkanMemoryManager;
+
+/**
+ * @brief Uniform buffer object for shader transformation matrices
+ */
+struct UniformBufferObject {
+    alignas(16) glm::mat4 model;
+    alignas(16) glm::mat4 view;
+    alignas(16) glm::mat4 proj;
+    alignas(16) glm::vec3 cameraPos;
+    alignas(4) float time;
+    alignas(4) int renderMode;
+    alignas(4) float minLODDistance;
+    alignas(4) float maxLODDistance;
+};
 
 /**
  * @brief Manages Vulkan buffer creation and operations

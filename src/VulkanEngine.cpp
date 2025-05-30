@@ -21,7 +21,7 @@
 #include "VulkanContext.h"
 #include "WindowManager.h"
 #include "SaveManager.h"
-#include "VulkanBufferManager.h"
+#include "vulkan/resources/VulkanBufferManager.h"
 #include "vulkan/resources/VulkanImageManager.h"
 #include "vulkan/rendering/VulkanSwapChain.h"
 #include "vulkan/rendering/VulkanRenderer.h"
