@@ -1,15 +1,22 @@
 cmake_minimum_required(VERSION 3.20)
-cmake_policy(VERSION 3.10)
+project(3DGameOfLife-Vulkan-Edition LANGUAGES CXX)
 
-# Vcpkg integration
-if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
-    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
-        CACHE STRING "Vcpkg toolchain file")
-endif()
+# Configure vcpkg
+set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
 
-project(cpp-vulkan-hip-engine LANGUAGES CXX)
+# Core dependencies
+find_package(Vulkan REQUIRED)
+find_package(glfw3 REQUIRED)
+find_package(glm REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
-set(CMAKE_CXX_STANDARD 17)
+# Add source subdirectories
+add_subdirectory(src)
+add_subdirectory(tests)
+add_subdirectory(tests/benchmarks)
+
+# Configure compiler warnings and C++ standard
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Require MSVC compiler for best Vulkan compatibility on Windows
@@ -301,4 +308,4 @@ add_custom_target(analyze
 add_custom_target(quality
     DEPENDS check bench analyze
     COMMENT "Running all quality checks"
-) 
+)
