@@ -2,10 +2,8 @@
 
 # Create a performance test executable
 add_executable(vulkan_performance_tests
-    PipelinePerformanceTest.cpp
-    MemoryPerformanceTest.cpp
-    ShaderPerformanceTest.cpp
-    CommandBufferPerformanceTest.cpp
+    GPUMemoryTest.cpp
+    ShaderCompilationTest.cpp
 )
 
 # Link against required libraries
@@ -25,13 +23,22 @@ target_include_directories(vulkan_performance_tests PRIVATE
     ${Vulkan_INCLUDE_DIRS}
 )
 
+# Add compiler warnings
+target_compile_options(vulkan_performance_tests
+    PRIVATE
+    -Wall
+    -Wextra
+    -Wpedantic
+)
+
 # Add test
 add_test(NAME vulkan_performance_tests COMMAND vulkan_performance_tests)
 
 # Set test properties
 set_tests_properties(vulkan_performance_tests PROPERTIES
-    ENVIRONMENT "GTEST_COLOR=1"
-    TIMEOUT 600
+    ENVIRONMENT "VK_LAYER_PATH=${Vulkan_LAYER_PATH}"
+    ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation"
+    TIMEOUT 300  # 5 minutes timeout
 )
 
 # Add benchmark visualization library

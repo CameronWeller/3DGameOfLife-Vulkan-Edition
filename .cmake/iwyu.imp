@@ -1,0 +1,9 @@
+[
+  { include: ["<vulkan/vulkan.h>", "private", "<vulkan/vulkan.hpp>", "public"] },
+  { include: ["<glm/glm.hpp>", "private", "<glm/glm.hpp>", "public"] },
+  { include: ["<spdlog/spdlog.h>", "private", "<spdlog/spdlog.h>", "public"] },
+  { include: ["<GLFW/glfw3.h>", "private", "<GLFW/glfw3.h>", "public"] },
+  { include: ["<stb_image.h>", "private", "<stb_image.h>", "public"] },
+  { include: ["<tiny_obj_loader.h>", "private", "<tiny_obj_loader.h>", "public"] },
+  { include: ["<nlohmann/json.hpp>", "private", "<nlohmann/json.hpp>", "public"] }
+] 

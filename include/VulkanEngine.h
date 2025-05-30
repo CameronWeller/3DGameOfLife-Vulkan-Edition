@@ -91,6 +91,11 @@ struct UniformBufferObject {
     alignas(16) glm::mat4 model;
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
+    alignas(16) glm::vec3 cameraPos;
+    alignas(4) float time;
+    alignas(4) int renderMode;
+    alignas(4) float minLODDistance;
+    alignas(4) float maxLODDistance;
 };
 
 /**
@@ -269,7 +274,7 @@ struct GameOfLifePushConstants {
     uint32_t width;
     uint32_t height;
     uint32_t depth;
-    uint32_t ruleSet;  // 0: 5766, 1: 4555, 2: Custom
+    uint32_t ruleSet;  // 0: Classic, 1: HighLife, 2: Day & Night, 3: Custom, 4: 5766, 5: 4555
     uint32_t surviveMin;
     uint32_t surviveMax;
     uint32_t birthCount;
@@ -282,11 +287,23 @@ struct ComputePipelineInfo {
     VkPipeline pipeline;
     VkPipelineLayout layout;
     VkDescriptorSetLayout descriptorSetLayout;
-    VkBuffer currentStateBuffer;
+    VkDescriptorPool descriptorPool;
+    std::vector<VkDescriptorSet> descriptorSets;
+    VkBuffer stateBuffer;
     VkBuffer nextStateBuffer;
-    VmaAllocation currentStateBufferAllocation;
+    VmaAllocation stateBufferAllocation;
     VmaAllocation nextStateBufferAllocation;
-    VkDescriptorSet descriptorSet;
+    GameOfLifePushConstants pushConstants;
+};
+
+/**
+ * @brief Voxel instance data
+ */
+struct VoxelInstance {
+    glm::vec3 position;
+    glm::vec4 color;
+    float age;
+    float lod;
 };
 
 /**
@@ -302,16 +319,16 @@ struct ComputePipelineInfo {
 class VulkanEngine {
 public:
     /** @brief Default window width */
-    static constexpr int WIDTH = 800;
+    static constexpr int WIDTH = 1280;
     
     /** @brief Default window height */
-    static constexpr int HEIGHT = 600;
+    static constexpr int HEIGHT = 720;
     
     /** @brief Maximum number of frames in flight */
     static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
     
     /** @brief Default window title */
-    static constexpr const char* WINDOW_TITLE = "Vulkan HIP Engine";
+    static constexpr const char* WINDOW_TITLE = "3D Game of Life - Vulkan Edition";
     
     /** @brief Whether validation layers are enabled */
     static constexpr bool enableValidationLayers = true;
@@ -566,7 +583,10 @@ private:
     const std::vector<const char*> validationLayers_ = {
         "VK_LAYER_KHRONOS_validation"
     };
-    const std::vector<const char*> instanceExtensions_ = {};
+    const std::vector<const char*> instanceExtensions_ = {
+        VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME
+    };
 
     QueueFamilyIndices queueFamilyIndices_;
 
@@ -602,7 +622,7 @@ private:
         VkBuffer nextStateBuffer;
         VmaAllocation stateBufferAllocation;
         VmaAllocation nextStateBufferAllocation;
-        ComputePushConstants pushConstants;
+        GameOfLifePushConstants pushConstants;
     } computePipeline_;
 
     EngineStateMachine stateMachine_;
@@ -733,10 +753,10 @@ private:
     uint32_t gridDepth_ = 64;
 
     // Rule settings
-    uint32_t ruleSet_ = 0;  // 0: 5766, 1: 4555, 2: Custom
-    uint32_t surviveMin_ = 5;
-    uint32_t surviveMax_ = 7;
-    uint32_t birthCount_ = 6;
+    uint32_t ruleSet_ = 0;  // 0: Classic, 1: HighLife, 2: Day & Night, 3: Custom, 4: 5766, 5: 4555
+    uint32_t surviveMin_ = 4;
+    uint32_t surviveMax_ = 6;
+    uint32_t birthCount_ = 4;
 
     // Compute pipeline resources
     VkCommandPool computeCommandPool_ = VK_NULL_HANDLE;

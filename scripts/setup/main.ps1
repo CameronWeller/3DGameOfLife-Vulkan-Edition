@@ -1,90 +1,103 @@
-# Main setup script for the C++ Vulkan/HIP Engine
-# This script provides a unified interface for setting up the development environment
+# Main Setup Script
+# This script sets up the development environment for the project
 
 param(
     [switch]$Admin,
     [switch]$Clean,
-    [switch]$Help
+    [string]$VulkanSDKPath
 )
 
-function Show-Help {
-    Write-Host "C++ Vulkan/HIP Engine Setup Script"
-    Write-Host "Usage: .\main.ps1 [options]"
-    Write-Host ""
-    Write-Host "Options:"
-    Write-Host "  -Admin    Run setup with administrator privileges"
-    Write-Host "  -Clean    Clean build directories before setup"
-    Write-Host "  -Help     Show this help message"
-    Write-Host ""
-    Write-Host "Examples:"
-    Write-Host "  .\main.ps1              # Normal setup"
-    Write-Host "  .\main.ps1 -Admin       # Setup with admin privileges"
-    Write-Host "  .\main.ps1 -Clean       # Clean and setup"
+# Function to check if running as admin
+function Test-Admin {
+    $currentUser = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+    return $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-if ($Help) {
-    Show-Help
-    exit 0
-}
-
-# Check if running as admin
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-
-if ($Admin -and -not $isAdmin) {
-    Write-Host "Restarting script with administrator privileges..."
-    Start-Process powershell.exe -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Admin"
-    exit
-}
-
-# Clean build directories if requested
-if ($Clean) {
-    Write-Host "Cleaning build directories..."
+# Function to clean build directory
+function Clear-BuildDirectory {
     if (Test-Path "build") {
-        Remove-Item -Recurse -Force "build"
-    }
-    if (Test-Path "vcpkg_installed") {
-        Remove-Item -Recurse -Force "vcpkg_installed"
+        Write-Host "Cleaning build directory..."
+        Remove-Item -Path "build" -Recurse -Force
     }
 }
 
-# Run the setup scripts in order
-Write-Host "Starting setup process..."
-
-$success = $true
-
-# Bootstrap vcpkg
-Write-Host "Setting up vcpkg..."
-try {
-    & "$PSScriptRoot\bootstrap.ps1"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Bootstrap script failed with exit code $LASTEXITCODE"
+# Function to verify Visual Studio installation
+function Test-VisualStudio {
+    $vsPath = "${env:ProgramFiles}\Microsoft Visual Studio\2022\Community"
+    if (-not (Test-Path $vsPath)) {
+        Write-Error "Visual Studio 2022 not found. Please install Visual Studio 2022 with C++ development tools."
+        exit 1
     }
 }
-catch {
-    Write-Error "Failed to bootstrap vcpkg: $_"
-    $success = $false
-}
 
-# Install dependencies
-if ($success) {
-    Write-Host "Installing dependencies..."
+# Function to verify CMake installation
+function Test-CMake {
     try {
-        & "$PSScriptRoot\install_dependencies.ps1"
-        if ($LASTEXITCODE -ne 0) {
-            throw "Dependencies installation failed with exit code $LASTEXITCODE"
+        $cmakeVersion = (cmake --version) -match "cmake version (\d+\.\d+\.\d+)"
+        if ($cmakeVersion) {
+            $version = [Version]$Matches[1]
+            if ($version -lt [Version]"3.15.0") {
+                Write-Error "CMake version 3.15 or higher is required. Current version: $version"
+                exit 1
+            }
+        } else {
+            Write-Error "CMake not found. Please install CMake 3.15 or higher."
+            exit 1
         }
-    }
-    catch {
-        Write-Error "Failed to install dependencies: $_"
-        $success = $false
+    } catch {
+        Write-Error "CMake not found. Please install CMake 3.15 or higher."
+        exit 1
     }
 }
 
-if ($success) {
-    Write-Host "Setup completed successfully!" -ForegroundColor Green
-    Write-Host "You can now build the project using CMake."
-}
-else {
-    Write-Error "Setup failed. Please check the errors above and try again."
+# Main script execution
+try {
+    # Check if running as admin when required
+    if ($Admin -and -not (Test-Admin)) {
+        Write-Error "This script requires administrator privileges. Please run as administrator."
+        exit 1
+    }
+
+    # Clean if requested
+    if ($Clean) {
+        Clear-BuildDirectory
+    }
+
+    # Verify prerequisites
+    Write-Host "Verifying prerequisites..."
+    Test-VisualStudio
+    Test-CMake
+
+    # Configure Vulkan SDK
+    Write-Host "`nConfiguring Vulkan SDK..."
+    $vulkanScript = Join-Path $PSScriptRoot "configure_vulkan.ps1"
+    if ($VulkanSDKPath) {
+        & $vulkanScript -Admin:$Admin -VulkanSDKPath $VulkanSDKPath
+    } else {
+        & $vulkanScript -Admin:$Admin
+    }
+
+    # Create build directory
+    if (-not (Test-Path "build")) {
+        Write-Host "`nCreating build directory..."
+        New-Item -ItemType Directory -Path "build" | Out-Null
+    }
+
+    # Configure CMake
+    Write-Host "`nConfiguring CMake..."
+    Set-Location build
+    cmake .. -DCMAKE_BUILD_TYPE=Debug
+
+    # Build the project
+    Write-Host "`nBuilding the project..."
+    cmake --build . --config Debug
+
+    Write-Host "`nSetup complete!"
+    Write-Host "You can now run the project from the build directory."
+} catch {
+    Write-Error "An error occurred: $_"
     exit 1
+} finally {
+    # Return to original directory
+    Set-Location $PSScriptRoot/../..
 } 

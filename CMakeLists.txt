@@ -48,12 +48,18 @@ find_package(spdlog REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
+find_package(GTest REQUIRED)
+find_package(benchmark REQUIRED)
 
 # Find glslc compiler
 find_program(GLSLC_EXECUTABLE glslc HINTS ${Vulkan_GLSLC_EXECUTABLE} ENV VULKAN_SDK PATH_SUFFIXES bin)
 if(NOT GLSLC_EXECUTABLE)
     message(FATAL_ERROR "glslc compiler not found. Please install Vulkan SDK.")
 endif()
+
+# Include CMake modules
+include(.cmake/StaticAnalysis.cmake)
+include(.cmake/Testing.cmake)
 
 # Compile shaders
 set(SHADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
@@ -98,14 +104,61 @@ endforeach()
 
 # Add library target for the main project
 add_library(${PROJECT_NAME} STATIC
+    # Core Engine
     src/VulkanEngine.cpp
+    include/VulkanEngine.h
+    src/Engine.cpp
+    include/Engine.h
+    include/AppState.h
+    
+    # Vulkan Components
     src/VulkanContext.cpp
-    src/WindowManager.cpp
-    src/Camera.cpp
-    src/RayCaster.cpp
+    include/VulkanContext.h
     src/VulkanMemoryManager.cpp
+    include/VulkanMemoryManager.h
+    src/DeviceManager.cpp
+    include/DeviceManager.h
+    include/VulkanError.h
+    include/SwapChainSupportDetails.h
+    include/QueueFamilyIndices.h
+    
+    # Window and Input
+    src/WindowManager.cpp
+    include/WindowManager.h
+    src/Camera.cpp
+    include/Camera.h
+    src/RayCaster.cpp
+    include/RayCaster.h
+    
+    # Game Logic
+    src/Grid3D.cpp
+    include/Grid3D.h
+    src/SparseGrid3D.cpp
+    include/SparseGrid3D.h
+    src/PatternManager.cpp
+    include/PatternManager.h
+    include/GameRules.h
+    src/RuleAnalyzer.cpp
+    include/RuleAnalyzer.h
+    
+    # UI and Rendering
+    src/UI.cpp
+    include/UI.h
+    src/Vertex.cpp
+    include/Vertex.h
+    src/VoxelData.cpp
+    include/VoxelData.h
+    src/imgui_impl_glfw.cpp
+    include/imgui_impl_glfw.h
+    src/imgui_impl_vulkan.cpp
+    include/imgui_impl_vulkan.h
+    
+    # Utilities
     src/SaveManager.cpp
+    include/SaveManager.h
     src/Logger.cpp
+    include/Logger.h
+    include/ThreadSafe.h
 )
 
 # Add executable target
@@ -121,6 +174,9 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     GPUOpen::VulkanMemoryAllocator
     nlohmann_json::nlohmann_json
     imgui::imgui
+    GTest::gtest
+    GTest::gtest_main
+    benchmark::benchmark
 )
 
 # Include directories
@@ -133,6 +189,33 @@ target_include_directories(${PROJECT_NAME} PUBLIC
     $<TARGET_PROPERTY:nlohmann_json::nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>
     $<TARGET_PROPERTY:imgui::imgui,INTERFACE_INCLUDE_DIRECTORIES>
 )
+
+# Add compiler definitions
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    $<$<CONFIG:Debug>:DEBUG>
+    $<$<CONFIG:Debug>:_DEBUG>
+    $<$<CONFIG:Release>:NDEBUG>
+    $<$<CONFIG:Release>:_NDEBUG>
+)
+
+# Add compiler warnings
+if(MSVC)
+    target_compile_options(${PROJECT_NAME} PRIVATE
+        /W4
+        /wd4100  # Unreferenced formal parameter
+        /wd4189  # Local variable is initialized but not referenced
+        /wd4251  # DLL interface warning
+        /wd4275  # DLL interface warning
+    )
+else()
+    target_compile_options(${PROJECT_NAME} PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wno-unused-parameter
+        -Wno-unused-variable
+    )
+endif()
 
 # Add shader files to the build
 add_custom_target(shaders DEPENDS ${SHADER_SPV_FILES})
@@ -177,15 +260,8 @@ endif()
 option(BUILD_TESTING "Build tests" ON)
 if(BUILD_TESTING)
     add_subdirectory(tests)
-endif()
-
-# Add code coverage
-option(ENABLE_COVERAGE "Enable coverage reporting" OFF)
-if(ENABLE_COVERAGE)
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(${PROJECT_NAME} PRIVATE --coverage)
-        target_link_options(${PROJECT_NAME} PRIVATE --coverage)
-    endif()
+    add_project_tests()
+    add_static_analysis_targets()
 endif()
 
 # Add sanitizers
@@ -202,4 +278,27 @@ if(ENABLE_SANITIZERS)
             -fsanitize=undefined
         )
     endif()
-endif() 
+endif()
+
+# Add custom targets for development workflow
+add_custom_target(check
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+    DEPENDS ${PROJECT_NAME}_tests
+    COMMENT "Running tests"
+)
+
+add_custom_target(bench
+    COMMAND ${PROJECT_NAME}_benchmarks
+    DEPENDS ${PROJECT_NAME}_benchmarks
+    COMMENT "Running benchmarks"
+)
+
+add_custom_target(analyze
+    DEPENDS static-analysis
+    COMMENT "Running static analysis"
+)
+
+add_custom_target(quality
+    DEPENDS check bench analyze
+    COMMENT "Running all quality checks"
+) 

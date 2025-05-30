@@ -1,4 +1,4 @@
-name: CI/CD
+name: CI/CD Pipeline
 
 on:
   push:
@@ -8,91 +8,194 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, windows-latest]
         build_type: [Debug, Release]
-        compiler: [gcc, clang]
-    
+        include:
+          - os: ubuntu-latest
+            vulkan_sdk: 1.3.268.0
+          - os: windows-latest
+            vulkan_sdk: 1.3.268.0
+
     steps:
     - uses: actions/checkout@v3
-    
-    - name: Install dependencies
+
+    - name: Install Vulkan SDK
+      if: matrix.os == 'ubuntu-latest'
       run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential cmake
-        sudo apt-get install -y libvulkan-dev vulkan-validationlayers
-        sudo apt-get install -y libgtest-dev
-        sudo apt-get install -y clang-tidy clang-format
-        sudo apt-get install -y lcov
-        sudo apt-get install -y doxygen graphviz
-    
+        wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc
+        sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list http://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
+        sudo apt update
+        sudo apt install -y vulkan-sdk
+
+    - name: Install Vulkan SDK
+      if: matrix.os == 'windows-latest'
+      run: |
+        curl -L -o vulkan-sdk.exe https://sdk.lunarg.com/sdk/download/${{ matrix.vulkan_sdk }}/windows/VulkanSDK-${{ matrix.vulkan_sdk }}-Installer.exe
+        ./vulkan-sdk.exe --root C:/VulkanSDK --accept-licenses --default-answer --do-not-install-additions
+
     - name: Configure CMake
       run: |
-        cmake -B build -S . \
-          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
-          -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} \
-          -DENABLE_TESTS=ON \
-          -DENABLE_COVERAGE=${{ matrix.build_type == 'Debug' }}
-    
+        cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DENABLE_COVERAGE=${{ matrix.build_type == 'Debug' }}
+
     - name: Build
       run: |
-        cmake --build build --config ${{ matrix.build_type }} -j$(nproc)
-    
-    - name: Run tests
+        cmake --build ${{github.workspace}}/build --config ${{ matrix.build_type }}
+
+    - name: Run Unit Tests
       run: |
-        cd build && ctest --output-on-failure
-    
-    - name: Generate coverage report
+        cd ${{github.workspace}}/build
+        ctest -C ${{ matrix.build_type }} -R "unit.*" --output-on-failure
+
+    - name: Run Integration Tests
+      run: |
+        cd ${{github.workspace}}/build
+        ctest -C ${{ matrix.build_type }} -R "integration.*" --output-on-failure
+
+    - name: Run Performance Tests
+      run: |
+        cd ${{github.workspace}}/build
+        ctest -C ${{ matrix.build_type }} -R "performance.*" --output-on-failure
+
+    - name: Run Stress Tests
+      run: |
+        cd ${{github.workspace}}/build
+        ctest -C ${{ matrix.build_type }} -R "stress.*" --output-on-failure
+
+    - name: Run Vulkan Performance Tests
+      run: |
+        cd ${{github.workspace}}/build
+        ctest -C ${{ matrix.build_type }} -R "vulkan_performance.*" --output-on-failure
+
+    - name: Generate Test Reports
       if: matrix.build_type == 'Debug'
       run: |
-        lcov --capture --directory build --output-file coverage.info
+        cd ${{github.workspace}}/build
+        ctest --output-on-failure --output-log test_results.log
+        python3 ${{github.workspace}}/scripts/generate_test_report.py --input test_results.log --output test_report.html
+
+    - name: Upload Test Reports
+      if: matrix.build_type == 'Debug'
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-reports-${{ matrix.os }}-${{ matrix.build_type }}
+        path: ${{github.workspace}}/build/test_report.html
+
+    - name: Run Performance Regression Tests
+      if: matrix.build_type == 'Release'
+      run: |
+        cd ${{github.workspace}}/build
+        python3 ${{github.workspace}}/scripts/run_performance_regression.py --baseline ${{ github.event_name == 'pull_request' && 'main' || 'HEAD~1' }}
+
+    - name: Upload Performance Results
+      if: matrix.build_type == 'Release'
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-results-${{ matrix.os }}-${{ matrix.build_type }}
+        path: ${{github.workspace}}/build/benchmark_results
+
+    - name: Generate Coverage Report
+      if: matrix.build_type == 'Debug'
+      run: |
+        cd ${{github.workspace}}/build
+        lcov --capture --directory . --output-file coverage.info
         lcov --remove coverage.info '/usr/*' --output-file coverage.info
-        lcov --list coverage.info
-        genhtml coverage.info --output-directory coverage
-    
-    - name: Upload coverage report
+        genhtml coverage.info --output-directory coverage_report
+
+    - name: Upload Coverage Report
       if: matrix.build_type == 'Debug'
       uses: actions/upload-artifact@v3
       with:
-        name: coverage-report
-        path: coverage
-    
-    - name: Run clang-tidy
-      run: |
-        cd build
-        run-clang-tidy -j$(nproc) -checks=*,-fuchsia-*,-google-*,-zircon-*,-abseil-*,-modernize-use-trailing-return-type
-    
-    - name: Generate documentation
-      run: |
-        doxygen Doxyfile
-    
-    - name: Upload documentation
-      uses: actions/upload-artifact@v3
-      with:
-        name: documentation
-        path: docs/html
+        name: coverage-report-${{ matrix.os }}-${{ matrix.build_type }}
+        path: ${{github.workspace}}/build/coverage_report
 
   code-quality:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    
+
+    - name: Set up CMake
+      uses: jwlawson/actions-setup-cmake@v1.13
+      with:
+        cmake-version: '3.20'
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang-tidy cppcheck include-what-you-use
+
+    - name: Configure CMake
+      run: |
+        cmake -B build -S . \
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+          -DENABLE_STATIC_ANALYSIS=ON
+
+    - name: Run Static Analysis
+      run: |
+        cmake --build build --target static-analysis
+
+    - name: Run clang-tidy
+      run: |
+        run-clang-tidy -p build -j $(nproc)
+
     - name: Run cppcheck
       run: |
-        sudo apt-get update
-        sudo apt-get install -y cppcheck
-        cppcheck --enable=all --suppress=missingIncludeSystem src/
-    
-    - name: Check formatting
+        cppcheck --enable=all --suppress=missingIncludeSystem --xml --xml-version=2 . 2> cppcheck-report.xml
+
+    - name: Run include-what-you-use
       run: |
-        sudo apt-get update
-        sudo apt-get install -y clang-format
-        find src/ -name "*.cpp" -o -name "*.h" | xargs clang-format --dry-run --Werror
+        iwyu_tool -p build -j $(nproc) > iwyu-report.txt
+
+    - name: Upload Code Quality Reports
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: code-quality-reports
+        path: |
+          cppcheck-report.xml
+          build/clang-tidy-report.xml
+          iwyu-report.txt
+
+  sonarqube:
+    needs: [build-and-test, code-quality]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up CMake
+      uses: jwlawson/actions-setup-cmake@v1.13
+      with:
+        cmake-version: '3.20'
+
+    - name: Install SonarQube Scanner
+      run: |
+        wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-linux.zip
+        unzip sonar-scanner-cli-4.8.0.2856-linux.zip
+        sudo mv sonar-scanner-4.8.0.2856-linux /opt/sonar-scanner
+
+    - name: Configure CMake
+      run: |
+        cmake -B build -S . \
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+          -DENABLE_SONARQUBE=ON
+
+    - name: Run SonarQube Analysis
+      run: |
+        /opt/sonar-scanner/bin/sonar-scanner \
+          -Dsonar.projectKey=3DGameOfLife-Vulkan-Edition \
+          -Dsonar.projectName="3D Game of Life - Vulkan Edition" \
+          -Dsonar.projectVersion=1.0.0 \
+          -Dsonar.sources=src \
+          -Dsonar.tests=tests \
+          -Dsonar.cpp.compiler.reportPaths=build/compile_commands.json \
+          -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+          -Dsonar.login=${{ secrets.SONAR_TOKEN }}
 
   docker-build:
     runs-on: ubuntu-latest
-    needs: [build-and-test, code-quality]
+    needs: [build-and-test, code-quality, sonarqube]
     steps:
     - uses: actions/checkout@v3
     
@@ -117,7 +220,7 @@ jobs:
         cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/vulkan-engine:buildcache,mode=max
 
   release:
-    needs: [build-and-test, code-quality, docker-build]
+    needs: [build-and-test, code-quality, sonarqube, docker-build]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
