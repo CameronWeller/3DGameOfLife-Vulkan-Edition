@@ -1,7 +1,12 @@
-#include "VulkanImGui.h"
+#include "vulkan/ui/VulkanImGui.h"
 #include "VulkanContext.h"
 #include "WindowManager.h"
 #include <stdexcept>
+
+// Add missing ImGui implementation includes
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_vulkan.h"
 
 namespace VulkanHIP {
 
@@ -52,10 +57,10 @@ void VulkanImGui::initialize() {
     
     ImGui_ImplVulkan_Init(&init_info, renderPass_);
 
-    // Upload fonts
-    VkCommandBuffer commandBuffer = vulkanContext_->beginSingleTimeCommands();
+    // Upload fonts - use memory manager for command buffer operations
+    VkCommandBuffer commandBuffer = vulkanContext_->getMemoryManager().beginSingleTimeCommands();
     ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
-    vulkanContext_->endSingleTimeCommands(commandBuffer);
+    vulkanContext_->getMemoryManager().endSingleTimeCommands(commandBuffer);
     
     ImGui_ImplVulkan_DestroyFontUploadObjects();
     

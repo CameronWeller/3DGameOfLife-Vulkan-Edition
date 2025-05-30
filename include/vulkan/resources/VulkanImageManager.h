@@ -31,6 +31,10 @@ public:
     void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
     void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
     
+    // Public utility methods
+    VkFormat findDepthFormat();
+    bool hasStencilComponent(VkFormat format);
+    
     // Getters
     VkImage getDepthImage() const { return depthImage_; }
     VkImageView getDepthImageView() const { return depthImageView_; }
@@ -59,11 +63,8 @@ private:
     VkImageView textureImageView_ = VK_NULL_HANDLE;
     VkSampler textureSampler_ = VK_NULL_HANDLE;
     
-    // Helper methods
+    // Private helpers
     VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
-    VkFormat findDepthFormat();
-    VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
-    bool hasStencilComponent(VkFormat format);
 };
 
 } // namespace VulkanHIP

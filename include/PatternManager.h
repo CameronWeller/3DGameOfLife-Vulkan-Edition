@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include "Grid3D.h"
+#include "GameRules.h"
 
 namespace PatternManager {
 
@@ -14,17 +15,17 @@ struct Pattern {
     uint32_t height;
     uint32_t depth;
     std::vector<bool> cells;
-    uint32_t ruleSet;  // Maps to Grid3D::RuleSet
+    std::string ruleSetName;  // Name of the rule set (e.g., "5766", "4555")
     GameRules::BoundaryType boundaryType;
     
     Pattern(const std::string& n, const std::string& desc,
             uint32_t w, uint32_t h, uint32_t d,
             const std::vector<bool>& c,
-            uint32_t rs = static_cast<uint32_t>(Grid3D::RuleSet::CLASSIC),
+            const std::string& rsName = "5766",  // Default to classic 5766 rule
             GameRules::BoundaryType bt = GameRules::BoundaryType::TOROIDAL)
         : name(n), description(desc),
           width(w), height(h), depth(d),
-          cells(c), ruleSet(rs), boundaryType(bt) {}
+          cells(c), ruleSetName(rsName), boundaryType(bt) {}
 };
 
 // Pattern file format version
@@ -38,7 +39,7 @@ struct PatternFileHeader {
     uint32_t width;
     uint32_t height;
     uint32_t depth;
-    uint32_t ruleSet;  // Maps to Grid3D::RuleSet
+    uint32_t ruleSetNameLength;  // Length of rule set name string
     uint32_t boundaryType;
     uint32_t dataSize;
 };
