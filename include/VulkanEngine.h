@@ -43,6 +43,13 @@ class VulkanMemoryManager;
 class VulkanContext;
 class WindowManager;
 class DeviceManager;
+class VulkanImageManager;
+class VulkanSwapChain;
+class VulkanRenderer;
+class VoxelRenderer;
+class VulkanFramebuffer;
+class VulkanCompute;
+class VulkanImGui;
 
 /**
  * @brief RAII wrapper for Vulkan resources
@@ -630,6 +637,13 @@ private:
 
     // Buffers and resources
     std::unique_ptr<VulkanBufferManager> bufferManager_;
+    std::unique_ptr<VulkanImageManager> imageManager_;
+    std::unique_ptr<VulkanSwapChain> swapChainManager_;
+    std::unique_ptr<VulkanRenderer> renderer_;
+    std::unique_ptr<VoxelRenderer> voxelRenderer_;
+    std::unique_ptr<VulkanFramebuffer> framebufferManager_;
+    std::unique_ptr<VulkanCompute> computeManager_;
+    std::unique_ptr<VulkanImGui> imguiManager_;
     std::vector<Vertex> vertices_;
     std::vector<uint32_t> indices_;
 
@@ -916,6 +930,13 @@ private:
 
     // Buffers and resources
     std::unique_ptr<VulkanBufferManager> bufferManager_;
+    std::unique_ptr<VulkanImageManager> imageManager_;
+    std::unique_ptr<VulkanSwapChain> swapChainManager_;
+    std::unique_ptr<VulkanRenderer> renderer_;
+    std::unique_ptr<VoxelRenderer> voxelRenderer_;
+    std::unique_ptr<VulkanFramebuffer> framebufferManager_;
+    std::unique_ptr<VulkanCompute> computeManager_;
+    std::unique_ptr<VulkanImGui> imguiManager_;
     std::vector<Vertex> vertices_;
     std::vector<uint32_t> indices_;
 
