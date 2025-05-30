@@ -1,5 +1,7 @@
 #include "Camera.h"
+#include "Grid3D.h"
 #include <iostream>
+#include <algorithm>
 
 Camera::Camera(GLFWwindow* window, float fov, float near, float far)
     : window(window), fov(fov), near(near), far(far),
@@ -13,7 +15,8 @@ Camera::Camera(GLFWwindow* window, float fov, float near, float far)
       minZoom(1.0f),
       maxZoom(45.0f),
       orbitDistance(100.0f),
-      mode(CameraMode::Fly) {
+      mode(CameraMode::Fly),
+      grid_(nullptr) {
     updateCameraVectors();
 }
 
@@ -71,15 +74,38 @@ void Camera::update(float deltaTime) {
             
         case CameraMode::FirstPerson:
             // Similar to Fly but with collision detection
-            if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-                moveForward(movementSpeed * deltaTime);
-            if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-                moveForward(-movementSpeed * deltaTime);
-            if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-                moveRight(-movementSpeed * deltaTime);
-            if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-                moveRight(movementSpeed * deltaTime);
-            // TODO: Add collision detection
+            if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+                glm::vec3 newPos = position + front * movementSpeed * deltaTime;
+                if (!checkCollision(newPos)) {
+                    moveForward(movementSpeed * deltaTime);
+                } else {
+                    position = resolveCollision(position, newPos);
+                }
+            }
+            if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+                glm::vec3 newPos = position - front * movementSpeed * deltaTime;
+                if (!checkCollision(newPos)) {
+                    moveForward(-movementSpeed * deltaTime);
+                } else {
+                    position = resolveCollision(position, newPos);
+                }
+            }
+            if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+                glm::vec3 newPos = position - right * movementSpeed * deltaTime;
+                if (!checkCollision(newPos)) {
+                    moveRight(-movementSpeed * deltaTime);
+                } else {
+                    position = resolveCollision(position, newPos);
+                }
+            }
+            if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+                glm::vec3 newPos = position + right * movementSpeed * deltaTime;
+                if (!checkCollision(newPos)) {
+                    moveRight(movementSpeed * deltaTime);
+                } else {
+                    position = resolveCollision(position, newPos);
+                }
+            }
             break;
     }
 }
@@ -188,6 +214,95 @@ void Camera::setMode(CameraMode newMode) {
     }
 }
 
+bool Camera::checkCollision(const glm::vec3& newPosition) const {
+    if (!grid_) {
+        return false; // No grid reference, no collision
+    }
+
+    // Define camera collision radius (half a voxel)
+    const float collisionRadius = 0.5f;
+    
+    // Check grid boundaries
+    if (newPosition.x < collisionRadius || newPosition.x >= grid_->getWidth() - collisionRadius ||
+        newPosition.y < collisionRadius || newPosition.y >= grid_->getHeight() - collisionRadius ||
+        newPosition.z < collisionRadius || newPosition.z >= grid_->getDepth() - collisionRadius) {
+        return true; // Collision with grid boundaries
+    }
+
+    // Check collision with alive cells in a small radius around the camera
+    int minX = std::max(0, static_cast<int>(newPosition.x - collisionRadius));
+    int maxX = std::min(static_cast<int>(grid_->getWidth() - 1), static_cast<int>(newPosition.x + collisionRadius));
+    int minY = std::max(0, static_cast<int>(newPosition.y - collisionRadius));
+    int maxY = std::min(static_cast<int>(grid_->getHeight() - 1), static_cast<int>(newPosition.y + collisionRadius));
+    int minZ = std::max(0, static_cast<int>(newPosition.z - collisionRadius));
+    int maxZ = std::min(static_cast<int>(grid_->getDepth() - 1), static_cast<int>(newPosition.z + collisionRadius));
+
+    for (int x = minX; x <= maxX; ++x) {
+        for (int y = minY; y <= maxY; ++y) {
+            for (int z = minZ; z <= maxZ; ++z) {
+                if (grid_->getCell(x, y, z)) {
+                    // Calculate distance from camera center to cell center
+                    glm::vec3 cellCenter(x + 0.5f, y + 0.5f, z + 0.5f);
+                    float distance = glm::length(newPosition - cellCenter);
+                    if (distance < collisionRadius + 0.5f) { // Cell half-size + camera radius
+                        return true; // Collision detected
+                    }
+                }
+            }
+        }
+    }
+
+    return false; // No collision
+}
+
+glm::vec3 Camera::resolveCollision(const glm::vec3& currentPos, const glm::vec3& targetPos) const {
+    if (!grid_) {
+        return targetPos; // No grid reference, allow movement
+    }
+
+    // Try sliding along each axis separately
+    glm::vec3 movement = targetPos - currentPos;
+    
+    // Try X-axis movement only
+    glm::vec3 xOnlyPos = currentPos + glm::vec3(movement.x, 0.0f, 0.0f);
+    if (!checkCollision(xOnlyPos)) {
+        return xOnlyPos;
+    }
+    
+    // Try Y-axis movement only
+    glm::vec3 yOnlyPos = currentPos + glm::vec3(0.0f, movement.y, 0.0f);
+    if (!checkCollision(yOnlyPos)) {
+        return yOnlyPos;
+    }
+    
+    // Try Z-axis movement only
+    glm::vec3 zOnlyPos = currentPos + glm::vec3(0.0f, 0.0f, movement.z);
+    if (!checkCollision(zOnlyPos)) {
+        return zOnlyPos;
+    }
+    
+    // Try XY movement
+    glm::vec3 xyPos = currentPos + glm::vec3(movement.x, movement.y, 0.0f);
+    if (!checkCollision(xyPos)) {
+        return xyPos;
+    }
+    
+    // Try XZ movement
+    glm::vec3 xzPos = currentPos + glm::vec3(movement.x, 0.0f, movement.z);
+    if (!checkCollision(xzPos)) {
+        return xzPos;
+    }
+    
+    // Try YZ movement
+    glm::vec3 yzPos = currentPos + glm::vec3(0.0f, movement.y, movement.z);
+    if (!checkCollision(yzPos)) {
+        return yzPos;
+    }
+    
+    // No valid movement, stay at current position
+    return currentPos;
+}
+
 void Camera::updateCameraVectors() {
     glm::vec3 newFront;
     newFront.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
@@ -209,4 +324,4 @@ void Camera::updateOrbitPosition() {
     front = glm::normalize(target - position);
     right = glm::normalize(glm::cross(front, worldUp));
     up = glm::normalize(glm::cross(right, front));
-} 
+}

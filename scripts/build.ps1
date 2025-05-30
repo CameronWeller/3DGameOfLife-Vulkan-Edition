@@ -264,9 +264,8 @@ function Setup-VisualStudioEnvironment {
             }
         }
         
-        # Modified environment variable handling
+        # Fixed environment variable handling
         $windowsKitsRoot = "${env:ProgramFiles(x86)}/Windows Kits/10/bin"
-        $sdkVersions = @()
         
         if (Test-Path $windowsKitsRoot) {
             $sdkVersions = Get-ChildItem -Path $windowsKitsRoot -Filter 10.* | 
@@ -279,15 +278,14 @@ function Setup-VisualStudioEnvironment {
             $sdkBinPath = "${windowsKitsRoot}/${latestSdk}/x64"
             
             if (Test-Path $sdkBinPath) {
+                # Update PATH
                 $env:PATH = "${sdkBinPath};${env:PATH}"
                 
-                # Handle LIB environment variable safely
+                # Handle LIB variable safely
                 $msvcLibPath = "${sdkBinPath}/../Lib"
                 if (Test-Path $msvcLibPath) {
-                    if (-not $env:LIB) {
-                        $env:LIB = ""
-                    }
-                    $env:LIB = "${msvcLibPath};${env:LIB}"
+                    $currentLib = $env:LIB ?? ""
+                    $env:LIB = "${msvcLibPath};${currentLib}"
                 }
             }
         }
@@ -551,15 +549,66 @@ if (-not (Test-Command vcpkg)) {
 # Check for Vulkan SDK
 $vulkanSDK = $env:VULKAN_SDK
 if (-not $vulkanSDK) {
-    Write-Error "VULKAN_SDK environment variable not set. Please install Vulkan SDK."
-    exit 1
+    Write-Host "VULKAN_SDK environment variable not set. Attempting to find Vulkan SDK..." -ForegroundColor Yellow
+    
+    # Common Vulkan SDK installation paths
+    $vulkanPaths = @(
+        "C:\VulkanSDK\1.4.313.0",
+        "C:\VulkanSDK\1.3.290.0",
+        "C:\VulkanSDK\1.3.280.0",
+        "${env:ProgramFiles}\VulkanSDK",
+        "${env:ProgramFiles(x86)}\VulkanSDK"
+    )
+    
+    # Try to find the latest version
+    $foundPath = $null
+    foreach ($basePath in @("C:\VulkanSDK", "${env:ProgramFiles}\VulkanSDK", "${env:ProgramFiles(x86)}\VulkanSDK")) {
+        if (Test-Path $basePath) {
+            $versions = Get-ChildItem $basePath -Directory | Sort-Object Name -Descending
+            if ($versions.Count -gt 0) {
+                $foundPath = $versions[0].FullName
+                break
+            }
+        }
+    }
+    
+    # Fallback to specific paths if auto-detection fails
+    if (-not $foundPath) {
+        foreach ($path in $vulkanPaths) {
+            if (Test-Path $path) {
+                $foundPath = $path
+                break
+            }
+        }
+    }
+    
+    if ($foundPath) {
+        $env:VULKAN_SDK = $foundPath
+        $vulkanSDK = $foundPath
+        Write-Host "✓ Found Vulkan SDK at: $vulkanSDK" -ForegroundColor Green
+    } else {
+        Write-Error "Vulkan SDK not found. Please install Vulkan SDK from https://vulkan.lunarg.com/sdk/home#windows"
+        exit 1
+    }
+} else {
+    Write-Host "✓ Using VULKAN_SDK from environment: $vulkanSDK" -ForegroundColor Green
 }
 
 # Verify Vulkan SDK installation
 $vulkanInclude = Join-Path $vulkanSDK "Include\vulkan"
 if (-not (Test-Path $vulkanInclude)) {
     Write-Error "Vulkan SDK installation appears to be incomplete. Missing: $vulkanInclude"
+    Write-Host "Please reinstall Vulkan SDK from https://vulkan.lunarg.com/sdk/home#windows"
     exit 1
+}
+
+# Verify glslc compiler
+$glslcPath = Join-Path $vulkanSDK "Bin\glslc.exe"
+if (-not (Test-Path $glslcPath)) {
+    Write-Warning "glslc compiler not found at: $glslcPath"
+    Write-Warning "Shader compilation may fail. Please verify Vulkan SDK installation."
+} else {
+    Write-Host "✓ glslc compiler found" -ForegroundColor Green
 }
 
 # Check for HIP SDK
@@ -664,12 +713,12 @@ if (Test-Path $exePath) {
 } else {
     Write-Host "Warning: Could not find the executable at the expected location."
 }
-# Add Vulkan SDK detection
-$vulkanPath = "${env:VULKAN_SDK}"
-if (-not $vulkanPath) {
-    Write-Error "Vulkan SDK not found. Please install and set VULKAN_SDK environment variable"
+# Final Vulkan SDK verification
+if (-not $env:VULKAN_SDK) {
+    Write-Error 'Vulkan SDK configuration failed. Please install Vulkan SDK and restart the script.'
     exit 1
 }
+Write-Host "✓ Vulkan SDK configured: $env:VULKAN_SDK" -ForegroundColor Green
 
 # Add build steps
 cmake -B build -DCMAKE_BUILD_TYPE=Release

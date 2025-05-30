@@ -133,10 +133,3 @@ if(ENABLE_STATIC_ANALYSIS)
 endif()
 message(STATUS "Shaders: compile_shaders, copy_shaders, validate_shaders, clean_shaders")
 message(STATUS "")
-
-# Add new vulkan module sources
-file(GLOB_RECURSE VULKAN_SOURCES "src/vulkan/*.cpp")
-target_sources(${PROJECT_NAME} PRIVATE ${VULKAN_SOURCES})
-
-# Add new include directories
-target_include_directories(${PROJECT_NAME} PRIVATE include/vulkan)
