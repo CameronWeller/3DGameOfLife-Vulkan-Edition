@@ -1,256 +1,233 @@
 # 3D Game of Life - Vulkan Edition
 
-[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
-[![Vulkan](https://img.shields.io/badge/Vulkan-1.3+-red.svg)](https://www.vulkan.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
+A high-performance 3D implementation of Conway's Game of Life using Vulkan compute shaders for GPU-accelerated cellular automata simulation.
 
-A high-performance 3D implementation of Conway's Game of Life using Vulkan compute shaders, featuring real-time visualization and interactive controls.
+## Overview
 
-## 🎯 Overview
+This project extends Conway's classic Game of Life into three dimensions, leveraging the power of Vulkan compute shaders for massive parallel processing. The implementation features real-time 3D visualization, interactive controls, and advanced rendering techniques for exploring complex 3D cellular automata patterns.
 
-This project implements Conway's Game of Life in true 3D space using modern Vulkan compute shaders for maximum performance. Experience cellular automata in three dimensions with real-time visualization, interactive camera controls, and advanced rendering techniques.
+## Features
 
-### Key Features
+### Core Functionality
+- **3D Cellular Automata**: Full 3D implementation of Conway's Game of Life with customizable rules
+- **GPU Acceleration**: Vulkan compute shaders for high-performance parallel simulation
+- **Real-time Visualization**: Interactive 3D rendering with smooth camera controls
+- **Pattern Management**: Load, save, and manage 3D cellular automata patterns
+- **Rule Analysis**: Advanced rule analysis and pattern evolution tracking
 
-- **True 3D Conway's Game of Life** - Cellular automata extended to all three spatial dimensions
-- **Vulkan Compute Shaders** - GPU-accelerated simulation for massive performance
-- **Real-time Visualization** - Dynamic 3D rendering with interactive camera
-- **Pattern Loading** - Support for various 3D cellular automata patterns
-- **Performance Optimized** - Multi-threaded architecture with memory management
-- **Cross-Platform** - Windows, Linux, and macOS support
+### Technical Features
+- **Vulkan Rendering Pipeline**: Modern Vulkan-based graphics and compute pipeline
+- **Memory Management**: Efficient GPU memory management with VMA integration
+- **Shader Hot Reload**: Real-time shader compilation and reloading for development
+- **Multi-threading**: Optimized CPU-GPU workload distribution
+- **Cross-Platform Support**: Windows, Linux, and macOS compatibility
 
-## 🚀 Quick Start
+## Architecture
 
-### Prerequisites
+### Components
+1. **Vulkan Engine**: Core Vulkan context and device management
+2. **Compute Pipeline**: GPU-accelerated cellular automata simulation
+3. **Rendering System**: 3D visualization and camera controls
+4. **Pattern System**: Pattern loading, saving, and management
+5. **UI Framework**: ImGui-based user interface
 
-```bash
-# System Requirements
-- CPU: Modern multi-core processor (Intel/AMD)
-- GPU: Vulkan 1.3+ compatible graphics card
-- RAM: 8GB+ recommended
-- OS: Windows 10+, Linux (Ubuntu 20.04+), or macOS 10.15+
-
-# Development Tools
-- CMake 3.20+
-- C++17 compatible compiler (GCC 9+, Clang 10+, MSVC 2019+)
-- Vulkan SDK 1.3+
+### Data Flow
+```
+3D Grid → Compute Shaders → GPU Simulation → Rendering Pipeline → Display
 ```
 
-### Dependencies
+## Quick Start
 
-The project uses vcpkg for dependency management:
+### Prerequisites
+- **Vulkan SDK**: Version 1.3.0 or higher
+- **CMake**: Version 3.20 or higher
+- **C++ Compiler**: C++17 support required
+- **vcpkg**: For dependency management
+- **GPU**: Vulkan-compatible graphics card
 
-- **GLFW** - Window management and input
-- **GLM** - Mathematics library for graphics
-- **Vulkan SDK** - Graphics and compute API
-- **Dear ImGui** - Immediate mode GUI
-- **VulkanMemoryAllocator** - Efficient GPU memory management
-
-### Building
-
+### Installation
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/3DGameOfLife-Vulkan-Edition.git
+git clone https://github.com/CameronWeller/3DGameOfLife-Vulkan-Edition.git
 cd 3DGameOfLife-Vulkan-Edition
 
 # Install dependencies with vcpkg
-vcpkg install glfw3 glm vulkan vulkan-memory-allocator imgui[glfw-binding,vulkan-binding]
+vcpkg install
 
-# Configure and build
+# Build the project
 mkdir build && cd build
-cmake -DCMAKE_TOOLCHAIN_FILE=[vcpkg root]/scripts/buildsystems/vcpkg.cmake ..
-cmake --build . --config Release
-
-# Run the application
-./3DGameOfLife-Vulkan-Edition
+cmake ..
+cmake --build .
 ```
 
-### Quick Launch
-
+### Running the Application
 ```bash
-# For a minimal build (faster compilation)
-cmake --build . --target 3DGameOfLife-Vulkan-Edition_minimal
+# Run the main application
+./3DGameOfLife-Vulkan-Edition
 
-# Development build with shaders
-cmake --build . --target dev_build
+# Run the minimal version (development)
+./3DGameOfLife-Vulkan-Edition_minimal
 ```
 
-## 🎮 Usage
+## Configuration
 
-### Controls
+### Build Options
+- `BUILD_TESTING`: Enable test suite compilation (default: ON)
+- `ENABLE_STATIC_ANALYSIS`: Enable static analysis tools (default: OFF)
+- `ENABLE_SANITIZERS`: Enable address/memory sanitizers (default: OFF)
+- `ENABLE_COVERAGE`: Enable code coverage reporting (default: OFF)
 
-- **Mouse**: Look around (first-person camera)
+### Runtime Configuration
+- **Grid Size**: Configurable 3D grid dimensions
+- **Simulation Rules**: Customizable birth/survival rules
+- **Rendering Settings**: Quality, performance, and visual options
+- **Camera Controls**: Mouse and keyboard input configuration
+
+## Controls
+
+### Camera
+- **Mouse**: Look around (hold right-click)
 - **WASD**: Move camera position
-- **Space/Shift**: Move up/down
-- **Tab**: Toggle UI visibility
-- **P**: Pause/Resume simulation
-- **R**: Reset simulation
-- **Esc**: Exit application
+- **Scroll**: Zoom in/out
+- **Shift**: Increase movement speed
 
-### User Interface
+### Simulation
+- **Space**: Play/pause simulation
+- **R**: Reset grid
+- **F**: Load pattern file
+- **S**: Save current state
 
-The built-in ImGui interface provides:
-
-- **Simulation Controls**: Play, pause, step, reset
-- **Performance Metrics**: FPS, frame time, memory usage
-- **Grid Configuration**: Size, generation speed, visualization mode
-- **Pattern Library**: Load predefined 3D cellular automata patterns
-- **Rendering Options**: Visualization style, camera settings
-
-## 🏗️ Architecture
-
-### Core Components
-
-```
-3DGameOfLife-Vulkan-Edition/
-├── 🎮 Core Engine              # Main application loop and coordination
-├── 🖥️  Vulkan Rendering        # Graphics pipeline and presentation
-├── ⚡ Compute Pipeline         # Cellular automata simulation
-├── 📷 Camera System           # 3D navigation and view controls  
-├── 🎨 UI Framework            # ImGui integration and interfaces
-├── 💾 Memory Management       # Efficient GPU/CPU memory handling
-├── 🔧 Utilities              # Logging, configuration, helpers
-└── 🧪 Testing Suite          # Unit and integration tests
-```
-
-### Vulkan Pipeline
-
-1. **Compute Stage**: GPU kernels process cellular automata rules
-2. **Graphics Stage**: Vertex/fragment shaders render the 3D grid
-3. **Present Stage**: Display results with UI overlay
-
-### Performance Features
-
-- **Sparse Grid Optimization** - Only active regions are processed
-- **Memory Pooling** - Efficient GPU memory allocation and reuse
-- **Multi-frame Buffering** - Smooth rendering without stalls
-- **Frustum Culling** - Only visible cells are rendered
-- **Level-of-Detail** - Adaptive quality based on camera distance
-
-## 🔬 Cellular Automata Rules
-
-### Standard 3D Conway's Rules
-
-The 3D extension follows these principles:
-
-- **Survival**: A live cell survives if it has 4-5 live neighbors
-- **Birth**: A dead cell becomes alive if it has exactly 5 live neighbors  
-- **Neighborhood**: 26 adjacent cells (3x3x3 cube minus center)
-
-### Custom Rule Support
-
-- Configurable survival/birth conditions
-- Support for multiple rule variants (3D Day & Night, 3D Seeds, etc.)
-- Pattern file format for sharing configurations
-
-## 🎨 Visualization Modes
-
-- **Solid Cubes**: Traditional cubic cell representation
-- **Point Cloud**: Lightweight particle-based rendering
-- **Wireframe**: Structural visualization for analysis
-- **Heat Map**: Color-coded by cell age or activity
-- **Slice View**: 2D cross-sections for detailed inspection
-
-## 🛠️ Development
+## Development
 
 ### Building Components
-
 ```bash
-# Build specific targets
-cmake --build . --target core_engine        # Core functionality
-cmake --build . --target rendering          # Graphics pipeline
-cmake --build . --target compute           # Simulation engine
-cmake --build . --target game_logic        # Cellular automata rules
-cmake --build . --target ui                # User interface
+# Build main executable
+cmake --build . --target 3DGameOfLife-Vulkan-Edition
 
-# Development utilities
-cmake --build . --target compile_shaders   # Shader compilation
-cmake --build . --target quick_test        # Run unit tests
-cmake --build . --target clang-tidy        # Static analysis
+# Build minimal version
+cmake --build . --target 3DGameOfLife-Vulkan-Edition_minimal
+
+# Compile shaders
+cmake --build . --target compile_shaders
+
+# Run tests
+cmake --build . --target test_all
 ```
 
-### Testing
+### Project Structure
+```
+src/
+├── main.cpp                 # Main application entry
+├── main_minimal.cpp         # Minimal Vulkan application
+├── VulkanContext.cpp        # Core Vulkan management
+├── VulkanEngine.cpp         # High-level engine
+├── Grid3D.cpp              # 3D cellular automata logic
+├── Camera.cpp              # 3D camera implementation
+├── vulkan/
+│   ├── resources/          # Vulkan resource management
+│   ├── compute/            # Compute shader pipeline
+│   └── rendering/          # Rendering pipeline
+├── ui/                     # User interface
+└── ...
 
-```bash
-# Run all tests
-ctest --output-on-failure
+include/
+├── vulkan/                 # Vulkan headers
+├── game/                   # Game logic headers
+└── ...
 
-# Specific test categories
-ctest -L unit           # Unit tests only
-ctest -L integration    # Integration tests
-ctest -L benchmark      # Performance benchmarks
+shaders/
+├── game_of_life.comp       # Main compute shader
+├── vertex.vert            # Vertex shader
+└── fragment.frag          # Fragment shader
 ```
 
-### Code Quality
+### Adding New Features
+1. Implement core logic in appropriate source files
+2. Add compute shaders for GPU acceleration
+3. Update CMakeLists.txt for new components
+4. Add tests in the `tests/` directory
+5. Update documentation
 
+## Testing
+
+### Running Tests
 ```bash
-# Static analysis
-cmake --build . --target clang-tidy
-cmake --build . --target cppcheck
+# All tests
+cmake --build . --target test_all
 
-# Code formatting
-cmake --build . --target format
+# Unit tests only
+cmake --build . --target test_unit
 
-# Memory checking (Linux)
-cmake --build . --target memcheck
+# Integration tests
+cmake --build . --target test_integration
+
+# Performance benchmarks
+cmake --build . --target run_benchmarks
 ```
 
-## 📊 Performance
+### Test Categories
+- **Unit Tests**: Component-level testing
+- **Integration Tests**: Full pipeline testing
+- **Performance Tests**: GPU performance benchmarks
+- **Vulkan Tests**: Vulkan API validation
 
-### Benchmark Results
+## Contributing
 
-| Grid Size | Cells Active | FPS (RTX 3070) | FPS (GTX 1060) |
-|-----------|--------------|----------------|----------------|
-| 64³       | ~50K         | 240+           | 120+           |
-| 128³      | ~200K        | 165+           | 80+            |
-| 256³      | ~800K        | 85+            | 35+            |
-| 512³      | ~3.2M        | 25+            | 12+            |
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
-*Results vary based on pattern complexity and hardware configuration*
+### Development Workflow
+1. Fork the repository
+2. Create a feature branch
+3. Implement changes with tests
+4. Run static analysis and tests
+5. Submit a pull request
 
-### Optimization Features
-
-- **GPU Compute**: 100x+ faster than CPU implementation
-- **Memory Efficiency**: <500MB for 256³ grid
-- **Adaptive Quality**: Maintains 60+ FPS through LOD
-- **Multi-threading**: Background tasks don't block rendering
-
-## 🤝 Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Development Setup
-
-```bash
-# Install development dependencies
-vcpkg install catch2 benchmark
-
-# Setup git hooks
-git config core.hooksPath scripts/hooks
-
-# Configure development build
-cmake -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON ..
-```
-
-## 📜 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🔗 Related Projects
+## Technical Details
 
-- **Conway's Game of Life** - Original 2D cellular automaton
-- **Vulkan Samples** - Learning resources for Vulkan API
-- **Cellular Automata Research** - Academic papers and implementations
+### Performance
+- **Grid Sizes**: Supports grids up to 512³ cells
+- **Frame Rate**: 60+ FPS for typical simulations
+- **Memory Usage**: Optimized GPU memory allocation
+- **Compute Performance**: Millions of cells per second
 
-## 📞 Support
+### Vulkan Features
+- **Compute Shaders**: GPU-accelerated cellular automata
+- **Memory Management**: VMA for efficient allocation
+- **Synchronization**: Proper GPU-CPU synchronization
+- **Validation Layers**: Development debugging support
 
-- **Documentation**: [docs/](docs/)
-- **Issues**: [GitHub Issues](https://github.com/yourusername/3DGameOfLife-Vulkan-Edition/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/3DGameOfLife-Vulkan-Edition/discussions)
+### 3D Visualization
+- **Volumetric Rendering**: 3D cell visualization
+- **Interactive Camera**: Full 6DOF camera controls
+- **Level-of-Detail**: Optimized rendering for large grids
+- **Pattern Visualization**: Highlight interesting structures
 
----
+## Support
 
-**Built with ⚡ Vulkan for maximum performance**
+- **Issues**: [GitHub Issues](https://github.com/CameronWeller/3DGameOfLife-Vulkan-Edition/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/CameronWeller/3DGameOfLife-Vulkan-Edition/discussions)
+- **Documentation**: Check the `docs/` directory
 
-*Exploring cellular automata in three dimensions*
+## Roadmap
+
+### Phase 1 (Current)
+- [x] Basic Vulkan setup and context
+- [x] Minimal rendering pipeline
+- [x] Compute shader infrastructure
+- [ ] Complete 3D Game of Life implementation
+
+### Phase 2
+- [ ] Advanced visualization features
+- [ ] Pattern library and management
+- [ ] Performance optimizations
+- [ ] Extended rule sets
+
+### Phase 3
+- [ ] Multi-GPU support
+- [ ] Advanced rendering techniques
+- [ ] Pattern analysis tools
+- [ ] Interactive rule editing

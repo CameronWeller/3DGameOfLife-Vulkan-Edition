@@ -1,0 +1,63 @@
+{
+  "name": "3d-game-of-life-vulkan-edition",
+  "version": "1.0.0",
+  "description": "3D Conway's Game of Life implemented with Vulkan compute shaders for GPU-accelerated cellular automata simulation",
+  "private": true,
+  "scripts": {
+    "build": "cmake --build build",
+    "build:release": "cmake --build build --config Release",
+    "build:debug": "cmake --build build --config Debug",
+    "configure": "cmake -B build -S .",
+    "configure:release": "cmake -B build -S . -DCMAKE_BUILD_TYPE=Release",
+    "configure:debug": "cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug",
+    "clean": "cmake --build build --target clean",
+    "rebuild": "npm run clean && npm run build",
+    "test": "cd build && ctest --output-on-failure",
+    "test:unit": "cd build && ctest -L unit --output-on-failure",
+    "test:integration": "cd build && ctest -L integration --output-on-failure",
+    "benchmark": "cd build && ctest -L benchmark --output-on-failure",
+    "shaders": "cmake --build build --target compile_shaders",
+    "docs": "doxygen Doxyfile",
+    "lint": "cmake --build build --target clang-tidy",
+    "format": "find src include -name '*.cpp' -o -name '*.h' -o -name '*.hpp' | xargs clang-format -i",
+    "setup": "vcpkg install && npm run configure"
+  },
+  "keywords": [
+    "vulkan",
+    "3d",
+    "game-of-life",
+    "cellular-automata",
+    "compute-shader",
+    "gpu",
+    "simulation",
+    "graphics",
+    "cpp",
+    "cmake"
+  ],
+  "author": "Cameron Weller <cwelleron@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CameronWeller/3DGameOfLife-Vulkan-Edition.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CameronWeller/3DGameOfLife-Vulkan-Edition/issues"
+  },
+  "homepage": "https://github.com/CameronWeller/3DGameOfLife-Vulkan-Edition#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "devDependencies": {
+    "prettier": "^2.8.8"
+  },
+  "files": [
+    "src",
+    "include",
+    "shaders",
+    "cmake",
+    "CMakeLists.txt",
+    "vcpkg.json",
+    "README.md",
+    "LICENSE"
+  ]
+} 
