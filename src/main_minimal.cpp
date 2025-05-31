@@ -225,6 +225,9 @@ private:
         // Query swapchain support
         SwapChainSupportDetails swapChainSupport = vulkanContext->querySwapChainSupport(vulkanContext->getPhysicalDevice());
         
+        std::cout << "Available formats: " << swapChainSupport.formats.size() << std::endl;
+        std::cout << "Available present modes: " << swapChainSupport.presentModes.size() << std::endl;
+        
         VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
         VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
         VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
@@ -233,6 +236,9 @@ private:
         if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
             imageCount = swapChainSupport.capabilities.maxImageCount;
         }
+        
+        std::cout << "Creating swapchain with " << imageCount << " images" << std::endl;
+        std::cout << "Swapchain extent: " << extent.width << "x" << extent.height << std::endl;
         
         VkSwapchainCreateInfoKHR createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -266,14 +272,22 @@ private:
         }
         
         // Get swapchain images
-        vkGetSwapchainImagesKHR(vulkanContext->getDevice(), swapchain, &imageCount, nullptr);
-        swapchainImages.resize(imageCount);
-        vkGetSwapchainImagesKHR(vulkanContext->getDevice(), swapchain, &imageCount, swapchainImages.data());
+        uint32_t actualImageCount;
+        vkGetSwapchainImagesKHR(vulkanContext->getDevice(), swapchain, &actualImageCount, nullptr);
+        std::cout << "Actual swapchain image count: " << actualImageCount << std::endl;
+        
+        if (actualImageCount == 0) {
+            throw std::runtime_error("Swapchain created with 0 images!");
+        }
+        
+        swapchainImages.resize(actualImageCount);
+        vkGetSwapchainImagesKHR(vulkanContext->getDevice(), swapchain, &actualImageCount, swapchainImages.data());
         
         swapchainImageFormat = surfaceFormat.format;
         swapchainExtent = extent;
         
-        std::cout << "Swapchain created with " << imageCount << " images" << std::endl;
+        std::cout << "Swapchain created successfully with " << actualImageCount << " images" << std::endl;
+        std::cout << "swapchainImages.size(): " << swapchainImages.size() << std::endl;
     }
     
     VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) {
@@ -540,8 +554,8 @@ private:
     }
     
     void createCommandBuffers() {
-        size_t imageCount = swapchainImages.size();
-        commandBuffers.resize(imageCount);
+        // Size command buffers to MAX_FRAMES_IN_FLIGHT instead of swapchain image count
+        commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
         
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -553,15 +567,22 @@ private:
             throw std::runtime_error("Failed to allocate command buffers!");
         }
         
-        // Record command buffers
-        for (size_t i = 0; i < commandBuffers.size(); i++) {
-            recordCommandBuffer(commandBuffers[i], i);
-        }
-        
-        std::cout << "Command buffers created and recorded" << std::endl;
+        // Command buffers will be recorded per frame in renderFrame()
+        std::cout << "Command buffers allocated for " << MAX_FRAMES_IN_FLIGHT << " frames" << std::endl;
     }
     
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+        // Add bounds checking to prevent vector subscript out of range
+        if (imageIndex >= framebuffers.size()) {
+            throw std::runtime_error("Image index out of range! imageIndex: " + std::to_string(imageIndex) + 
+                                    ", framebuffers.size(): " + std::to_string(framebuffers.size()));
+        }
+        
+        if (currentFrame >= descriptorSets.size()) {
+            throw std::runtime_error("Current frame index out of range! currentFrame: " + std::to_string(currentFrame) + 
+                                    ", descriptorSets.size(): " + std::to_string(descriptorSets.size()));
+        }
+        
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         
@@ -591,8 +612,8 @@ private:
         VkDeviceSize offsets[] = {0};
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
         
-        // Bind descriptor set (will be updated for each frame in renderFrame)
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[imageIndex], 0, nullptr);
+        // Bind descriptor set (use currentFrame index instead of imageIndex)
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
         
         // Draw cube (36 vertices for 12 triangles)
         vkCmdDraw(commandBuffer, static_cast<uint32_t>(cubeIndices.size()), 1, 0, 0);
@@ -649,6 +670,23 @@ private:
     }
     
     void renderFrame() {
+        // Add bounds checking for all vector accesses
+        if (currentFrame >= MAX_FRAMES_IN_FLIGHT) {
+            throw std::runtime_error("Current frame index out of range! currentFrame: " + std::to_string(currentFrame) + 
+                                    ", MAX_FRAMES_IN_FLIGHT: " + std::to_string(MAX_FRAMES_IN_FLIGHT));
+        }
+        
+        if (currentFrame >= inFlightFences.size() || 
+            currentFrame >= imageAvailableSemaphores.size() || 
+            currentFrame >= renderFinishedSemaphores.size() ||
+            currentFrame >= commandBuffers.size()) {
+            throw std::runtime_error("Current frame index exceeds vector sizes! currentFrame: " + std::to_string(currentFrame) +
+                                    ", inFlightFences.size(): " + std::to_string(inFlightFences.size()) +
+                                    ", imageAvailableSemaphores.size(): " + std::to_string(imageAvailableSemaphores.size()) +
+                                    ", renderFinishedSemaphores.size(): " + std::to_string(renderFinishedSemaphores.size()) +
+                                    ", commandBuffers.size(): " + std::to_string(commandBuffers.size()));
+        }
+        
         // Wait for the previous frame to finish
         vkWaitForFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
         vkResetFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame]);
@@ -666,6 +704,10 @@ private:
         // Update uniform buffer
         updateUniformBuffer(currentFrame);
         
+        // Reset and record command buffer for this frame
+        vkResetCommandBuffer(commandBuffers[currentFrame], 0);
+        recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
+        
         // Submit command buffer
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -676,7 +718,7 @@ private:
         submitInfo.pWaitSemaphores = waitSemaphores;
         submitInfo.pWaitDstStageMask = waitStages;
         submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &commandBuffers[imageIndex];
+        submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
         
         VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
         submitInfo.signalSemaphoreCount = 1;
@@ -951,6 +993,12 @@ private:
     }
     
     void updateUniformBuffer(uint32_t currentImage) {
+        // Add bounds checking for uniform buffer access
+        if (currentImage >= uniformBuffersMapped.size()) {
+            throw std::runtime_error("Current image index out of range for uniform buffers! currentImage: " + std::to_string(currentImage) + 
+                                    ", uniformBuffersMapped.size(): " + std::to_string(uniformBuffersMapped.size()));
+        }
+        
         auto currentTime = std::chrono::steady_clock::now();
         float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
         
