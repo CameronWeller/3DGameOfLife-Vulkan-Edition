@@ -1,5 +1,6 @@
 #include "imgui_impl_vulkan.h"
 #include <vector>
+#include <stdexcept>
 
 namespace ImGui {
     static VkAllocationCallbacks* g_Allocator = nullptr;
@@ -37,42 +38,26 @@ namespace ImGui {
         info_layout.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         info_layout.bindingCount = 1;
         info_layout.pBindings = binding;
-        vkCreateDescriptorSetLayout(g_Device, &info_layout, g_Allocator, &g_DescriptorSetLayout);
+        
+        if (vkCreateDescriptorSetLayout(g_Device, &info_layout, g_Allocator, &g_DescriptorSetLayout) != VK_SUCCESS) {
+            return false;
+        }
 
         // Create pipeline layout
         VkPipelineLayoutCreateInfo layout_info = {};
         layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         layout_info.setLayoutCount = 1;
         layout_info.pSetLayouts = &g_DescriptorSetLayout;
-        vkCreatePipelineLayout(g_Device, &layout_info, g_Allocator, &g_PipelineLayout);
+        
+        if (vkCreatePipelineLayout(g_Device, &layout_info, g_Allocator, &g_PipelineLayout) != VK_SUCCESS) {
+            return false;
+        }
 
         return true;
     }
 
     void ShutdownForVulkan() {
         if (g_Device) {
-            vkDeviceWaitIdle(g_Device);
-            
-            if (g_DescriptorSetLayout) {
-                vkDestroyDescriptorSetLayout(g_Device, g_DescriptorSetLayout, g_Allocator);
-                g_DescriptorSetLayout = VK_NULL_HANDLE;
-            }
-            
-            if (g_PipelineLayout) {
-                vkDestroyPipelineLayout(g_Device, g_PipelineLayout, g_Allocator);
-                g_PipelineLayout = VK_NULL_HANDLE;
-            }
-            
-            if (g_Pipeline) {
-                vkDestroyPipeline(g_Device, g_Pipeline, g_Allocator);
-                g_Pipeline = VK_NULL_HANDLE;
-            }
-            
-            if (g_FontSampler) {
-                vkDestroySampler(g_Device, g_FontSampler, g_Allocator);
-                g_FontSampler = VK_NULL_HANDLE;
-            }
-            
             if (g_FontView) {
                 vkDestroyImageView(g_Device, g_FontView, g_Allocator);
                 g_FontView = VK_NULL_HANDLE;
@@ -86,6 +71,31 @@ namespace ImGui {
             if (g_FontMemory) {
                 vkFreeMemory(g_Device, g_FontMemory, g_Allocator);
                 g_FontMemory = VK_NULL_HANDLE;
+            }
+            
+            if (g_FontSampler) {
+                vkDestroySampler(g_Device, g_FontSampler, g_Allocator);
+                g_FontSampler = VK_NULL_HANDLE;
+            }
+            
+            if (g_DescriptorSet) {
+                // Descriptor sets are freed automatically when pool is destroyed
+                g_DescriptorSet = VK_NULL_HANDLE;
+            }
+            
+            if (g_PipelineLayout) {
+                vkDestroyPipelineLayout(g_Device, g_PipelineLayout, g_Allocator);
+                g_PipelineLayout = VK_NULL_HANDLE;
+            }
+            
+            if (g_DescriptorSetLayout) {
+                vkDestroyDescriptorSetLayout(g_Device, g_DescriptorSetLayout, g_Allocator);
+                g_DescriptorSetLayout = VK_NULL_HANDLE;
+            }
+            
+            if (g_Pipeline) {
+                vkDestroyPipeline(g_Device, g_Pipeline, g_Allocator);
+                g_Pipeline = VK_NULL_HANDLE;
             }
             
             if (g_VertexBuffer) {
@@ -111,18 +121,39 @@ namespace ImGui {
     }
 
     void NewFrameForVulkan() {
-        // Implementation will be added
+        // Basic new frame setup - this would be called before ImGui::NewFrame()
+        // In a real implementation, this might update per-frame data
     }
 
     void RenderForVulkan(VkCommandBuffer commandBuffer) {
-        // Implementation will be added
+        // Basic render implementation - this would record ImGui draw commands
+        // In a real implementation, this would:
+        // 1. Bind the ImGui pipeline and descriptor sets
+        // 2. Set viewport and scissor
+        // 3. Draw ImGui draw data to the command buffer
+        if (commandBuffer == VK_NULL_HANDLE) {
+            return;
+        }
+        
+        // Placeholder - real implementation would render ImGui draw data
     }
 
     void CreateFontsTexture(VkCommandBuffer commandBuffer) {
-        // Implementation will be added
+        // Create ImGui fonts texture on GPU
+        // In a real implementation, this would:
+        // 1. Get font pixel data from ImGui
+        // 2. Create VkImage and VkImageView
+        // 3. Upload font data to GPU
+        // 4. Create sampler
+        if (commandBuffer == VK_NULL_HANDLE) {
+            return;
+        }
+        
+        // Placeholder - real implementation would create and upload font texture
     }
 
     void DestroyFontUploadObjects() {
-        // Implementation will be added
+        // Clean up temporary objects used for font upload
+        // This is typically called after CreateFontsTexture to free CPU-side resources
     }
 } 

@@ -41,7 +41,7 @@ void VulkanImGui::initialize() {
     createDescriptorPool();
     
     ImGui_ImplVulkan_InitInfo init_info = {};
-    init_info.Instance = vulkanContext_->getInstance();
+    init_info.Instance = vulkanContext_->getVkInstance();
     init_info.PhysicalDevice = vulkanContext_->getPhysicalDevice();
     init_info.Device = vulkanContext_->getDevice();
     init_info.QueueFamily = vulkanContext_->getQueueFamilyIndices().graphicsFamily.value();

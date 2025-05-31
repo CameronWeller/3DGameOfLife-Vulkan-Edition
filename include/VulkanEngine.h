@@ -36,6 +36,8 @@
 #include "Grid3D.h"
 #include "vulkan/resources/VulkanBufferManager.h"
 #include "vulkan/rendering/VoxelRenderer.h"
+#include "VulkanError.h"
+#include "VoxelData.h"
 
 namespace VulkanHIP {
 
@@ -133,35 +135,6 @@ struct ComputePipelineInfo {
     GameOfLifePushConstants pushConstants;
 };
 
-class VulkanError : public std::runtime_error {
-public:
-    explicit VulkanError(VkResult result, const std::string& message)
-        : std::runtime_error(message), result_(result) {}
-    
-    VkResult getResult() const { return result_; }
-    
-private:
-    VkResult result_;
-};
-
-class ValidationError : public VulkanError {
-public:
-    explicit ValidationError(const std::string& message)
-        : VulkanError(VK_ERROR_VALIDATION_FAILED_EXT, "Validation Error: " + message) {}
-};
-
-class DeviceLostError : public VulkanError {
-public:
-    explicit DeviceLostError(const std::string& message)
-        : VulkanError(VK_ERROR_DEVICE_LOST, "Device Lost: " + message) {}
-};
-
-class OutOfMemoryError : public VulkanError {
-public:
-    explicit OutOfMemoryError(const std::string& message)
-        : VulkanError(VK_ERROR_OUT_OF_DEVICE_MEMORY, "Out of Memory: " + message) {}
-};
-
 /**
  * @brief Helper macros for Vulkan error checking
  */
@@ -171,14 +144,14 @@ public:
         std::string errorMsg = "Vulkan error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__); \
         switch (err) { \
             case VK_ERROR_VALIDATION_FAILED_EXT: \
-                throw ValidationError(errorMsg); \
+                throw VulkanHIP::ValidationError(errorMsg); \
             case VK_ERROR_DEVICE_LOST: \
-                throw DeviceLostError(errorMsg); \
+                throw VulkanHIP::DeviceLostError(errorMsg); \
             case VK_ERROR_OUT_OF_DEVICE_MEMORY: \
             case VK_ERROR_OUT_OF_HOST_MEMORY: \
-                throw OutOfMemoryError(errorMsg); \
+                throw VulkanHIP::OutOfMemoryError(errorMsg); \
             default: \
-                throw VulkanError(err, errorMsg); \
+                throw VulkanHIP::VulkanError(err, errorMsg); \
         } \
     } \
 } while(0)
@@ -188,44 +161,6 @@ public:
  */
 inline bool isVulkanError(VkResult result) {
     return result < 0;
-}
-
-/**
- * @brief Helper function to get a string description of a Vulkan result
- */
-inline std::string getVulkanResultString(VkResult result) {
-    switch (result) {
-        case VK_SUCCESS: return "VK_SUCCESS";
-        case VK_NOT_READY: return "VK_NOT_READY";
-        case VK_TIMEOUT: return "VK_TIMEOUT";
-        case VK_EVENT_SET: return "VK_EVENT_SET";
-        case VK_EVENT_RESET: return "VK_EVENT_RESET";
-        case VK_INCOMPLETE: return "VK_INCOMPLETE";
-        case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
-        case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
-        case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
-        case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
-        case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
-        case VK_ERROR_LAYER_NOT_PRESENT: return "VK_ERROR_LAYER_NOT_PRESENT";
-        case VK_ERROR_EXTENSION_NOT_PRESENT: return "VK_ERROR_EXTENSION_NOT_PRESENT";
-        case VK_ERROR_FEATURE_NOT_PRESENT: return "VK_ERROR_FEATURE_NOT_PRESENT";
-        case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
-        case VK_ERROR_TOO_MANY_OBJECTS: return "VK_ERROR_TOO_MANY_OBJECTS";
-        case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED";
-        case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
-        case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY";
-        case VK_ERROR_INVALID_EXTERNAL_HANDLE: return "VK_ERROR_INVALID_EXTERNAL_HANDLE";
-        case VK_ERROR_FRAGMENTATION: return "VK_ERROR_FRAGMENTATION";
-        case VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS: return "VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS";
-        case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR";
-        case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR: return "VK_ERROR_NATIVE_WINDOW_IN_USE_KHR";
-        case VK_SUBOPTIMAL_KHR: return "VK_SUBOPTIMAL_KHR";
-        case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
-        case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR: return "VK_ERROR_INCOMPATIBLE_DISPLAY_KHR";
-        case VK_ERROR_VALIDATION_FAILED_EXT: return "VK_ERROR_VALIDATION_FAILED_EXT";
-        case VK_ERROR_INVALID_SHADER_NV: return "VK_ERROR_INVALID_SHADER_NV";
-        default: return "Unknown error";
-    }
 }
 
 /**
@@ -412,7 +347,7 @@ private:
     VoxelData loadedVoxelData_;
     VkBuffer voxelInstanceBuffer_ = VK_NULL_HANDLE;
     VmaAllocation voxelInstanceBufferAllocation_ = VK_NULL_HANDLE;
-    std::vector<VulkanHIP::VoxelInstance> voxelInstances_;
+    std::vector<VoxelInstance> voxelInstances_;
 
     // Timing
     std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();

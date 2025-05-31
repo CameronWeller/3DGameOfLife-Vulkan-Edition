@@ -1,6 +1,7 @@
 #include "VoxelData.h"
 #include <fstream>
 #include <algorithm>
+#include <cmath>
 
 void VoxelData::addVoxel(const Voxel& voxel) {
     // Check if voxel already exists at this position
@@ -28,6 +29,65 @@ void VoxelData::removeVoxel(const glm::vec3& position) {
 
 void VoxelData::clear() {
     voxels_.clear();
+}
+
+bool VoxelData::getVoxel(uint32_t x, uint32_t y, uint32_t z) const {
+    glm::vec3 pos(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+    auto it = std::find_if(voxels_.begin(), voxels_.end(),
+        [&pos](const Voxel& v) {
+            return v.position == pos && v.active;
+        });
+    return it != voxels_.end();
+}
+
+void VoxelData::setVoxel(uint32_t x, uint32_t y, uint32_t z, bool active) {
+    glm::vec3 pos(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+    auto it = std::find_if(voxels_.begin(), voxels_.end(),
+        [&pos](const Voxel& v) {
+            return v.position == pos;
+        });
+    
+    if (it != voxels_.end()) {
+        it->active = active;
+        if (!active) {
+            voxels_.erase(it);
+        }
+    } else if (active) {
+        Voxel newVoxel;
+        newVoxel.position = pos;
+        newVoxel.active = true;
+        newVoxel.color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f); // Default white
+        newVoxel.type = 0;
+        voxels_.push_back(newVoxel);
+    }
+}
+
+glm::vec3 VoxelData::getCenter() const {
+    if (voxels_.empty()) {
+        return glm::vec3(0.0f);
+    }
+    
+    glm::vec3 sum(0.0f);
+    for (const auto& voxel : voxels_) {
+        sum += voxel.position;
+    }
+    return sum / static_cast<float>(voxels_.size());
+}
+
+float VoxelData::getBoundingRadius() const {
+    if (voxels_.empty()) {
+        return 0.0f;
+    }
+    
+    glm::vec3 center = getCenter();
+    float maxDistance = 0.0f;
+    
+    for (const auto& voxel : voxels_) {
+        float distance = glm::length(voxel.position - center);
+        maxDistance = std::max(maxDistance, distance);
+    }
+    
+    return maxDistance;
 }
 
 nlohmann::json VoxelData::toJson() const {
