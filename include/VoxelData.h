@@ -37,7 +37,7 @@ struct Voxel {
 class VoxelData {
 public:
     VoxelData() = default;
-    VoxelData(const glm::ivec3& dimensions) : dimensions_(dimensions) {}
+    VoxelData(const glm::ivec3& dims) : dimensions(dims) {}
     ~VoxelData() = default;
 
     // Voxel management
@@ -47,13 +47,23 @@ public:
     size_t getVoxelCount() const { return voxels_.size(); }
     const std::vector<Voxel>& getVoxels() const { return voxels_; }
     
-    // Missing methods referenced in the code
-    bool getVoxel(int x, int y, int z) const;
+    // Grid-based access methods
     void setVoxel(int x, int y, int z, bool active);
-    glm::ivec3 dimensions = glm::ivec3(64, 64, 64);  // Default dimensions
+    void setVoxel(const glm::ivec3& pos, bool active);
+    bool getVoxel(int x, int y, int z) const;
+    bool getVoxel(const glm::ivec3& pos) const;
+    
+    // Grid properties
+    glm::ivec3 dimensions{64, 64, 64};
+    void setDimensions(const glm::ivec3& dims) { dimensions = dims; }
+    glm::ivec3 getDimensions() const { return dimensions; }
+    
+    // Active voxel iteration
+    std::vector<Voxel> getActiveVoxels() const;
+    
+    // Spatial properties
     glm::vec3 getCenter() const;
     float getBoundingRadius() const;
-    std::vector<Voxel> getActiveVoxels() const;
 
     // Serialization
     nlohmann::json toJson() const;
@@ -65,5 +75,4 @@ public:
 
 private:
     std::vector<Voxel> voxels_;
-    glm::ivec3 dimensions_ = glm::ivec3(64, 64, 64);
 }; 
