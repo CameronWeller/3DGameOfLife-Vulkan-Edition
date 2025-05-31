@@ -1,7 +1,7 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
-#include <vk_mem_alloc.h>
+#include <vma/vk_mem_alloc.h>
 #include <vector>
 #include <memory>
 #include <mutex>
@@ -84,8 +84,24 @@ public:
         ~DoubleBuffer() = default;
         DoubleBuffer(const DoubleBuffer&) = delete;
         DoubleBuffer& operator=(const DoubleBuffer&) = delete;
-        DoubleBuffer(DoubleBuffer&&) = default;
-        DoubleBuffer& operator=(DoubleBuffer&&) = default;
+        
+        // Custom move constructor - mutex can't be moved, so we'll leave it default-constructed
+        DoubleBuffer(DoubleBuffer&& other) noexcept 
+            : buffers{std::move(other.buffers[0]), std::move(other.buffers[1])},
+              currentBuffer(other.currentBuffer) {
+            other.currentBuffer = 0;
+        }
+        
+        // Custom move assignment
+        DoubleBuffer& operator=(DoubleBuffer&& other) noexcept {
+            if (this != &other) {
+                buffers[0] = std::move(other.buffers[0]);
+                buffers[1] = std::move(other.buffers[1]);
+                currentBuffer = other.currentBuffer;
+                other.currentBuffer = 0;
+            }
+            return *this;
+        }
 
         void swap() {
             std::lock_guard<std::mutex> lock(bufferMutex);
@@ -130,6 +146,40 @@ public:
         std::mutex bufferMutex;
 
         StreamingBuffer() : size(0), offset(0), inUse(false), frameIndex(0) {}
+        
+        // Delete copy operations
+        StreamingBuffer(const StreamingBuffer&) = delete;
+        StreamingBuffer& operator=(const StreamingBuffer&) = delete;
+        
+        // Custom move constructor - mutex can't be moved
+        StreamingBuffer(StreamingBuffer&& other) noexcept
+            : buffer(std::move(other.buffer)),
+              size(other.size),
+              offset(other.offset),
+              inUse(other.inUse),
+              frameIndex(other.frameIndex) {
+            other.size = 0;
+            other.offset = 0;
+            other.inUse = false;
+            other.frameIndex = 0;
+        }
+        
+        // Custom move assignment
+        StreamingBuffer& operator=(StreamingBuffer&& other) noexcept {
+            if (this != &other) {
+                buffer = std::move(other.buffer);
+                size = other.size;
+                offset = other.offset;
+                inUse = other.inUse;
+                frameIndex = other.frameIndex;
+                
+                other.size = 0;
+                other.offset = 0;
+                other.inUse = false;
+                other.frameIndex = 0;
+            }
+            return *this;
+        }
     };
 
     // Enhanced memory pool with size-based allocation
@@ -218,6 +268,15 @@ public:
             return currentMemoryUsage;
         }
 
+        void reset() {
+            std::lock_guard<std::mutex> lock(statsMutex);
+            totalAllocations = 0;
+            totalDeallocations = 0;
+            peakMemoryUsage = 0;
+            currentMemoryUsage = 0;
+            lastReset = std::chrono::steady_clock::now();
+        }
+
     private:
         size_t totalAllocations;
         size_t totalDeallocations;
@@ -231,9 +290,31 @@ public:
     struct TimelineSemaphore {
         VkSemaphore semaphore;
         uint64_t currentValue;
-        std::mutex semaphoreMutex;
+        mutable std::mutex semaphoreMutex;
 
         TimelineSemaphore() : semaphore(VK_NULL_HANDLE), currentValue(0) {}
+        
+        // Delete copy operations
+        TimelineSemaphore(const TimelineSemaphore&) = delete;
+        TimelineSemaphore& operator=(const TimelineSemaphore&) = delete;
+        
+        // Custom move constructor - mutex can't be moved
+        TimelineSemaphore(TimelineSemaphore&& other) noexcept
+            : semaphore(other.semaphore), currentValue(other.currentValue) {
+            other.semaphore = VK_NULL_HANDLE;
+            other.currentValue = 0;
+        }
+        
+        // Custom move assignment
+        TimelineSemaphore& operator=(TimelineSemaphore&& other) noexcept {
+            if (this != &other) {
+                semaphore = other.semaphore;
+                currentValue = other.currentValue;
+                other.semaphore = VK_NULL_HANDLE;
+                other.currentValue = 0;
+            }
+            return *this;
+        }
     };
 
     VulkanMemoryManager(VkDevice device, VkPhysicalDevice physicalDevice);
@@ -316,7 +397,7 @@ public:
 
     // Methods for performance monitoring
     void resetMemoryStats();
-    MemoryStats getMemoryStats() const;
+    const MemoryStats& getMemoryStats() const;
     void updateMemoryStats(size_t allocationSize, bool isAllocation);
 
     // Methods for timeline semaphores
@@ -362,7 +443,7 @@ private:
     std::mutex semaphoreMutex_;
 
     // Memory pools
-    std::vector<MemoryPool*> memoryPools_;
+    std::vector<std::unique_ptr<MemoryPool>> memoryPools_;
     std::mutex memoryPoolsMutex_;
     
     // Staging buffers

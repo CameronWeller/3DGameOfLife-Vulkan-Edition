@@ -1,5 +1,7 @@
 #include "ui/MenuSystem.h"
 
+namespace VulkanHIP {
+
 MenuSystem::MenuSystem() {
     // Implementation
 }
@@ -15,3 +17,5 @@ void MenuSystem::render() {
 void MenuSystem::update() {
     // Update menu state
 }
+
+} // namespace VulkanHIP

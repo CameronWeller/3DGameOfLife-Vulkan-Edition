@@ -577,14 +577,14 @@ void VulkanMemoryManager::generateMipmaps(VkImage image, VkFormat imageFormat,
 VulkanMemoryManager::DoubleBuffer VulkanMemoryManager::createDoubleBuffer(
     VkDeviceSize size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage) {
     
-    DoubleBuffer doubleBuffer;
+    DoubleBuffer result;
     
-    // Create both buffers
-    for (int i = 0; i < 2; i++) {
-        doubleBuffer.buffers[i] = createBuffer(size, usage, memoryUsage);
-    }
+    // Create both buffers directly into the result
+    result.buffers[0] = createBuffer(size, usage, memoryUsage);
+    result.buffers[1] = createBuffer(size, usage, memoryUsage);
+    result.currentBuffer = 0;
     
-    return doubleBuffer;
+    return result; // NRVO should handle this without copy/move
 }
 
 void VulkanMemoryManager::destroyDoubleBuffer(DoubleBuffer& doubleBuffer) {
@@ -700,16 +700,18 @@ VulkanMemoryManager::StreamingBuffer VulkanMemoryManager::createStreamingBuffer(
     
     std::lock_guard<std::mutex> lock(streamingMutex_);
     
-    StreamingBuffer streamingBuffer;
+    // Use emplace_back to construct in place
+    streamingBuffers_.emplace_back();
+    StreamingBuffer& streamingBuffer = streamingBuffers_.back();
+    
     streamingBuffer.size = size;
     streamingBuffer.buffer = createBuffer(size, 
         usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_CPU_TO_GPU);
     
-    streamingBuffers_.push_back(streamingBuffer);
     updateMemoryStats(size, true);
     
-    return streamingBuffer;
+    return std::move(streamingBuffer);
 }
 
 void VulkanMemoryManager::destroyStreamingBuffer(StreamingBuffer& buffer) {
@@ -839,17 +841,15 @@ void VulkanMemoryManager::destroyMemoryPool(MemoryPool* pool) {
 }
 
 void VulkanMemoryManager::resetMemoryStats() {
-    std::lock_guard<std::mutex> lock(memoryStats_.statsMutex);
-    memoryStats_ = MemoryStats();
+    memoryStats_.reset();
 }
 
-VulkanMemoryManager::MemoryStats VulkanMemoryManager::getMemoryStats() const {
-    std::lock_guard<std::mutex> lock(memoryStats_.statsMutex);
+const VulkanMemoryManager::MemoryStats& VulkanMemoryManager::getMemoryStats() const {
     return memoryStats_;
 }
 
 void VulkanMemoryManager::updateMemoryStats(size_t size, bool isAllocation) {
-    memoryStats.update(size, isAllocation);
+    memoryStats_.update(size, isAllocation);
 }
 
 VulkanMemoryManager::TimelineSemaphore VulkanMemoryManager::createTimelineSemaphore(uint64_t initialValue) {
@@ -871,8 +871,8 @@ VulkanMemoryManager::TimelineSemaphore VulkanMemoryManager::createTimelineSemaph
         throw std::runtime_error("Failed to create timeline semaphore!");
     }
     
-    timelineSemaphores_.push_back(semaphore);
-    return semaphore;
+    timelineSemaphores_.push_back(std::move(semaphore));
+    return std::move(timelineSemaphores_.back());
 }
 
 void VulkanMemoryManager::destroyTimelineSemaphore(TimelineSemaphore& semaphore) {
