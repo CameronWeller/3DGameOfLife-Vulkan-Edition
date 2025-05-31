@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <cstring>
+#include <cstdio>
 
 namespace VulkanHIP {
 
@@ -89,7 +90,35 @@ VulkanMemoryManager::BufferAllocation VulkanMemoryManager::createBuffer(
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VmaAllocationCreateInfo allocInfo{};
-    allocInfo.usage = memoryUsage;
+    
+    // Use modern VMA patterns instead of deprecated usage flags
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    allocInfo.flags = 0;
+    
+    // Determine allocation flags based on buffer usage
+    if (usage & (VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT)) {
+        if (usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT) {
+            // Dynamic buffer that needs CPU->GPU transfers
+            allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+            allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT;
+        }
+    } else if (usage & VK_BUFFER_USAGE_TRANSFER_SRC_BIT) {
+        // Staging buffer
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    } else if (usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT) {
+        // Readback buffer
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    }
+    
+    // Add priority for large allocations or render targets
+    if (size > 16 * 1024 * 1024) { // 16MB threshold
+        allocInfo.priority = 1.0f;
+        if (usage & (VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_IMAGE_BIT)) {
+            allocInfo.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+        }
+    }
 
     if (vmaCreateBuffer(allocator_, &bufferInfo, &allocInfo, 
                        &allocation.buffer, &allocation.allocation, 
@@ -135,8 +164,10 @@ VulkanMemoryManager::StagingBuffer VulkanMemoryManager::createStagingBuffer(VkDe
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VmaAllocationCreateInfo allocInfo{};
-    allocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-    allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    // Use modern VMA patterns for staging buffers
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
+                      VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
     VmaAllocationInfo allocationInfo;
     if (vmaCreateBuffer(allocator_, &bufferInfo, &allocInfo,
@@ -173,6 +204,11 @@ void VulkanMemoryManager::createAllocator() {
     allocatorInfo.physicalDevice = physicalDevice_;
     allocatorInfo.device = device_;
     allocatorInfo.instance = VulkanContext::getInstance().getVkInstance();
+    
+    // Enable useful VMA features
+    allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT |
+                          VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT |
+                          VMA_ALLOCATOR_CREATE_EXT_MEMORY_PRIORITY_BIT;
 
     if (vmaCreateAllocator(&allocatorInfo, &allocator_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create Vulkan Memory Allocator!");
@@ -282,14 +318,50 @@ VulkanMemoryManager::ImageAllocation VulkanMemoryManager::allocateImage(
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VmaAllocationCreateInfo allocInfo{};
-    allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+    // Use modern VMA patterns for images
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    allocInfo.flags = 0;
+    
+    // Calculate approximate image size for allocation decisions
+    uint32_t bytesPerPixel = 4; // Default assumption
+    switch (format) {
+        case VK_FORMAT_R8G8B8A8_UNORM:
+        case VK_FORMAT_B8G8R8A8_UNORM:
+        case VK_FORMAT_R8G8B8A8_SRGB:
+            bytesPerPixel = 4;
+            break;
+        case VK_FORMAT_R16G16B16A16_SFLOAT:
+            bytesPerPixel = 8;
+            break;
+        case VK_FORMAT_R32G32B32A32_SFLOAT:
+            bytesPerPixel = 16;
+            break;
+        case VK_FORMAT_D32_SFLOAT:
+            bytesPerPixel = 4;
+            break;
+        case VK_FORMAT_D24_UNORM_S8_UINT:
+            bytesPerPixel = 4;
+            break;
+        default:
+            bytesPerPixel = 4; // Conservative estimate
+            break;
+    }
+    
+    VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * height * bytesPerPixel;
+    
+    // For large images or render targets, use dedicated memory
+    if (imageSize > 16 * 1024 * 1024 || // 16MB threshold
+        (usage & (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT))) {
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+        allocInfo.priority = 1.0f;
+    }
 
     if (vmaCreateImage(allocator_, &imageInfo, &allocInfo,
                       &allocation.image, &allocation.allocation, nullptr) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create image!");
     }
 
-    allocation.size = width * height * 4; // Approximate
+    allocation.size = imageSize;
     allocation.inUse = true;
     
     return allocation;
@@ -605,11 +677,11 @@ VulkanMemoryManager::InstanceBufferPool* VulkanMemoryManager::createInstanceBuff
     auto pool = std::make_unique<InstanceBufferPool>(bufferSize, maxInstances);
     auto* poolPtr = pool.get();
     
-    // Pre-allocate buffers
+    // Pre-allocate buffers - use modern VMA patterns
     for (uint32_t i = 0; i < maxInstances; i++) {
         auto buffer = createBuffer(bufferSize, 
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VMA_MEMORY_USAGE_GPU_ONLY);
+            VMA_MEMORY_USAGE_AUTO); // Use AUTO instead of GPU_ONLY
         pool->buffers.push_back(buffer);
         pool->inUse.push_back(false);
     }
@@ -705,9 +777,33 @@ VulkanMemoryManager::StreamingBuffer VulkanMemoryManager::createStreamingBuffer(
     StreamingBuffer& streamingBuffer = streamingBuffers_.back();
     
     streamingBuffer.size = size;
-    streamingBuffer.buffer = createBuffer(size, 
-        usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU);
+    
+    // Create buffer with modern VMA patterns for streaming (frequently updated) buffers
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = size;
+    bufferInfo.usage = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                      VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
+                      VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+    VmaAllocationInfo allocationInfo;
+    if (vmaCreateBuffer(allocator_, &bufferInfo, &allocInfo,
+                       &streamingBuffer.buffer.buffer, &streamingBuffer.buffer.allocation,
+                       &allocationInfo) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create streaming buffer!");
+    }
+
+    streamingBuffer.buffer.allocationInfo = allocationInfo;
+    streamingBuffer.buffer.size = size;
+    streamingBuffer.buffer.mappedData = allocationInfo.pMappedData;
+    
+    // Add to buffer pool for tracking
+    bufferPool_.push_back(streamingBuffer.buffer);
     
     updateMemoryStats(size, true);
     
@@ -959,6 +1055,191 @@ void VulkanMemoryManager::cleanupTimelineSemaphores() {
 
 VkDeviceSize VulkanMemoryManager::alignSize(VkDeviceSize size, VkDeviceSize alignment) const {
     return (size + alignment - 1) & ~(alignment - 1);
+}
+
+// Modern VMA convenience functions
+VulkanMemoryManager::BufferAllocation VulkanMemoryManager::createHostVisibleBuffer(
+    VkDeviceSize size, VkBufferUsageFlags usage, bool sequentialWrite) {
+    
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = size;
+    bufferInfo.usage = usage;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    
+    if (sequentialWrite) {
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    } else {
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+    }
+
+    BufferAllocation allocation{};
+    allocation.size = size;
+
+    if (vmaCreateBuffer(allocator_, &bufferInfo, &allocInfo,
+                       &allocation.buffer, &allocation.allocation,
+                       &allocation.allocationInfo) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create host visible buffer!");
+    }
+
+    allocation.mappedData = allocation.allocationInfo.pMappedData;
+    bufferPool_.push_back(allocation);
+    
+    return allocation;
+}
+
+VulkanMemoryManager::BufferAllocation VulkanMemoryManager::createDeviceLocalBuffer(
+    VkDeviceSize size, VkBufferUsageFlags usage, bool dedicatedMemory) {
+    
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = size;
+    bufferInfo.usage = usage;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    allocInfo.flags = 0;
+    
+    if (dedicatedMemory || size > 16 * 1024 * 1024) {
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+        allocInfo.priority = 1.0f;
+    }
+
+    BufferAllocation allocation{};
+    allocation.size = size;
+    allocation.mappedData = nullptr;
+
+    if (vmaCreateBuffer(allocator_, &bufferInfo, &allocInfo,
+                       &allocation.buffer, &allocation.allocation,
+                       &allocation.allocationInfo) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create device local buffer!");
+    }
+
+    bufferPool_.push_back(allocation);
+    
+    return allocation;
+}
+
+VulkanMemoryManager::BufferAllocation VulkanMemoryManager::createUniformBuffer(
+    VkDeviceSize size, bool dynamic) {
+    
+    VkBufferUsageFlags usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    if (dynamic) {
+        usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    }
+    
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = size;
+    bufferInfo.usage = usage;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    
+    if (dynamic) {
+        // For dynamic uniform buffers, allow transfer fallback
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT;
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    }
+
+    BufferAllocation allocation{};
+    allocation.size = size;
+
+    if (vmaCreateBuffer(allocator_, &bufferInfo, &allocInfo,
+                       &allocation.buffer, &allocation.allocation,
+                       &allocation.allocationInfo) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create uniform buffer!");
+    }
+
+    allocation.mappedData = allocation.allocationInfo.pMappedData;
+    bufferPool_.push_back(allocation);
+    
+    return allocation;
+}
+
+void VulkanMemoryManager::copyToAllocation(const void* srcData, 
+    const BufferAllocation& dstAllocation, VkDeviceSize size, VkDeviceSize offset) {
+    
+    if (!srcData) {
+        throw std::invalid_argument("Source data cannot be null");
+    }
+    
+    if (offset + size > dstAllocation.size) {
+        throw std::invalid_argument("Copy size exceeds allocation bounds");
+    }
+    
+    // Use VMA's convenient copy function
+    VkResult result = vmaCopyMemoryToAllocation(allocator_, srcData, 
+                                               dstAllocation.allocation, offset, size);
+    
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("Failed to copy memory to allocation: " + std::to_string(result));
+    }
+}
+
+void VulkanMemoryManager::copyFromAllocation(const BufferAllocation& srcAllocation, 
+    void* dstData, VkDeviceSize size, VkDeviceSize offset) {
+    
+    if (!dstData) {
+        throw std::invalid_argument("Destination data cannot be null");
+    }
+    
+    if (offset + size > srcAllocation.size) {
+        throw std::invalid_argument("Copy size exceeds allocation bounds");
+    }
+    
+    // Use VMA's convenient copy function
+    VkResult result = vmaCopyAllocationToMemory(allocator_, srcAllocation.allocation, 
+                                               offset, dstData, size);
+    
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("Failed to copy memory from allocation: " + std::to_string(result));
+    }
+}
+
+void VulkanMemoryManager::getMemoryBudget(VmaBudget* budget) const {
+    if (!budget) {
+        throw std::invalid_argument("Budget pointer cannot be null");
+    }
+    
+    vmaGetHeapBudgets(allocator_, budget);
+}
+
+void VulkanMemoryManager::printMemoryStatistics() const {
+    VmaTotalStatistics stats;
+    vmaCalculateStatistics(allocator_, &stats);
+    
+    std::printf("=== VMA Memory Statistics ===\n");
+    std::printf("Allocation count: %u\n", stats.total.statistics.allocationCount);
+    std::printf("Block count: %u\n", stats.total.statistics.blockCount);
+    std::printf("Allocated bytes: %.2f MB\n", 
+                stats.total.statistics.allocationBytes / (1024.0 * 1024.0));
+    std::printf("Used bytes: %.2f MB\n", 
+                stats.total.statistics.blockBytes / (1024.0 * 1024.0));
+    std::printf("Unused bytes: %.2f MB\n", 
+                (stats.total.statistics.blockBytes - stats.total.statistics.allocationBytes) / (1024.0 * 1024.0));
+    
+    VmaBudget budgets[VK_MAX_MEMORY_HEAPS];
+    vmaGetHeapBudgets(allocator_, budgets);
+    
+    VkPhysicalDeviceMemoryProperties memProps;
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice_, &memProps);
+    
+    std::printf("\n=== Memory Heap Usage ===\n");
+    for (uint32_t i = 0; i < memProps.memoryHeapCount; i++) {
+        std::printf("Heap %u: %.2f MB / %.2f MB (%.1f%%)\n", i,
+                    budgets[i].usage / (1024.0 * 1024.0),
+                    budgets[i].budget / (1024.0 * 1024.0),
+                    (budgets[i].budget > 0) ? (budgets[i].usage * 100.0 / budgets[i].budget) : 0.0);
+    }
+    std::printf("=============================\n");
 }
 
 } // namespace VulkanHIP 
