@@ -697,7 +697,9 @@ void Grid3D::createLODResources() {
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         
         VmaAllocationCreateInfo allocInfo{};
-        allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+        // Use modern VMA patterns - GPU-only texture images
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+        allocInfo.flags = 0; // Device-local, no host access needed for textures
         
         VK_CHECK(vmaCreateImage(memoryManager.getVmaAllocator(), &imageInfo, &allocInfo,
             &level.image, &level.memory, nullptr));
