@@ -276,7 +276,21 @@ private:
     }
     
     void processMouseButton(int button, int action, int mods) {
-        // Implementation of processMouseButton method
+        // Handle mouse button clicks safely
+        // For now, just log the click for debugging
+        if (action == GLFW_PRESS) {
+            switch (button) {
+                case GLFW_MOUSE_BUTTON_LEFT:
+                    std::cout << "Left mouse button pressed" << std::endl;
+                    break;
+                case GLFW_MOUSE_BUTTON_RIGHT:
+                    std::cout << "Right mouse button pressed" << std::endl;
+                    break;
+                case GLFW_MOUSE_BUTTON_MIDDLE:
+                    std::cout << "Middle mouse button pressed" << std::endl;
+                    break;
+            }
+        }
     }
     
     void initWindow() {
@@ -295,18 +309,27 @@ private:
         
         std::cout << "Window created: " << config.width << "x" << config.height << std::endl;
         
-        // Set up input callbacks
-        glfwSetWindowUserPointer(windowManager->getWindow(), this);
-        glfwSetCursorPosCallback(windowManager->getWindow(), mouseCallback);
-        glfwSetKeyCallback(windowManager->getWindow(), keyCallback);
-        glfwSetMouseButtonCallback(windowManager->getWindow(), mouseButtonCallback);
-        
-        // Initialize camera with guaranteed visible position
+        // Initialize camera FIRST
         camera = std::make_unique<Camera>(windowManager->getWindow(), 45.0f, 0.1f, 100.0f);
         camera->setPosition(glm::vec3(0.0f, 0.0f, 3.0f));   // Simple: 3 units back along Z-axis
         camera->setMode(CameraMode::Fly);
         
         std::cout << "Camera initialized" << std::endl;
+        
+        // Set up input callbacks AFTER camera is initialized
+        glfwSetWindowUserPointer(windowManager->getWindow(), this);
+        
+        // Add some delay to ensure everything is set up
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        
+        glfwSetCursorPosCallback(windowManager->getWindow(), mouseCallback);
+        glfwSetKeyCallback(windowManager->getWindow(), keyCallback);
+        glfwSetMouseButtonCallback(windowManager->getWindow(), mouseButtonCallback);
+        
+        // Disable mouse cursor by default to prevent clicking issues
+        glfwSetInputMode(windowManager->getWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        
+        std::cout << "Input callbacks set up" << std::endl;
         std::cout << "Controls:" << std::endl;
         std::cout << "  ESC - Toggle mouse look" << std::endl;
         std::cout << "  WASD - Move camera" << std::endl;
