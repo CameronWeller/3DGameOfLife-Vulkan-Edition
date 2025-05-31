@@ -72,17 +72,24 @@ void Grid3D::createBuffers() {
     VmaAllocationCreateInfo allocInfo{};
     allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
     
-    VK_CHECK(vmaCreateBuffer(memoryManager.getVmaAllocator(), &bufferInfo, &allocInfo,
+    VK_CHECK(vmaCreateBuffer(memoryManager.getAllocator(), &bufferInfo, &allocInfo,
         &stateBuffer, &stateMemory, nullptr));
     
     // Create next state buffer
-    VK_CHECK(vmaCreateBuffer(memoryManager.getVmaAllocator(), &bufferInfo, &allocInfo,
+    VK_CHECK(vmaCreateBuffer(memoryManager.getAllocator(), &bufferInfo, &allocInfo,
         &nextStateBuffer, &nextStateMemory, nullptr));
     
     // Create staging buffer for initial data
     auto stagingBuffer = memoryManager.createStagingBuffer(bufferSize);
     void* data = memoryManager.mapStagingBuffer(stagingBuffer);
-    memcpy(data, currentState.data(), bufferSize);
+    
+    // Convert bool vector to uint32_t data for GPU
+    std::vector<uint32_t> gpuData(width * height * depth);
+    for (size_t i = 0; i < currentState.size(); ++i) {
+        gpuData[i] = currentState[i] ? 1 : 0;
+    }
+    
+    memcpy(data, gpuData.data(), bufferSize);
     memoryManager.unmapStagingBuffer(stagingBuffer);
     
     // Copy initial data to state buffer
@@ -98,13 +105,13 @@ void Grid3D::createBuffers() {
 
 void Grid3D::destroyBuffers() {
     if (stateBuffer != VK_NULL_HANDLE) {
-        vmaDestroyBuffer(VulkanHIP::VulkanEngine::getInstance()->getMemoryManager().getVmaAllocator(), stateBuffer, stateMemory);
+        vmaDestroyBuffer(VulkanHIP::VulkanEngine::getInstance()->getMemoryManager().getAllocator(), stateBuffer, stateMemory);
         stateBuffer = VK_NULL_HANDLE;
         stateMemory = VK_NULL_HANDLE;
     }
     
     if (nextStateBuffer != VK_NULL_HANDLE) {
-        vmaDestroyBuffer(VulkanHIP::VulkanEngine::getInstance()->getMemoryManager().getVmaAllocator(), nextStateBuffer, nextStateMemory);
+        vmaDestroyBuffer(VulkanHIP::VulkanEngine::getInstance()->getMemoryManager().getAllocator(), nextStateBuffer, nextStateMemory);
         nextStateBuffer = VK_NULL_HANDLE;
         nextStateMemory = VK_NULL_HANDLE;
     }
