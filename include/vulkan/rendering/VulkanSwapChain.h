@@ -3,6 +3,9 @@
 #include <vector>
 #include <memory>
 
+// Forward declarations
+struct SwapChainSupportDetails;
+
 namespace VulkanHIP {
 
 class VulkanContext;
@@ -34,6 +37,12 @@ private:
     std::vector<VkImageView> swapChainImageViews_;
     VkFormat swapChainImageFormat_;
     VkExtent2D swapChainExtent_;
+    
+    // Helper methods
+    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
+    VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
+    VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
+    VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
 };
 
 }

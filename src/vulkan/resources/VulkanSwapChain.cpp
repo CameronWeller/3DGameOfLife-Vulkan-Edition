@@ -2,9 +2,18 @@
 #include "VulkanContext.h"
 #include "WindowManager.h"
 #include "QueueFamilyIndices.h"
+#include "VulkanError.h"
 #include <stdexcept>
 #include <algorithm>
 #include <limits>
+
+// Define VK_CHECK macro for error checking
+#define VK_CHECK(x) do { \
+    VkResult err = x; \
+    if (err) { \
+        throw VulkanHIP::VulkanError(err, "Vulkan error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__)); \
+    } \
+} while(0)
 
 namespace VulkanHIP {
 
@@ -15,6 +24,8 @@ VulkanSwapChain::VulkanSwapChain(VulkanContext* context, WindowManager* windowMa
     }
     createSwapChain();
     createImageViews();
+    createRenderPass();
+    createFramebuffers();
 }
 
 VulkanSwapChain::~VulkanSwapChain() {
@@ -62,21 +73,19 @@ void VulkanSwapChain::createSwapChain() {
     createInfo.clipped = VK_TRUE;
     createInfo.oldSwapchain = VK_NULL_HANDLE;
 
-    if (vkCreateSwapchainKHR(vulkanContext_->getDevice(), &createInfo, nullptr, &swapChain_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create swap chain!");
-    }
-
+    VK_CHECK(vkCreateSwapchainKHR(vulkanContext_->getDevice(), &createInfo, nullptr, &swapChain_));
+    
     vkGetSwapchainImagesKHR(vulkanContext_->getDevice(), swapChain_, &imageCount, nullptr);
     swapChainImages_.resize(imageCount);
     vkGetSwapchainImagesKHR(vulkanContext_->getDevice(), swapChain_, &imageCount, swapChainImages_.data());
-
+    
     swapChainImageFormat_ = surfaceFormat.format;
     swapChainExtent_ = extent;
 }
 
 void VulkanSwapChain::createImageViews() {
     swapChainImageViews_.resize(swapChainImages_.size());
-
+    
     for (size_t i = 0; i < swapChainImages_.size(); i++) {
         VkImageViewCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -92,26 +101,23 @@ void VulkanSwapChain::createImageViews() {
         createInfo.subresourceRange.levelCount = 1;
         createInfo.subresourceRange.baseArrayLayer = 0;
         createInfo.subresourceRange.layerCount = 1;
-
-        if (vkCreateImageView(vulkanContext_->getDevice(), &createInfo, nullptr, &swapChainImageViews_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create image views!");
-        }
+        
+        VK_CHECK(vkCreateImageView(vulkanContext_->getDevice(), &createInfo, nullptr, &swapChainImageViews_[i]));
     }
 }
 
 void VulkanSwapChain::recreateSwapChain() {
-    int width = 0, height = 0;
-    windowManager_->getFramebufferSize(&width, &height);
-    while (width == 0 || height == 0) {
-        windowManager_->getFramebufferSize(&width, &height);
-        windowManager_->waitEvents();
-    }
-
+    // Wait for device to be idle before recreating
     vkDeviceWaitIdle(vulkanContext_->getDevice());
-
+    
+    // Clean up old swap chain
     cleanup();
+    
+    // Recreate swap chain
     createSwapChain();
     createImageViews();
+    createRenderPass();
+    createFramebuffers();
 }
 
 void VulkanSwapChain::cleanup() {
@@ -186,6 +192,67 @@ VkExtent2D VulkanSwapChain::chooseSwapExtent(const VkSurfaceCapabilitiesKHR& cap
         actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
 
         return actualExtent;
+    }
+}
+
+void VulkanSwapChain::createRenderPass() {
+    VkAttachmentDescription colorAttachment{};
+    colorAttachment.format = swapChainImageFormat_;
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    
+    VkAttachmentReference colorAttachmentRef{};
+    colorAttachmentRef.attachment = 0;
+    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorAttachmentRef;
+    
+    VkSubpassDependency dependency{};
+    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependency.dstSubpass = 0;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.srcAccessMask = 0;
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    
+    VkRenderPassCreateInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassInfo.attachmentCount = 1;
+    renderPassInfo.pAttachments = &colorAttachment;
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+    renderPassInfo.dependencyCount = 1;
+    renderPassInfo.pDependencies = &dependency;
+    
+    VK_CHECK(vkCreateRenderPass(vulkanContext_->getDevice(), &renderPassInfo, nullptr, &renderPass_));
+}
+
+void VulkanSwapChain::createFramebuffers() {
+    swapChainFramebuffers_.resize(swapChainImageViews_.size());
+    
+    for (size_t i = 0; i < swapChainImageViews_.size(); i++) {
+        VkImageView attachments[] = {
+            swapChainImageViews_[i]
+        };
+        
+        VkFramebufferCreateInfo framebufferInfo{};
+        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferInfo.renderPass = renderPass_;
+        framebufferInfo.attachmentCount = 1;
+        framebufferInfo.pAttachments = attachments;
+        framebufferInfo.width = swapChainExtent_.width;
+        framebufferInfo.height = swapChainExtent_.height;
+        framebufferInfo.layers = 1;
+        
+        VK_CHECK(vkCreateFramebuffer(vulkanContext_->getDevice(), &framebufferInfo, nullptr, &swapChainFramebuffers_[i]));
     }
 }
 

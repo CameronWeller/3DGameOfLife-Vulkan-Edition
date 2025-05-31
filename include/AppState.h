@@ -19,6 +19,10 @@ enum class State {
 struct SaveInfo {
     std::string filename;
     std::string displayName;
+    std::string name;  // For compatibility with SaveManager
+    std::string description;
+    std::string author;
+    std::string version;
     std::chrono::system_clock::time_point lastModified;
     size_t voxelCount;
     std::string thumbnailPath;  // Optional: path to save preview image

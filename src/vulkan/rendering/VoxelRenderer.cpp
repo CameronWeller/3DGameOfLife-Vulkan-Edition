@@ -46,23 +46,21 @@ void VoxelRenderer::createVoxelGeometry() {
 
     // Create vertex buffer
     VkDeviceSize vertexBufferSize = sizeof(vertices);
-    memoryManager_->createBuffer(
+    voxelVertexBufferAllocation_ = memoryManager_->createBuffer(
         vertexBufferSize,
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY,
-        voxelVertexBuffer_,
-        voxelVertexBufferAllocation_
+        VMA_MEMORY_USAGE_GPU_ONLY
     );
+    voxelVertexBuffer_ = voxelVertexBufferAllocation_.buffer;
 
     // Create index buffer
     VkDeviceSize indexBufferSize = sizeof(indices);
-    memoryManager_->createBuffer(
+    voxelIndexBufferAllocation_ = memoryManager_->createBuffer(
         indexBufferSize,
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY,
-        voxelIndexBuffer_,
-        voxelIndexBufferAllocation_
+        VMA_MEMORY_USAGE_GPU_ONLY
     );
+    voxelIndexBuffer_ = voxelIndexBufferAllocation_.buffer;
 
     // Copy data to buffers (staging buffer implementation needed)
     // This is a simplified version - full implementation would use staging buffers
@@ -84,17 +82,16 @@ void VoxelRenderer::updateVoxelInstances(const VoxelData& voxelData) {
     if (!voxelInstances_.empty()) {
         VkDeviceSize bufferSize = sizeof(VoxelInstance) * voxelInstances_.size();
         
-        if (voxelInstanceBuffer_ != VK_NULL_HANDLE) {
-            memoryManager_->destroyBuffer(voxelInstanceBuffer_, voxelInstanceBufferAllocation_);
+        if (voxelInstanceBufferAllocation_) {
+            memoryManager_->destroyBuffer(voxelInstanceBufferAllocation_);
         }
 
-        memoryManager_->createBuffer(
+        voxelInstanceBufferAllocation_ = memoryManager_->createBuffer(
             bufferSize,
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            VMA_MEMORY_USAGE_CPU_TO_GPU,
-            voxelInstanceBuffer_,
-            voxelInstanceBufferAllocation_
+            VMA_MEMORY_USAGE_CPU_TO_GPU
         );
+        voxelInstanceBuffer_ = voxelInstanceBufferAllocation_.buffer;
 
         // Copy instance data (simplified - would need proper staging)
     }
@@ -116,18 +113,18 @@ void VoxelRenderer::renderVoxels(VkCommandBuffer commandBuffer) {
 
 void VoxelRenderer::cleanup() {
     if (vulkanContext_->getDevice() != VK_NULL_HANDLE) {
-        if (voxelVertexBuffer_ != VK_NULL_HANDLE) {
-            memoryManager_->destroyBuffer(voxelVertexBuffer_, voxelVertexBufferAllocation_);
+        if (voxelVertexBufferAllocation_) {
+            memoryManager_->destroyBuffer(voxelVertexBufferAllocation_);
             voxelVertexBuffer_ = VK_NULL_HANDLE;
         }
         
-        if (voxelIndexBuffer_ != VK_NULL_HANDLE) {
-            memoryManager_->destroyBuffer(voxelIndexBuffer_, voxelIndexBufferAllocation_);
+        if (voxelIndexBufferAllocation_) {
+            memoryManager_->destroyBuffer(voxelIndexBufferAllocation_);
             voxelIndexBuffer_ = VK_NULL_HANDLE;
         }
         
-        if (voxelInstanceBuffer_ != VK_NULL_HANDLE) {
-            memoryManager_->destroyBuffer(voxelInstanceBuffer_, voxelInstanceBufferAllocation_);
+        if (voxelInstanceBufferAllocation_) {
+            memoryManager_->destroyBuffer(voxelInstanceBufferAllocation_);
             voxelInstanceBuffer_ = VK_NULL_HANDLE;
         }
     }

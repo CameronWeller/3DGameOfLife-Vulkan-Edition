@@ -1,0 +1,240 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="MinSizeRel|x64">
+      <Configuration>MinSizeRel</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RelWithDebInfo|x64">
+      <Configuration>RelWithDebInfo</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{39719041-2940-363C-BA1D-082B14BAF640}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <Platform>x64</Platform>
+    <ProjectName>test_all</ProjectName>
+    <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Midl>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Midl>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
+    <Midl>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
+    <Midl>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\c0d57a918d56fe9f65dc59f0315c270a\test_all.rule">
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Running all tests</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+"C:\Program Files\CMake\bin\ctest.exe"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\test_all</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Running all tests</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+"C:\Program Files\CMake\bin\ctest.exe"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\test_all</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Running all tests</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+"C:\Program Files\CMake\bin\ctest.exe"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\test_all</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</VerifyInputsAndOutputsExist>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Running all tests</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+"C:\Program Files\CMake\bin\ctest.exe"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\test_all</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</VerifyInputsAndOutputsExist>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\CMakeLists.txt">
+      <UseUtf8Encoding>Always</UseUtf8Encoding>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building Custom Rule C:/cpp-vulkan-hip-engine/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/cpp-vulkan-hip-engine -BC:/cpp-vulkan-hip-engine/build_minimal --check-stamp-file C:/cpp-vulkan-hip-engine/build_minimal/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeDependentOption.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeFindDependencyMacro.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestTargets.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestUseLaunchers.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckCXXSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckIncludeFileCXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\DartConfiguration.tcl.in;C:\Program Files\CMake\share\cmake-4.0\Modules\FindGTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindVulkan.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\GoogleTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\WindowsPaths.cmake;C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\4.0.2\CMakeCXXCompiler.cmake;C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\4.0.2\CMakeRCCompiler.cmake;C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\4.0.2\CMakeSystem.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-config-version.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-config.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-targets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-targets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-targets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Config.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3ConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfig-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfig-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestTargets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestTargets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-config.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-targets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-targets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-targets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigVersion.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Components.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Dependencies.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Options.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Shaders.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\StaticAnalysis.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Testing.cmake;C:\cpp-vulkan-hip-engine\vcpkg.json;C:\vcpkg\scripts\buildsystems\vcpkg.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building Custom Rule C:/cpp-vulkan-hip-engine/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/cpp-vulkan-hip-engine -BC:/cpp-vulkan-hip-engine/build_minimal --check-stamp-file C:/cpp-vulkan-hip-engine/build_minimal/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeDependentOption.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeFindDependencyMacro.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestTargets.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestUseLaunchers.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckCXXSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckIncludeFileCXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\DartConfiguration.tcl.in;C:\Program Files\CMake\share\cmake-4.0\Modules\FindGTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindVulkan.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\GoogleTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\WindowsPaths.cmake;C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\4.0.2\CMakeCXXCompiler.cmake;C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\4.0.2\CMakeRCCompiler.cmake;C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\4.0.2\CMakeSystem.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-config-version.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-config.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-targets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-targets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-targets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Config.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3ConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfig-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfig-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestTargets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestTargets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-config.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-targets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-targets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-targets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigVersion.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Components.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Dependencies.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Options.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Shaders.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\StaticAnalysis.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Testing.cmake;C:\cpp-vulkan-hip-engine\vcpkg.json;C:\vcpkg\scripts\buildsystems\vcpkg.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Building Custom Rule C:/cpp-vulkan-hip-engine/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/cpp-vulkan-hip-engine -BC:/cpp-vulkan-hip-engine/build_minimal --check-stamp-file C:/cpp-vulkan-hip-engine/build_minimal/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeDependentOption.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeFindDependencyMacro.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestTargets.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestUseLaunchers.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckCXXSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckIncludeFileCXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\DartConfiguration.tcl.in;C:\Program Files\CMake\share\cmake-4.0\Modules\FindGTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindVulkan.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\GoogleTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\WindowsPaths.cmake;C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\4.0.2\CMakeCXXCompiler.cmake;C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\4.0.2\CMakeRCCompiler.cmake;C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\4.0.2\CMakeSystem.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-config-version.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-config.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-targets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-targets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-targets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Config.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3ConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfig-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfig-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestTargets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestTargets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-config.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-targets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-targets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-targets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigVersion.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Components.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Dependencies.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Options.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Shaders.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\StaticAnalysis.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Testing.cmake;C:\cpp-vulkan-hip-engine\vcpkg.json;C:\vcpkg\scripts\buildsystems\vcpkg.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Building Custom Rule C:/cpp-vulkan-hip-engine/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/cpp-vulkan-hip-engine -BC:/cpp-vulkan-hip-engine/build_minimal --check-stamp-file C:/cpp-vulkan-hip-engine/build_minimal/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeDependentOption.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeFindDependencyMacro.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestTargets.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestUseLaunchers.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckCXXSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckIncludeFileCXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\DartConfiguration.tcl.in;C:\Program Files\CMake\share\cmake-4.0\Modules\FindGTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindVulkan.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\GoogleTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\WindowsPaths.cmake;C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\4.0.2\CMakeCXXCompiler.cmake;C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\4.0.2\CMakeRCCompiler.cmake;C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\4.0.2\CMakeSystem.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-config-version.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-config.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-targets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-targets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\fmt\fmt-targets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Config.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3ConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfig-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfig-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\glm\glmConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestTargets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestTargets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\gtest\GTestTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-config.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-targets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-targets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\imgui\imgui-targets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfigVersion.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfig.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-debug.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-release.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets.cmake;C:\cpp-vulkan-hip-engine\build_minimal\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigVersion.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Components.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Dependencies.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Options.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Shaders.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\StaticAnalysis.cmake;C:\cpp-vulkan-hip-engine\cmake\modules\Testing.cmake;C:\cpp-vulkan-hip-engine\vcpkg.json;C:\vcpkg\scripts\buildsystems\vcpkg.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\test_all">
+    </None>
+  </ItemGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <ProjectReference Include="C:\cpp-vulkan-hip-engine\build_minimal\ZERO_CHECK.vcxproj">
+      <Project>{203F6A7C-5137-3782-A159-581890A64A1A}</Project>
+      <Name>ZERO_CHECK</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

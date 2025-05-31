@@ -30,7 +30,7 @@ struct PatternMetadata {
 
 class SaveManager {
 public:
-    SaveManager();
+    SaveManager(VulkanEngine* engine = nullptr);
     ~SaveManager();
 
     // Error handling
@@ -82,11 +82,11 @@ public:
     void clearLastError() { lastError_.clear(); }
 
 private:
+    VulkanEngine* engine_;
     std::filesystem::path patternDirectory_;
     std::filesystem::path previewDirectory_;
     std::string lastPatternFile_;
     std::string lastError_;
-    VulkanEngine* engine_;
     
     // Helper functions
     bool validatePatternFile(const std::filesystem::path& path) const;

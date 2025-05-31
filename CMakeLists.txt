@@ -42,11 +42,55 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${PROJECT_NAME}_lib
 )
 
-# Apply common settings to main executable
-apply_common_settings(${PROJECT_NAME})
+# Minimal executable using only working components
+add_executable(${PROJECT_NAME}_minimal
+    src/main_minimal.cpp
+)
 
-# Apply static analysis to main executable
+# Link minimal executable with only working components
+target_link_libraries(${PROJECT_NAME}_minimal PRIVATE
+    core_engine
+    utilities
+    vulkan_resources
+    # memory_management  # Temporarily disabled due to VMA linking issues
+    rendering
+    camera  # Add camera for 3D functionality
+    # GPUOpen::VulkanMemoryAllocator  # Not needed without memory_management
+    # Temporarily skip: game_logic, ui, vulkan_ui, vulkan_rendering (broken)
+)
+
+# Self-contained minimal target that doesn't depend on main project libraries
+add_executable(minimal_3d_vulkan
+    src/main_minimal.cpp
+    src/VulkanContext.cpp
+    src/DeviceManager.cpp
+    src/WindowManager.cpp
+    src/Logger.cpp
+    src/Camera.cpp
+    src/vulkan/resources/ShaderManager.cpp
+)
+
+# Link only essential libraries for the self-contained target
+target_link_libraries(minimal_3d_vulkan PRIVATE
+    ${VULKAN_LIBRARIES}
+    glfw
+    glm::glm
+)
+
+target_include_directories(minimal_3d_vulkan PRIVATE
+    include
+    include/vulkan
+    include/vulkan/resources
+    ${VULKAN_INCLUDE_DIRS}
+)
+
+# Apply common settings to executables
+apply_common_settings(${PROJECT_NAME})
+apply_common_settings(${PROJECT_NAME}_minimal)
+
+# Apply static analysis to executables
 apply_static_analysis(${PROJECT_NAME})
+apply_static_analysis(${PROJECT_NAME}_minimal)
 
 # Enable sanitizers for main executable
 enable_sanitizers(${PROJECT_NAME})
@@ -135,8 +179,19 @@ message(STATUS "Shaders: compile_shaders, copy_shaders, validate_shaders, clean_
 message(STATUS "")
 
 # Add new vulkan module sources
-file(GLOB_RECURSE VULKAN_SOURCES "src/vulkan/*.cpp")
+file(GLOB_RECURSE VULKAN_SOURCES 
+    "src/vulkan/*.cpp"
+    "src/vulkan/resources/*.cpp"
+    "src/vulkan/compute/*.cpp"
+    "src/vulkan/rendering/*.cpp"
+)
 target_sources(${PROJECT_NAME} PRIVATE ${VULKAN_SOURCES})
 
 # Add new include directories
-target_include_directories(${PROJECT_NAME} PRIVATE include/vulkan)
+target_include_directories(${PROJECT_NAME} PRIVATE 
+    include
+    include/vulkan
+    include/vulkan/resources
+    include/vulkan/compute
+    include/vulkan/rendering
+)

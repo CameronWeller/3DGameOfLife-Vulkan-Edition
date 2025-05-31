@@ -1,0 +1,47 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\d9c5acd0bccc188c46a1ad0a75775f24\basic.frag.spv.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\d9c5acd0bccc188c46a1ad0a75775f24\basic.vert.spv.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\d9c5acd0bccc188c46a1ad0a75775f24\game_of_life_3d.comp.spv.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\d9c5acd0bccc188c46a1ad0a75775f24\minimal.frag.spv.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\d9c5acd0bccc188c46a1ad0a75775f24\minimal.vert.spv.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\d9c5acd0bccc188c46a1ad0a75775f24\population_reduction.comp.spv.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\d9c5acd0bccc188c46a1ad0a75775f24\preview.frag.spv.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\d9c5acd0bccc188c46a1ad0a75775f24\preview.vert.spv.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\d9c5acd0bccc188c46a1ad0a75775f24\voxel.frag.spv.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\d9c5acd0bccc188c46a1ad0a75775f24\voxel.vert.spv.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\c0d57a918d56fe9f65dc59f0315c270a\compile_shaders.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\compile_shaders" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{62808F55-F87A-3960-964E-C29B9BEB5977}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

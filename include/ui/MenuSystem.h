@@ -16,6 +16,8 @@ public:
     MenuSystem& operator=(const MenuSystem&) = delete;
     
     void initialize(SaveManager* saveManager);
+    void render();
+    void update();
     void drawMenu();
     void drawSavePicker();
     void drawSettings();

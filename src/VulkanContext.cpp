@@ -106,10 +106,10 @@ VulkanContext::~VulkanContext() {
 void VulkanContext::init(const std::vector<const char*>& requiredExtensions) {
     createInstance(requiredExtensions);
     setupDebugMessenger();
-    pickPhysicalDevice();
+    createSurface();        // Create surface BEFORE device selection
+    pickPhysicalDevice();   // Now can check surface support properly
     createLogicalDevice();
     createCommandPools();
-    createSurface();
 }
 
 void VulkanContext::cleanup() {

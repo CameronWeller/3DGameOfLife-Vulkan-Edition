@@ -1,175 +1,378 @@
-# Vulkan HIP Engine
+# User Metrics Tracker
 
-A modern C++ engine that combines Vulkan for graphics and AMD's HIP for compute operations. This engine is designed to provide high-performance graphics and compute capabilities with a focus on Windows-native deployment.
+**🆕 Independent Repository** - This project is now maintained as a standalone Git repository with dedicated version control management.
 
-## Features
+A comprehensive visual feedback GUI and feature analysis pipeline designed to capture granular user interaction data for feeding into custom image processing and analysis training pipelines.
 
-- Vulkan-based graphics pipeline
-- AMD HIP compute integration
-- Modern C++17 codebase
-- Windows optimization with Visual Studio support
-- Validation layer support for debugging
-- Memory pool for efficient resource management
-- Compute shader support
-- GLFW window management
-- GLM mathematics library integration
+## 🎯 Project Goals
 
-## Prerequisites
+This system transforms user interaction patterns into structured training data for machine learning models focused on:
 
-### Required Software
-- Visual Studio 2022 with C++ development tools
-- CMake 3.15 or higher
-- Vulkan SDK 1.3 or higher
-- GLFW 3.3.8 and GLM 0.9.9.8 (automatically fetched by CMake)
-- AMD HIP (optional, for compute operations)
+- **User Experience Optimization**: Predictive interface design through behavioral analysis
+- **Computer Vision Training**: UI/UX analysis for automated interface improvement
+- **Behavioral Pattern Recognition**: Advanced user behavior prediction models
+- **Image Processing Integration**: Screenshot correlation with interaction data for visual ML training
 
-### Vulkan SDK Installation (Windows)
+## 🏗️ Architecture Overview
 
-1. Download the Vulkan SDK from [LunarG's website](https://vulkan.lunarg.com/sdk/home#windows)
-2. Run the installer and follow the installation wizard
-3. After installation, set up environment variables:
-   ```powershell
-   # Set VULKAN_SDK environment variable (replace with your installation path)
-   $env:VULKAN_SDK = "C:\VulkanSDK\1.3.xxx.x"
-   
-   # Add Vulkan SDK's bin directory to PATH
-   $env:Path += ";$env:VULKAN_SDK\Bin"
-   ```
-4. Verify installation:
-   ```powershell
-   # Check if glslc is available
-   glslc --version
-   
-   # Check if Vulkan SDK is properly set
-   echo $env:VULKAN_SDK
-   ```
-
-### Development Environment Setup
-
-1. Install Visual Studio 2022 with C++ development tools
-2. Install Vulkan SDK following the instructions above
-3. Clone this repository
-4. Run the setup script:
-   ```powershell
-   .\scripts\setup\main.ps1 -Admin
-   ```
-
-## Quick Start
-
-1. Clone the repository:
-```powershell
-git clone https://github.com/yourusername/cpp-vulkan-hip-engine.git
-cd cpp-vulkan-hip-engine
+### Data Flow Pipeline
+```
+User Interactions → Visual Context → Training Data
+    ↓                    ↓              ↓
+Click/Move Events → Screenshots → Labeled Datasets
+    ↓                    ↓              ↓
+Heatmaps → UI Elements → Computer Vision Models
 ```
 
-2. Run the setup script:
-```powershell
-# Normal setup
-.\scripts\setup\main.ps1
+### Core Components
 
-# Or with admin privileges (recommended for first-time setup)
-.\scripts\setup\main.ps1 -Admin
+1. **Collection Layer**: Client-side tracking and event capture
+2. **Processing Layer**: Real-time analysis and feature extraction  
+3. **Storage Layer**: Structured data warehouse for ML pipeline
+4. **Training Layer**: Automated model training and validation
+5. **Feedback Layer**: Model predictions back to UI optimization
 
-# To clean and rebuild from scratch
-.\scripts\setup\main.ps1 -Clean
+## 🤖 Agent-Based Development
+
+This project follows a multi-agent development pattern with specialized agents:
+
+- **Agent 1**: Client-Side Tracking & Event Capture
+- **Agent 2**: Backend Analytics & Data Processing 
+- **Agent 3**: Dashboard UI & Visualization
+- **Agent 4**: ML Pipeline Integration & Computer Vision
+- **Agent 5**: DevOps, Testing & Infrastructure
+- **Agent 6**: **Git Maintainer & Version Control** ⭐ *NEW*
+
+### 🔧 Git Workflow Management
+
+**Agent 6** manages all version control operations:
+- Repository maintenance and branching strategies
+- Automated release management with semantic versioning
+- Code review workflows and merge coordination
+- Quality gates and pre-commit hooks
+- Agent coordination through Git-based workflows
+
+Agents coordinate through a structured JSON swap file system and Git workflows to ensure:
+- No conflicting changes through mutex locks
+- Proper integration testing and code reviews
+- Documentation maintenance and API consistency
+- Code quality standards and automated testing
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Node.js 18.0+
+- npm 9.0+
+- TypeScript 5.0+
+- Git 2.25+
+
+### Installation
+
+```bash
+# Clone this independent repository
+git clone <repository-url>
+cd user-metrics-tracker
+
+# Install dependencies
+npm install
+
+# Install frontend dependencies (when available)
+cd frontend && npm install && cd ..
+
+# Build the project
+npm run build
 ```
 
-3. Build the project:
-```powershell
-# Build in Release mode (default)
-.\scripts\build\main.ps1
+### Development
 
-# Or build in Debug mode
-.\scripts\build\main.ps1 -Debug
+```bash
+# Start development environment (backend + frontend)
+npm run dev
 
-# Clean and rebuild
-.\scripts\build\main.ps1 -Clean
+# Or start components separately
+npm run dev:backend
+npm run dev:frontend
 ```
 
-The executable will be created at `build\Release\vulkan-engine.exe` (or `build\Debug\vulkan-engine.exe` for debug builds).
+### Testing
 
-## Project Structure
+```bash
+# Run all tests
+npm test
 
-```
-.
-├── CMakeLists.txt          # CMake build configuration
-├── Dockerfile              # Docker configuration
-├── docker-compose.yml      # Docker Compose configuration
-├── README.md               # This file
-├── io.log                  # Persistent log file, never delete (see below)
-├── scripts/                # Project scripts
-│   ├── setup/         # Environment and dependency setup scripts (PowerShell, Bash, Batch)
-│   ├── build/         # Build scripts and helpers for compiling the project
-│   ├── environment/   # Scripts for fixing or configuring the developer environment
-│   ├── docker/        # Docker-related scripts for containerized builds and runs
-│   └── quality/       # Code quality, linting, and static analysis scripts
-├── shaders/                # Shader source files
-│   ├── basic.vert         # Basic vertex shader
-│   ├── basic.frag         # Basic fragment shader
-│   ├── game_of_life_3d.comp    # 3D Game of Life compute shader
-│   └── population_reduction.comp # Population reduction compute shader
-└── src/                    # Source code
-    ├── main.cpp           # Application entry point
-    ├── VulkanEngine.cpp   # Vulkan engine implementation
-    └── VulkanEngine.h     # Vulkan engine header
+# Run tests in watch mode
+npm run test:watch
+
+# Type checking
+npm run type-check
 ```
 
-## Persistent Log File: io.log
+## 📊 Features
 
-The file `io.log` is a persistent log file used for tracking important project or build information. **Do not delete or ignore this file.**
+### Real-Time Tracking
+- Sub-millisecond event capture accuracy
+- Complete interaction sequence preservation
+- High-fidelity visual-interaction correlation
+- Live heatmap generation and visualization
 
-- It is intentionally tracked by git and excluded from `.gitignore`.
-- If you need to clear its contents, keep the file and its header, do not remove the file itself.
-- If you need to rotate logs, archive the old log but keep `io.log` present in the repository.
+### Privacy-First Design
+- Configurable data anonymization
+- GDPR/CCPA compliance built-in
+- Local-first processing options
+- Selective data sharing controls
 
-This ensures important logs are always available for debugging and project history.
+### ML Pipeline Integration
+- Automated training data generation
+- Computer vision model integration
+- Behavioral prediction models
+- A/B testing framework with ML-driven optimization
 
-## Shader Compilation
+## 📁 Project Structure
 
-The project uses `glslc` from the Vulkan SDK to compile shaders to SPIR-V format. Shaders are automatically compiled during the build process.
-
-## Development
-
-### Setting Up Your Development Environment
-
-1. Install Visual Studio 2022 with C++ development tools
-2. Install Vulkan SDK 1.3 or higher
-3. Clone this repository
-4. Run the setup script:
-```powershell
-.\scripts\setup\main.ps1 -Admin
+```
+user-metrics-tracker/
+├── .github/                 # GitHub workflows and templates
+├── src/
+│   ├── core/                # Core types and utilities
+│   │   ├── types.ts         # TypeScript type definitions
+│   │   └── server.ts        # Main server application
+│   ├── tracking/            # Client-side tracking engine
+│   │   └── UserTracker.ts   # Main tracking implementation
+│   ├── ui/                  # UI components and dashboard
+│   ├── analysis/            # Data analysis and ML integration
+│   └── backend/             # Server-side processing
+├── frontend/                # React dashboard application
+├── tests/                   # Test suites
+├── docs/                    # Documentation
+├── config/                  # Configuration files
+│   └── git/                # Git configuration and templates
+├── examples/                # Usage examples
+├── agent_swap.json          # Agent communication file
+├── AGENT_ASSIGNMENTS.md     # Agent role definitions
+├── PROJECT_GOALS.md         # Detailed project objectives
+├── CHANGELOG.md             # Version history and changes
+└── VERSION                  # Current version number
 ```
 
-### Adding New Shaders
+## 🔧 Configuration
 
-1. Add your shader file to the `shaders/` directory
-2. Add the shader compilation command to `CMakeLists.txt`
-3. Rebuild the project
+### Analytics Configuration
 
-### Debugging
+```typescript
+const config: AnalyticsConfig = {
+  trackClicks: true,
+  trackMovement: true,
+  trackScrolling: true,
+  trackKeystrokes: false,
+  trackFormInteractions: true,
+  sampleRate: 60,              // Events per second
+  batchSize: 50,               // Events per batch
+  flushInterval: 5000,         // 5 seconds
+  enableHeatmap: true,
+  enableRecording: false,      // Screenshot capture
+  privacyMode: true
+};
+```
 
-The engine includes Vulkan validation layers for debugging. They are enabled by default in debug builds.
+### Usage Example
 
-## License
+```typescript
+import { UserTracker } from './src/tracking/UserTracker';
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+const tracker = new UserTracker({
+  config: {
+    trackClicks: true,
+    trackMovement: true,
+    enableHeatmap: true,
+    privacyMode: true,
+    // ... other config options
+  },
+  apiEndpoint: 'http://localhost:3001/api',
+  sessionTimeout: 30 * 60 * 1000, // 30 minutes
+  debug: true
+});
 
-## Contributing
+// Start tracking
+tracker.startTracking();
 
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a new Pull Request 
+// Track custom events
+tracker.trackCustomEvent('feature_used', {
+  feature: 'export_data',
+  context: 'dashboard'
+});
 
-## Troubleshooting
+// Get real-time heatmap data
+const heatmapData = tracker.getHeatmapData();
+```
 
-### Windows Build Issues
-- Make sure Visual Studio 2022 is installed with C++ development tools
-- Ensure Vulkan SDK is properly installed and in your PATH
-- Check that CMake 3.15+ is installed and accessible
+## 📈 Performance Metrics
 
-### Docker Alternative
-- If using Docker and encountering X11/display errors, ensure VcXsrv is running and DISPLAY is set correctly
-- If Docker build fails, try `docker-compose build --no-cache`
-- For X11 setup on Windows, run `
+### Target Performance
+- 99.9% event capture accuracy
+- <10ms latency for real-time processing
+- 60+ FPS rendering for complex visualizations
+- Handle 100k+ concurrent users with linear scaling
+
+### Quality Metrics
+- >80% line coverage, >70% branch coverage
+- >90% of public APIs documented
+- Zero compiler warnings across all platforms
+- <20% technical debt ratio
+
+## 🔐 Privacy & Compliance
+
+- **GDPR Compliance**: Built-in data subject rights and consent management
+- **CCPA Compliance**: Automatic data deletion and opt-out mechanisms
+- **Data Minimization**: Configurable data collection with privacy controls
+- **Local Processing**: Option for client-side-only analytics
+
+## 🚀 Deployment
+
+### Docker Deployment
+
+```bash
+# Build containers
+docker-compose build
+
+# Start services
+docker-compose up -d
+
+# Scale services
+docker-compose up --scale analytics=3
+```
+
+### Cloud Deployment
+
+Supports deployment to:
+- AWS (ECS, EKS, Lambda)
+- Google Cloud (GKE, Cloud Run)
+- Azure (AKS, Container Instances)
+- Kubernetes clusters
+
+## 🤝 Agent Communication
+
+Agents communicate through `agent_swap.json` with mutex-based coordination:
+
+```json
+{
+  "protocol_version": "1.1",
+  "project_context": {
+    "name": "user-metrics-tracker",
+    "repository": "independent",
+    "ml_pipeline_integration": true,
+    "image_processing_training": true,
+    "git_workflow": "gitflow"
+  },
+  "git_workflow": {
+    "current_branch": "main",
+    "active_features": {
+      "agent_1": "feature/client-tracking-engine",
+      "agent_2": "feature/backend-analytics",
+      "agent_3": "feature/dashboard-ui",
+      "agent_4": "feature/ml-pipeline",
+      "agent_5": "feature/infrastructure"
+    }
+  }
+}
+```
+
+## 🧪 Testing Strategy
+
+- **Unit Tests**: Core algorithm testing, data structure validation
+- **Integration Tests**: API endpoints, real-time streaming, UI functionality  
+- **Performance Tests**: Load testing for high-velocity event streams
+- **ML Tests**: Model accuracy validation and training pipeline testing
+
+## 📚 Documentation
+
+- [Agent Assignments](./AGENT_ASSIGNMENTS.md) - Detailed agent roles and responsibilities
+- [Project Goals](./PROJECT_GOALS.md) - Comprehensive project objectives and ML integration
+- [Changelog](./CHANGELOG.md) - Version history and release notes
+- [API Documentation](./docs/api.md) - REST and WebSocket API reference
+- [Deployment Guide](./docs/deployment.md) - Production deployment instructions
+
+## 🔗 ML Pipeline Integration
+
+### Training Data Export Formats
+- JSON with interaction-screenshot pairs
+- CSV for statistical analysis
+- TensorFlow TFRecord format
+- PyTorch dataset format
+- COCO format for computer vision tasks
+
+### Model Integration
+- TensorFlow.js for client-side inference
+- REST API endpoints for model predictions
+- Real-time feedback loops for UI optimization
+- A/B testing with ML-driven variations
+
+## 📊 Analytics Dashboard
+
+Access the dashboard at `http://localhost:3000` to view:
+- Real-time user interaction heatmaps
+- Behavioral pattern analysis
+- Session recordings and replays
+- Performance metrics and KPIs
+- Training data export tools
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+1. **High Memory Usage**: Adjust `batchSize` and `flushInterval` in config
+2. **Missing Events**: Check `sampleRate` and network connectivity
+3. **Privacy Concerns**: Enable `privacyMode` and configure data filters
+
+### Debug Mode
+
+```typescript
+const tracker = new UserTracker({
+  // ... config
+  debug: true
+});
+```
+
+## 🤝 Contributing
+
+### Git Workflow (Managed by Agent 6)
+
+1. Check current feature branch assignments in `agent_swap.json`
+2. Follow conventional commit format (see `config/git/commit-template.txt`)
+3. All changes go through Agent 6's review process
+4. Automated quality gates must pass before merging
+5. Agent coordination required for cross-component changes
+
+### Development Process
+
+1. Check agent assignments for your area of expertise
+2. Acquire appropriate mutex locks in `agent_swap.json`
+3. Follow the agent communication protocol
+4. Ensure all tests pass before committing
+5. Update documentation for any API changes
+
+## 🆕 Recent Updates
+
+- **v0.1.0**: Initial repository setup with complete Git workflow
+- Added Agent 6 (Git Maintainer) for dedicated version control
+- Implemented conventional commits with automated changelog
+- Set up pre-commit hooks and code quality gates
+- Established independent repository with full agent coordination
+
+## 📄 License
+
+MIT License - see [LICENSE](./LICENSE) file for details.
+
+## 🙋‍♂️ Support
+
+For questions about:
+- **Git & Version Control**: Contact Agent 6 (Git Maintainer)
+- **Architecture**: Contact Agent 3 (UI/Architecture)
+- **ML Integration**: Contact Agent 4 (ML Pipeline)
+- **Deployment**: Contact Agent 5 (DevOps)
+- **Client Tracking**: Contact Agent 1 (Client-Side)
+- **Backend Issues**: Contact Agent 2 (Backend Analytics)
+
+---
+
+**Repository Status**: ✅ Independent | 🤖 Agent-Managed | 📊 Analytics-Ready | 🧠 ML-Integrated

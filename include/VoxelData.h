@@ -37,6 +37,7 @@ struct Voxel {
 class VoxelData {
 public:
     VoxelData() = default;
+    VoxelData(const glm::ivec3& dims) : dimensions(dims) {}
     ~VoxelData() = default;
 
     // Voxel management
@@ -46,10 +47,25 @@ public:
     size_t getVoxelCount() const { return voxels_.size(); }
     const std::vector<Voxel>& getVoxels() const { return voxels_; }
     
+    // Grid-based access methods
+    void setVoxel(int x, int y, int z, bool active);
+    void setVoxel(const glm::ivec3& pos, bool active);
+    bool getVoxel(int x, int y, int z) const;
+    bool getVoxel(const glm::ivec3& pos) const;
+    
     // Additional methods required by SaveManager and other components
-    glm::ivec3 dimensions;  // Make this public for now
     bool getVoxel(uint32_t x, uint32_t y, uint32_t z) const;
     void setVoxel(uint32_t x, uint32_t y, uint32_t z, bool active);
+    
+    // Grid properties
+    glm::ivec3 dimensions{64, 64, 64};
+    void setDimensions(const glm::ivec3& dims) { dimensions = dims; }
+    glm::ivec3 getDimensions() const { return dimensions; }
+    
+    // Active voxel iteration
+    std::vector<Voxel> getActiveVoxels() const;
+    
+    // Spatial properties
     glm::vec3 getCenter() const;
     float getBoundingRadius() const;
 

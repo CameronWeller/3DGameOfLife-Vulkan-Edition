@@ -1,11 +1,17 @@
 #include "UI.h"
-#include <imgui.h>
-#include <backends/imgui_impl_glfw.h>
-#include <backends/imgui_impl_vulkan.h>
+#include "SaveManager.h"
+#include "AppState.h"
+#include <GLFW/glfw3.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_vulkan.h>
 #include <sstream>
 #include <iomanip>
 #include <thread>
 #include <filesystem>
+#include <iostream>
+
+// Include VulkanEngine.h after other headers to resolve forward declaration
+#include "VulkanEngine.h"
 
 UI::UI(VulkanEngine* engine)
     : engine_(engine), isPaused_(true), tickRate(1.0f),
@@ -19,10 +25,13 @@ UI::UI(VulkanEngine* engine)
 
 UI::~UI() {
     cleanupPreviewTextures();
-    ImGui::ShutdownForVulkan();
+    ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 }
+
+// Global variable for window close state
+bool g_shouldClose = false;
 
 void UI::init() {
     IMGUI_CHECKVERSION();
@@ -119,7 +128,7 @@ void UI::init() {
 }
 
 void UI::render() {
-    ImGui::NewFrameForVulkan();
+    ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
     
@@ -298,7 +307,7 @@ glm::vec3 UI::getMouseRayDirection() {
     glfwGetCursorPos(window, &xpos, &ypos);
     
     int width, height;
-    glfwGetFramebufferSize(window, &width, &height);
+    glfwGetWindowSize(window, &width, &height);
     
     // Convert to normalized device coordinates
     float x = (2.0f * xpos) / width - 1.0f;
@@ -308,13 +317,13 @@ glm::vec3 UI::getMouseRayDirection() {
     glm::vec4 clipCoords(x, y, -1.0f, 1.0f);
     
     // Convert to eye space
-    glm::mat4 invProj = glm::inverse(camera->getProjectionMatrix());
+    glm::mat4 invProj = glm::inverse(engine_->getCamera()->getProjectionMatrix());
     glm::vec4 eyeCoords = invProj * clipCoords;
     eyeCoords.z = -1.0f;
     eyeCoords.w = 0.0f;
     
     // Convert to world space
-    glm::mat4 invView = glm::inverse(camera->getViewMatrix());
+    glm::mat4 invView = glm::inverse(engine_->getCamera()->getViewMatrix());
     glm::vec4 worldCoords = invView * eyeCoords;
     
     return glm::normalize(glm::vec3(worldCoords));
@@ -322,7 +331,7 @@ glm::vec3 UI::getMouseRayDirection() {
 
 void UI::updatePlacementPosition() {
     RayCaster::Ray ray;
-    ray.origin = camera->getPosition();
+    ray.origin = engine_->getCamera()->getPosition();
     ray.direction = getMouseRayDirection();
     
     RayCaster::HitResult hit = RayCaster::castRay(ray, gridMin, gridMax);
@@ -470,27 +479,37 @@ void UI::renderSettings() {
         static bool showGrid = true;
         static float transparency = 1.0f;
         
-        ImGui::Checkbox("Wireframe Mode", &wireframe);
-        ImGui::Checkbox("Show Grid", &showGrid);
-        ImGui::SliderFloat("Transparency", &transparency, 0.0f, 1.0f);
-        
-        // TODO: Apply these settings to the renderer
+        if (ImGui::Checkbox("Wireframe Mode", &wireframe)) {
+            engine_->setWireframeMode(wireframe);
+        }
+        if (ImGui::Checkbox("Show Grid", &showGrid)) {
+            engine_->setShowGrid(showGrid);
+        }
+        if (ImGui::SliderFloat("Transparency", &transparency, 0.0f, 1.0f)) {
+            engine_->setTransparency(transparency);
+        }
     }
     
     if (ImGui::CollapsingHeader("Rule Settings")) {
         static int selectedRule = 0;
         const char* rules[] = { "5766", "4555", "Custom" };
         
-        ImGui::Combo("Rule Set", &selectedRule, rules, IM_ARRAYSIZE(rules));
+        if (ImGui::Combo("Rule Set", &selectedRule, rules, IM_ARRAYSIZE(rules))) {
+            // Apply rule set changes immediately
+            engine_->setRenderMode(selectedRule);
+        }
         
         if (selectedRule == 2) { // Custom rules
             static int birthMin = 5, birthMax = 7;
             static int survivalMin = 6, survivalMax = 6;
             
-            ImGui::SliderInt2("Birth Range", &birthMin, 0, 26);
-            ImGui::SliderInt2("Survival Range", &survivalMin, 0, 26);
+            bool customRulesChanged = false;
+            customRulesChanged |= ImGui::SliderInt2("Birth Range", &birthMin, 0, 26);
+            customRulesChanged |= ImGui::SliderInt2("Survival Range", &survivalMin, 0, 26);
             
-            // TODO: Apply custom rules
+            if (customRulesChanged) {
+                engine_->setCustomRules(birthMin, birthMax, survivalMin, survivalMax);
+            }
         }
     }
     
@@ -500,24 +519,29 @@ void UI::renderSettings() {
 void UI::renderPerformance() {
     ImGui::Begin("Performance", &showPerformanceWindow_);
     
-    // FPS counter
-    static float fps = 0.0f;
-    static float frameTime = 0.0f;
-    static float updateTime = 0.0f;
+    // FPS counter - get real values from engine
+    float fps = engine_->getCurrentFPS();
+    float frameTime = engine_->getFrameTime();
+    float updateTime = engine_->getUpdateTime();
     
     ImGui::Text("FPS: %.1f", fps);
     ImGui::Text("Frame Time: %.2f ms", frameTime);
     ImGui::Text("Update Time: %.2f ms", updateTime);
     
-    // Memory usage
-    static size_t totalMemory = 0;
-    static size_t usedMemory = 0;
+    // Memory usage - get real values from engine
+    size_t totalMemory = engine_->getTotalMemory();
+    size_t usedMemory = engine_->getUsedMemory();
     
     ImGui::Text("Memory Usage: %.2f MB / %.2f MB", 
                 usedMemory / (1024.0f * 1024.0f),
                 totalMemory / (1024.0f * 1024.0f));
     
-    // TODO: Update these values from the engine
+    // Progress bars for visual feedback
+    if (totalMemory > 0) {
+        float memoryUsagePercent = static_cast<float>(usedMemory) / static_cast<float>(totalMemory);
+        ImGui::ProgressBar(memoryUsagePercent, ImVec2(0.0f, 0.0f), 
+                          (std::to_string(static_cast<int>(memoryUsagePercent * 100)) + "%").c_str());
+    }
     
     ImGui::End();
 }
@@ -631,7 +655,7 @@ void UI::renderPatternBrowser() {
                 ImGui::Separator();
                 ImGui::Text("Preview:");
                 ImGui::BeginChild("PreviewFrame", ImVec2(256, 256), true);
-                ImGui::Image(previewTextures_[previewPath], ImVec2(256, 256));
+                ImGui::Image(reinterpret_cast<ImTextureID>(previewTextures_[previewPath]), ImVec2(256, 256));
                 ImGui::EndChild();
             }
         }
@@ -724,8 +748,8 @@ void UI::renderSavePatternDialog() {
         metadata.ruleSet = engine_->getRuleSet();
         metadata.gridSize = gridMax;
         metadata.voxelSize = voxelSize;
-        metadata.creationTime = std::time(nullptr);
-        metadata.modificationTime = std::time(nullptr);
+        metadata.creationTime = std::chrono::system_clock::from_time_t(std::time(nullptr));
+        metadata.modificationTime = std::chrono::system_clock::from_time_t(std::time(nullptr));
         metadata.population = population;
         metadata.generation = generation;
         metadata.tags = tags;
@@ -830,14 +854,13 @@ void UI::renderRuleAnalysis() {
 
                 // Population history chart
                 if (!result.populationHistory.empty()) {
+                    float maxPop = static_cast<float>(engine_->getGridWidth() * 
+                                                    engine_->getGridHeight() * 
+                                                    engine_->getGridDepth());
                     ImGui::PlotLines("Population History", 
                         result.populationHistory.data(), 
                         static_cast<int>(result.populationHistory.size()),
-                        0, nullptr, 0.0f, 
-                        static_cast<float>(engine_->getGridWidth() * 
-                                         engine_->getGridHeight() * 
-                                         engine_->getGridDepth()),
-                        ImVec2(-1, 100));
+                        0, nullptr, 0.0f, maxPop, ImVec2(-1, 100));
                 }
             }
         }
