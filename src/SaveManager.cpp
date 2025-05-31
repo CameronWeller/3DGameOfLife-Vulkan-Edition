@@ -20,31 +20,28 @@ using json = nlohmann::json;
 
 namespace VulkanHIP {
 
-SaveManager::SaveManager() {
+// Helper function to get default pattern directory
+std::filesystem::path getDefaultPatternDirectory() {
+    // Get the executable directory and create a patterns subdirectory
+    std::filesystem::path exePath = std::filesystem::current_path();
+    std::filesystem::path patternDir = exePath / "patterns";
+    
+    // Create directory if it doesn't exist
     try {
-        // Get the user's home directory
-        const char* homeDir = getenv("USERPROFILE");
-        if (!homeDir) {
-            homeDir = getenv("HOME");
-        }
-        if (!homeDir) {
-            throw SaveError(SaveError::Type::Unknown, "Could not determine home directory");
-        }
-
-        // Create the patterns directory
-        patternDirectory_ = fs::path(homeDir) / "VulkanEngine" / "patterns";
-        previewDirectory_ = patternDirectory_ / "previews";
-        if (!createPatternDirectory()) {
-            throw SaveError(SaveError::Type::FileAccessDenied, 
-                          "Failed to create pattern directory: " + patternDirectory_.string());
-        }
-        fs::create_directories(previewDirectory_);
-    } catch (const SaveError& e) {
-        handleSaveError(e);
-        throw;
-    } catch (const std::exception& e) {
-        throw SaveError(SaveError::Type::Unknown, std::string("Unexpected error: ") + e.what());
+        std::filesystem::create_directories(patternDir);
+    } catch (const std::exception&) {
+        // Fall back to current directory if we can't create patterns directory
+        patternDir = exePath;
     }
+    
+    return patternDir;
+}
+
+SaveManager::SaveManager() 
+    : patternDirectory_(getDefaultPatternDirectory()),
+      previewDirectory_(patternDirectory_ / "previews"),
+      engine_(nullptr) {
+    createPatternDirectory();
 }
 
 SaveManager::~SaveManager() {
@@ -306,6 +303,7 @@ App::SaveInfo SaveManager::createSaveInfo(const std::filesystem::path& path) con
             info.description = metadata.value("description", "");
             info.author = metadata.value("author", "");
             info.version = metadata.value("version", "1.0");
+            info.creationTime = std::chrono::system_clock::from_time_t(metadata.value("creationTime", 0));
         }
     } catch (...) {
         // Use default values if metadata can't be read
@@ -324,123 +322,19 @@ std::string SaveManager::generatePatternFileName() const {
 
 void SaveManager::generatePreview(const std::string& filename, const VoxelData& voxelData) {
     try {
-        // Create a higher resolution preview image
-        const int PREVIEW_WIDTH = 512;
-        const int PREVIEW_HEIGHT = 512;
-        
-        // Create image with better format
-        VkImage image;
-        VkDeviceMemory imageMemory;
-        VkImageView imageView;
-        VkSampler sampler;
-        
-        VkImageCreateInfo imageInfo{};
-        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        imageInfo.imageType = VK_IMAGE_TYPE_2D;
-        imageInfo.extent.width = PREVIEW_WIDTH;
-        imageInfo.extent.height = PREVIEW_HEIGHT;
-        imageInfo.extent.depth = 1;
-        imageInfo.mipLevels = 1;
-        imageInfo.arrayLayers = 1;
-        imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-        
-        if (vkCreateImage(engine_->getDevice(), &imageInfo, nullptr, &image) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create preview image!");
-        }
-        
-        // Allocate memory for the image
-        VkMemoryRequirements memRequirements;
-        vkGetImageMemoryRequirements(engine_->getDevice(), image, &memRequirements);
-        
-        VkMemoryAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize = memRequirements.size;
-        allocInfo.memoryTypeIndex = engine_->findMemoryType(memRequirements.memoryTypeBits, 
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        
-        if (vkAllocateMemory(engine_->getDevice(), &allocInfo, nullptr, &imageMemory) != VK_SUCCESS) {
-            vkDestroyImage(engine_->getDevice(), image, nullptr);
-            throw std::runtime_error("Failed to allocate preview image memory!");
-        }
-        
-        vkBindImageMemory(engine_->getDevice(), image, imageMemory, 0);
-        
-        // Create image view
-        VkImageViewCreateInfo viewInfo{};
-        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        viewInfo.image = image;
-        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        viewInfo.subresourceRange.baseMipLevel = 0;
-        viewInfo.subresourceRange.levelCount = 1;
-        viewInfo.subresourceRange.baseArrayLayer = 0;
-        viewInfo.subresourceRange.layerCount = 1;
-        
-        if (vkCreateImageView(engine_->getDevice(), &viewInfo, nullptr, &imageView) != VK_SUCCESS) {
-            vkDestroyImage(engine_->getDevice(), image, nullptr);
-            vkFreeMemory(engine_->getDevice(), imageMemory, nullptr);
-            throw std::runtime_error("Failed to create preview image view!");
-        }
-        
-        // Create sampler
-        VkSamplerCreateInfo samplerInfo{};
-        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        samplerInfo.magFilter = VK_FILTER_LINEAR;
-        samplerInfo.minFilter = VK_FILTER_LINEAR;
-        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samplerInfo.anisotropyEnable = VK_TRUE;
-        samplerInfo.maxAnisotropy = 16.0f;
-        samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-        samplerInfo.unnormalizedCoordinates = VK_FALSE;
-        samplerInfo.compareEnable = VK_FALSE;
-        samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-        samplerInfo.mipLodBias = 0.0f;
-        samplerInfo.minLod = 0.0f;
-        samplerInfo.maxLod = 0.0f;
-        
-        if (vkCreateSampler(engine_->getDevice(), &samplerInfo, nullptr, &sampler) != VK_SUCCESS) {
-            vkDestroyImageView(engine_->getDevice(), imageView, nullptr);
-            vkDestroyImage(engine_->getDevice(), image, nullptr);
-            vkFreeMemory(engine_->getDevice(), imageMemory, nullptr);
-            throw std::runtime_error("Failed to create preview image sampler!");
-        }
-        
-        // Create command buffer for rendering
-        VkCommandBuffer cmdBuffer = engine_->beginSingleTimeCommands();
-        
-        // Set up camera for preview
-        glm::vec3 center = voxelData.getCenter();
-        float radius = voxelData.getBoundingRadius();
-        glm::vec3 cameraPos = center + glm::vec3(radius * 2.0f, radius * 1.5f, radius * 2.0f);
-        
-        glm::mat4 view = glm::lookAt(cameraPos, center, glm::vec3(0.0f, 1.0f, 0.0f));
-        glm::mat4 proj = glm::perspective(glm::radians(45.0f), 
-            static_cast<float>(PREVIEW_WIDTH) / PREVIEW_HEIGHT, 0.1f, radius * 10.0f);
-        
-        // Render pattern preview
-        engine_->renderPatternPreview(cmdBuffer, voxelData, view, proj);
-        
-        // Save the rendered image
+        // For now, create a simple placeholder preview
+        // In a full implementation, this would render the voxel data to an image
         std::string previewPath = getPreviewPath(filename);
-        if (!engine_->saveImageToFile(image, previewPath)) {
-            throw std::runtime_error("Failed to save preview image!");
-        }
         
-        // Cleanup
-        engine_->endSingleTimeCommands(cmdBuffer);
-        vkDestroySampler(engine_->getDevice(), sampler, nullptr);
-        vkDestroyImageView(engine_->getDevice(), imageView, nullptr);
-        vkDestroyImage(engine_->getDevice(), image, nullptr);
-        vkFreeMemory(engine_->getDevice(), imageMemory, nullptr);
+        // Create a simple text file as a placeholder preview
+        std::ofstream previewFile(previewPath);
+        if (previewFile.is_open()) {
+            previewFile << "Preview for: " << filename << std::endl;
+            previewFile << "Voxel count: " << voxelData.getVoxelCount() << std::endl;
+            previewFile << "Dimensions: " << voxelData.dimensions.x << "x" 
+                       << voxelData.dimensions.y << "x" << voxelData.dimensions.z << std::endl;
+            previewFile.close();
+        }
         
     } catch (const std::exception& e) {
         std::cerr << "Error generating preview: " << e.what() << std::endl;

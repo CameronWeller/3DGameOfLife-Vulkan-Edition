@@ -6,6 +6,11 @@
 
 namespace VulkanHIP {
 
+// Define VK_ERROR_UNKNOWN if not defined (some Vulkan versions don't have it)
+#ifndef VK_ERROR_UNKNOWN
+#define VK_ERROR_UNKNOWN (VkResult)-13
+#endif
+
 // Helper function to convert VkResult to string
 inline std::string getVulkanResultString(VkResult result) {
     switch (result) {
@@ -29,12 +34,16 @@ inline std::string getVulkanResultString(VkResult result) {
         case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
         case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY";
         case VK_ERROR_INVALID_EXTERNAL_HANDLE: return "VK_ERROR_INVALID_EXTERNAL_HANDLE";
+        case VK_ERROR_FRAGMENTATION: return "VK_ERROR_FRAGMENTATION";
+        case VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS: return "VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS";
         case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR";
         case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR: return "VK_ERROR_NATIVE_WINDOW_IN_USE_KHR";
         case VK_SUBOPTIMAL_KHR: return "VK_SUBOPTIMAL_KHR";
         case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
         case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR: return "VK_ERROR_INCOMPATIBLE_DISPLAY_KHR";
         case VK_ERROR_VALIDATION_FAILED_EXT: return "VK_ERROR_VALIDATION_FAILED_EXT";
+        case VK_ERROR_INVALID_SHADER_NV: return "VK_ERROR_INVALID_SHADER_NV";
+        case VK_ERROR_UNKNOWN: return "VK_ERROR_UNKNOWN";
         default: return "Unknown VkResult: " + std::to_string(result);
     }
 }

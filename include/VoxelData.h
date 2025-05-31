@@ -45,6 +45,13 @@ public:
     void clear();
     size_t getVoxelCount() const { return voxels_.size(); }
     const std::vector<Voxel>& getVoxels() const { return voxels_; }
+    
+    // Additional methods required by SaveManager and other components
+    glm::ivec3 dimensions;  // Make this public for now
+    bool getVoxel(uint32_t x, uint32_t y, uint32_t z) const;
+    void setVoxel(uint32_t x, uint32_t y, uint32_t z, bool active);
+    glm::vec3 getCenter() const;
+    float getBoundingRadius() const;
 
     // Serialization
     nlohmann::json toJson() const;
