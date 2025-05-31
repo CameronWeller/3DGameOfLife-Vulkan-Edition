@@ -26,7 +26,7 @@ TEST_F(MemoryTest, BufferCreation) {
     auto allocation = memoryManager->createBuffer(
         bufferSize,
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU
+        VMA_MEMORY_USAGE_AUTO
     );
 
     EXPECT_NE(allocation.buffer, VK_NULL_HANDLE);
@@ -42,7 +42,7 @@ TEST_F(MemoryTest, MemoryMapping) {
     auto allocation = memoryManager->createBuffer(
         bufferSize,
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU
+        VMA_MEMORY_USAGE_AUTO
     );
 
     void* data = memoryManager->mapMemory(allocation);
@@ -79,14 +79,14 @@ TEST_F(MemoryTest, BufferCopy) {
     auto srcAllocation = memoryManager->createBuffer(
         bufferSize,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU
+        VMA_MEMORY_USAGE_AUTO
     );
 
     // Create destination buffer
     auto dstAllocation = memoryManager->createBuffer(
         bufferSize,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
+        VMA_MEMORY_USAGE_AUTO
     );
 
     // Write data to source buffer
