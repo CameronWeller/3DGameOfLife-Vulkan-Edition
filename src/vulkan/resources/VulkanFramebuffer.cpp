@@ -20,7 +20,7 @@ VulkanFramebuffer::~VulkanFramebuffer() {
 
 void VulkanFramebuffer::createRenderPass() {
     VkAttachmentDescription colorAttachment{};
-    colorAttachment.format = swapChain_->getImageFormat();
+    colorAttachment.format = swapChain_->getSwapChainImageFormat();
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -77,7 +77,7 @@ void VulkanFramebuffer::createRenderPass() {
 }
 
 void VulkanFramebuffer::createFramebuffers() {
-    const auto& swapChainImageViews = swapChain_->getImageViews();
+    const auto& swapChainImageViews = swapChain_->getSwapChainImageViews();
     swapChainFramebuffers_.resize(swapChainImageViews.size());
 
     for (size_t i = 0; i < swapChainImageViews.size(); i++) {
@@ -91,8 +91,8 @@ void VulkanFramebuffer::createFramebuffers() {
         framebufferInfo.renderPass = renderPass_;
         framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
         framebufferInfo.pAttachments = attachments.data();
-        framebufferInfo.width = swapChain_->getExtent().width;
-        framebufferInfo.height = swapChain_->getExtent().height;
+        framebufferInfo.width = swapChain_->getSwapChainExtent().width;
+        framebufferInfo.height = swapChain_->getSwapChainExtent().height;
         framebufferInfo.layers = 1;
 
         if (vkCreateFramebuffer(vulkanContext_->getDevice(), &framebufferInfo, nullptr, &swapChainFramebuffers_[i]) != VK_SUCCESS) {

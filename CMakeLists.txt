@@ -54,7 +54,7 @@ target_link_libraries(${PROJECT_NAME}_minimal PRIVATE
     vulkan_resources
     memory_management
     rendering
-    # Skip: game_logic, ui, vulkan_ui, vulkan_rendering (broken)
+    # Temporarily skip: game_logic, camera, ui, vulkan_ui, vulkan_rendering (broken)
 )
 
 # Apply common settings to executables

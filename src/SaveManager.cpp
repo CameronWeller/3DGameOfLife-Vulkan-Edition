@@ -20,7 +20,7 @@ using json = nlohmann::json;
 
 namespace VulkanHIP {
 
-SaveManager::SaveManager() {
+SaveManager::SaveManager(VulkanEngine* engine) : engine_(engine) {
     try {
         // Get the user's home directory
         const char* homeDir = getenv("USERPROFILE");
