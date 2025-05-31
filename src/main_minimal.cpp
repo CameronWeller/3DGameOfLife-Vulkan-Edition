@@ -99,15 +99,11 @@ private:
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> descriptorSets;
     
-    // Frame synchronization - Fixed approach with per-image semaphores
+    // Frame synchronization - Fixed approach with per-frame semaphores
     static const int MAX_FRAMES_IN_FLIGHT = 2;
     std::vector<VkSemaphore> imageAvailableSemaphores;
     std::vector<VkSemaphore> renderFinishedSemaphores;
     std::vector<VkFence> inFlightFences;
-    
-    // Per-swapchain-image semaphores to fix validation warnings
-    std::vector<VkSemaphore> imageSpecificAvailableSemaphores;
-    std::vector<VkSemaphore> imageSpecificRenderFinishedSemaphores;
     
     // Track which images are in flight to avoid reusing semaphores
     std::vector<VkFence> imagesInFlight;
@@ -222,16 +218,34 @@ private:
     }
     
     void processMouseMovement(double xpos, double ypos) {
-        if (!mouseControlEnabled || !camera) return;
+        // Multiple layers of safety checks
+        if (!camera) {
+            std::cerr << "Warning: processMouseMovement called with null camera" << std::endl;
+            return;
+        }
+        
+        if (!mouseControlEnabled) return;
+        
+        // Validate input parameters
+        if (std::isnan(xpos) || std::isnan(ypos) || std::isinf(xpos) || std::isinf(ypos)) {
+            std::cerr << "Warning: Invalid mouse position: " << xpos << ", " << ypos << std::endl;
+            return;
+        }
         
         if (firstMouse) {
             lastX = xpos;
             lastY = ypos;
             firstMouse = false;
+            return; // Skip processing on first mouse movement
         }
 
         float xoffset = xpos - lastX;
         float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
+
+        // Clamp offsets to reasonable values to prevent extreme movements
+        const float maxOffset = 1000.0f;
+        xoffset = std::clamp(xoffset, -maxOffset, maxOffset);
+        yoffset = std::clamp(yoffset, -maxOffset, yoffset);
 
         lastX = xpos;
         lastY = ypos;
@@ -240,6 +254,10 @@ private:
             camera->processMouseMovement(xoffset, yoffset);
         } catch (const std::exception& e) {
             std::cerr << "Error in mouse movement processing: " << e.what() << std::endl;
+            mouseControlEnabled = false; // Disable on error to prevent further crashes
+        } catch (...) {
+            std::cerr << "Unknown error in mouse movement processing" << std::endl;
+            mouseControlEnabled = false; // Disable on error to prevent further crashes
         }
     }
     
@@ -919,10 +937,6 @@ private:
         renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
         inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
         
-        // Create per-swapchain-image semaphores to fix validation warnings
-        imageSpecificAvailableSemaphores.resize(swapchainImages.size());
-        imageSpecificRenderFinishedSemaphores.resize(swapchainImages.size());
-        
         VkSemaphoreCreateInfo semaphoreInfo{};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         
@@ -939,18 +953,10 @@ private:
             }
         }
         
-        // Create per-image semaphores
-        for (size_t i = 0; i < swapchainImages.size(); i++) {
-            if (vkCreateSemaphore(vulkanContext->getDevice(), &semaphoreInfo, nullptr, &imageSpecificAvailableSemaphores[i]) != VK_SUCCESS ||
-                vkCreateSemaphore(vulkanContext->getDevice(), &semaphoreInfo, nullptr, &imageSpecificRenderFinishedSemaphores[i]) != VK_SUCCESS) {
-                throw std::runtime_error("Failed to create per-image synchronization objects!");
-            }
-        }
-        
         // Track which images are in flight to avoid reusing semaphores
         imagesInFlight.resize(swapchainImages.size(), VK_NULL_HANDLE);
         
-        std::cout << "Synchronization objects created for " << MAX_FRAMES_IN_FLIGHT << " frames and " << swapchainImages.size() << " swapchain images" << std::endl;
+        std::cout << "Synchronization objects created for " << MAX_FRAMES_IN_FLIGHT << " frames" << std::endl;
     }
     
     void mainLoop() {
@@ -981,10 +987,10 @@ private:
         // Wait for the previous frame to finish
         vkWaitForFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
         
-        // Acquire next image - use image-specific semaphore
+        // Acquire next image - use frame-specific semaphore instead of image-specific
         uint32_t imageIndex;
         VkResult result = vkAcquireNextImageKHR(vulkanContext->getDevice(), swapchain, 
-                                               UINT64_MAX, imageSpecificAvailableSemaphores[currentFrame % swapchainImages.size()], VK_NULL_HANDLE, &imageIndex);
+                                               UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
         
         if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
             std::cerr << "Failed to acquire swap chain image! Error: " << result << std::endl;
@@ -1020,11 +1026,11 @@ private:
         vkResetCommandBuffer(commandBuffers[currentFrame], 0);
         recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
         
-        // Submit command buffer - use image-specific semaphores
+        // Submit command buffer - use frame-based semaphores for proper synchronization
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         
-        VkSemaphore waitSemaphores[] = {imageSpecificAvailableSemaphores[imageIndex]};
+        VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
         VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores = waitSemaphores;
@@ -1032,7 +1038,7 @@ private:
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
         
-        VkSemaphore signalSemaphores[] = {imageSpecificRenderFinishedSemaphores[imageIndex]};
+        VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = signalSemaphores;
         
@@ -1088,12 +1094,6 @@ private:
             vkDestroySemaphore(vulkanContext->getDevice(), imageAvailableSemaphores[i], nullptr);
             vkDestroySemaphore(vulkanContext->getDevice(), renderFinishedSemaphores[i], nullptr);
             vkDestroyFence(vulkanContext->getDevice(), inFlightFences[i], nullptr);
-        }
-        
-        // Cleanup per-image semaphores
-        for (size_t i = 0; i < imageSpecificAvailableSemaphores.size(); i++) {
-            vkDestroySemaphore(vulkanContext->getDevice(), imageSpecificAvailableSemaphores[i], nullptr);
-            vkDestroySemaphore(vulkanContext->getDevice(), imageSpecificRenderFinishedSemaphores[i], nullptr);
         }
         
         // Cleanup 3D rendering resources
