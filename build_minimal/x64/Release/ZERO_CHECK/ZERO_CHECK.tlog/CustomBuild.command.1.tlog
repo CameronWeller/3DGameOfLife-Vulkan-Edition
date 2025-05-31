@@ -1,6 +1,6 @@
-^C:\CPP-VULKAN-HIP-ENGINE\BUILD_MINIMAL\CMAKEFILES\C0D57A918D56FE9F65DC59F0315C270A\GENERATE.STAMP.RULE
+^C:\DEV\3DGAMEOFLIFE-VULKAN-EDITION\BUILD_MINIMAL\CMAKEFILES\D8873AF37739D0397E5E6FECB294252E\GENERATE.STAMP.RULE
 setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -SC:/cpp-vulkan-hip-engine -BC:/cpp-vulkan-hip-engine/build_minimal --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/cpp-vulkan-hip-engine/build_minimal/3DGameOfLife-Vulkan-Edition.sln
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Dev/3DGameOfLife-Vulkan-Edition/build_minimal -BC:/Dev/3DGameOfLife-Vulkan-Edition/build_minimal --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Dev/3DGameOfLife-Vulkan-Edition/build_minimal/3DGameOfLife-Vulkan-Edition-Minimal.sln
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone

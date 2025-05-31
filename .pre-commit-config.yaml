@@ -1,0 +1,158 @@
+# Pre-commit hooks for 3D Game of Life - Vulkan Edition
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+repos:
+  # Basic file and formatting checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(.*\.md|.*\.txt)$
+      - id: end-of-file-fixer
+        exclude: ^(.*\.spv|.*\.bin|.*\.exe|.*\.dll|.*\.so|.*\.dylib)$
+      - id: check-yaml
+      - id: check-json
+      - id: check-xml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: destroyed-symlinks
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+
+  # C++ code formatting with clang-format
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v17.0.6
+    hooks:
+      - id: clang-format
+        types_or: [c++, c]
+        args: ['-i']
+        exclude: ^(build/|cmake-build-|vcpkg_installed/|\.git/)
+
+  # CMake formatting
+  - repo: https://github.com/cheshirekow/cmake-format-precommit
+    rev: v0.6.13
+    hooks:
+      - id: cmake-format
+        additional_dependencies: [pyyaml]
+      - id: cmake-lint
+        additional_dependencies: [pyyaml]
+
+  # Markdown formatting and linting
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.38.0
+    hooks:
+      - id: markdownlint
+        args: ['--fix']
+        exclude: ^(CHANGELOG\.md|node_modules/)
+
+  # Shell script linting
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.9.0.6
+    hooks:
+      - id: shellcheck
+
+  # Python code quality (for build scripts)
+  - repo: https://github.com/psf/black
+    rev: 23.12.1
+    hooks:
+      - id: black
+        language_version: python3
+        types: [python]
+
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ["--profile", "black"]
+
+  # Git commit message validation
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.0.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: [feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert]
+
+  # Local custom hooks
+  - repo: local
+    hooks:
+      # Check for TODO/FIXME comments in production code
+      - id: check-todos
+        name: Check for TODO/FIXME comments
+        entry: scripts/pre-commit/check-todos.sh
+        language: script
+        types: [c++, c]
+        exclude: ^(tests/|examples/)
+
+      # Validate shader files
+      - id: validate-shaders
+        name: Validate GLSL shaders
+        entry: scripts/pre-commit/validate-shaders.sh
+        language: script
+        files: '\.(vert|frag|comp|geom|tesc|tese|glsl)$'
+        pass_filenames: true
+
+      # Check for proper include guards
+      - id: check-include-guards
+        name: Check C++ include guards
+        entry: scripts/pre-commit/check-include-guards.sh
+        language: script
+        types: [c++]
+        files: '\.hpp$'
+
+      # Check CMake best practices
+      - id: check-cmake-practices
+        name: Check CMake best practices
+        entry: scripts/pre-commit/check-cmake.sh
+        language: script
+        files: 'CMakeLists\.txt$|\.cmake$'
+
+      # Check for proper copyright headers
+      - id: check-copyright
+        name: Check copyright headers
+        entry: scripts/pre-commit/check-copyright.sh
+        language: script
+        types_or: [c++, c]
+        exclude: ^(tests/|examples/|third_party/)
+
+      # Validate vcpkg manifest
+      - id: validate-vcpkg
+        name: Validate vcpkg.json
+        entry: scripts/pre-commit/validate-vcpkg.sh
+        language: script
+        files: 'vcpkg\.json$'
+
+      # Check for proper Vulkan API usage patterns
+      - id: check-vulkan-patterns
+        name: Check Vulkan API patterns
+        entry: scripts/pre-commit/check-vulkan-patterns.sh
+        language: script
+        types: [c++]
+        files: '(vulkan|Vulkan)'
+
+      # Ensure documentation is up to date
+      - id: check-docs-sync
+        name: Check documentation sync
+        entry: scripts/pre-commit/check-docs-sync.sh
+        language: script
+        files: '(README\.md|docs/.*\.md)$'
+
+# Configuration for specific hooks
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit.com hooks
+
+    for more information, see https://pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false 
