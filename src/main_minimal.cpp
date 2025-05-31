@@ -4,6 +4,7 @@
 #include <memory>
 #include <chrono>
 #include <thread>
+#include <GLFW/glfw3.h>  // Add GLFW header for extension functions
 
 // Only include headers we know exist
 #include "WindowManager.h"
@@ -65,8 +66,16 @@ private:
         // Get singleton instance
         vulkanContext = &VulkanContext::getInstance();
         
-        // Initialize with basic extensions
+        // Get required GLFW extensions for surface support
+        uint32_t glfwExtensionCount = 0;
+        const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+        
         std::vector<const char*> extensions;
+        for (uint32_t i = 0; i < glfwExtensionCount; i++) {
+            extensions.push_back(glfwExtensions[i]);
+            std::cout << "Adding required extension: " << glfwExtensions[i] << std::endl;
+        }
+        
         vulkanContext->init(extensions);
         
         // Skip memory manager for now
