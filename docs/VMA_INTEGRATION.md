@@ -122,3 +122,16 @@ When working with VMA-related code:
 4. Access `third_party/VulkanMemoryAllocator/docs/` for additional documentation
 
 This approach ensures agents have complete context while maintaining a clean, manageable build system. 
+
+## Recent Improvements
+
+The VMA integration has been significantly modernized with new patterns and best practices. See [VMA_MODERNIZATION.md](VMA_MODERNIZATION.md) for details on:
+
+- Modern `VMA_MEMORY_USAGE_AUTO` patterns replacing deprecated usage flags
+- Smart allocation flag selection based on buffer usage
+- Enhanced allocator configuration with memory budget and priority support
+- Convenient wrapper functions for common operations
+- Comprehensive memory statistics and monitoring
+- Performance optimizations for large allocations and render targets
+
+These improvements provide better performance, more maintainable code, and alignment with current VMA best practices while maintaining full backward compatibility. 
