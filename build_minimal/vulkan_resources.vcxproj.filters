@@ -13,6 +13,9 @@
     <ClCompile Include="C:\cpp-vulkan-hip-engine\src\vulkan\resources\VulkanFramebuffer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\cpp-vulkan-hip-engine\src\vulkan\resources\ShaderManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="C:\cpp-vulkan-hip-engine\CMakeLists.txt" />

@@ -226,6 +226,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <Project>{8C86A5C8-F398-3F53-97EC-FD231B799F0B}</Project>
       <Name>memory_management</Name>
     </ProjectReference>
+    <ProjectReference Include="C:\cpp-vulkan-hip-engine\build_minimal\minimal_3d_vulkan.vcxproj">
+      <Project>{9CDB52FB-7555-3EB6-A2C1-D8ECEAF21EB1}</Project>
+      <Name>minimal_3d_vulkan</Name>
+    </ProjectReference>
     <ProjectReference Include="C:\cpp-vulkan-hip-engine\build_minimal\performance_tests.vcxproj">
       <Project>{BEC6F7B6-DFF9-3F83-A389-2F4CD9E5F49C}</Project>
       <Name>performance_tests</Name>

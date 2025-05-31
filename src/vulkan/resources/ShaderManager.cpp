@@ -98,7 +98,10 @@ VkShaderModule ShaderManager::createShaderModuleFromCode(const std::vector<char>
     createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
     
     VkShaderModule shaderModule;
-    VK_CHECK(vkCreateShaderModule(context_->getDevice(), &createInfo, nullptr, &shaderModule));
+    VkResult result = vkCreateShaderModule(context_->getDevice(), &createInfo, nullptr, &shaderModule);
+    if (result != VK_SUCCESS) {
+        throw VulkanError(result, "Failed to create shader module");
+    }
     
     return shaderModule;
 }

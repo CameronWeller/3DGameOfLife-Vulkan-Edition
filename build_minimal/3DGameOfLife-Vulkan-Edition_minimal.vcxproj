@@ -133,7 +133,7 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>Debug\core_engine.lib;Debug\utilities.lib;Debug\vulkan_resources.lib;Debug\rendering.lib;Debug\core_engine.lib;vcpkg_installed\x64-windows\debug\lib\glm.lib;vcpkg_installed\x64-windows\debug\lib\glfw3dll.lib;vcpkg_installed\x64-windows\debug\lib\spdlogd.lib;vcpkg_installed\x64-windows\debug\lib\fmtd.lib;vcpkg_installed\x64-windows\debug\lib\imguid.lib;vcpkg_installed\x64-windows\lib\vulkan-1.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>Debug\core_engine.lib;Debug\utilities.lib;Debug\vulkan_resources.lib;Debug\rendering.lib;Debug\camera.lib;Debug\game_logic.lib;Debug\memory_management.lib;Debug\core_engine.lib;vcpkg_installed\x64-windows\debug\lib\glm.lib;vcpkg_installed\x64-windows\debug\lib\glfw3dll.lib;vcpkg_installed\x64-windows\debug\lib\spdlogd.lib;vcpkg_installed\x64-windows\debug\lib\fmtd.lib;vcpkg_installed\x64-windows\debug\lib\imguid.lib;vcpkg_installed\x64-windows\lib\vulkan-1.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -195,7 +195,7 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>Release\core_engine.lib;Release\utilities.lib;Release\vulkan_resources.lib;Release\rendering.lib;Release\core_engine.lib;vcpkg_installed\x64-windows\lib\glm.lib;vcpkg_installed\x64-windows\lib\glfw3dll.lib;vcpkg_installed\x64-windows\lib\spdlog.lib;vcpkg_installed\x64-windows\lib\fmt.lib;vcpkg_installed\x64-windows\lib\imgui.lib;vcpkg_installed\x64-windows\lib\vulkan-1.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>Release\core_engine.lib;Release\utilities.lib;Release\vulkan_resources.lib;Release\rendering.lib;Release\camera.lib;Release\game_logic.lib;Release\memory_management.lib;Release\core_engine.lib;vcpkg_installed\x64-windows\lib\glm.lib;vcpkg_installed\x64-windows\lib\glfw3dll.lib;vcpkg_installed\x64-windows\lib\spdlog.lib;vcpkg_installed\x64-windows\lib\fmt.lib;vcpkg_installed\x64-windows\lib\imgui.lib;vcpkg_installed\x64-windows\lib\vulkan-1.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
       <GenerateDebugInformation>false</GenerateDebugInformation>
@@ -257,7 +257,7 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>MinSizeRel\core_engine.lib;MinSizeRel\utilities.lib;MinSizeRel\vulkan_resources.lib;MinSizeRel\rendering.lib;MinSizeRel\core_engine.lib;vcpkg_installed\x64-windows\lib\glm.lib;vcpkg_installed\x64-windows\lib\glfw3dll.lib;vcpkg_installed\x64-windows\lib\spdlog.lib;vcpkg_installed\x64-windows\lib\fmt.lib;vcpkg_installed\x64-windows\lib\imgui.lib;vcpkg_installed\x64-windows\lib\vulkan-1.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>MinSizeRel\core_engine.lib;MinSizeRel\utilities.lib;MinSizeRel\vulkan_resources.lib;MinSizeRel\rendering.lib;MinSizeRel\camera.lib;MinSizeRel\game_logic.lib;MinSizeRel\memory_management.lib;MinSizeRel\core_engine.lib;vcpkg_installed\x64-windows\lib\glm.lib;vcpkg_installed\x64-windows\lib\glfw3dll.lib;vcpkg_installed\x64-windows\lib\spdlog.lib;vcpkg_installed\x64-windows\lib\fmt.lib;vcpkg_installed\x64-windows\lib\imgui.lib;vcpkg_installed\x64-windows\lib\vulkan-1.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
       <GenerateDebugInformation>false</GenerateDebugInformation>
@@ -318,7 +318,7 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>RelWithDebInfo\core_engine.lib;RelWithDebInfo\utilities.lib;RelWithDebInfo\vulkan_resources.lib;RelWithDebInfo\rendering.lib;RelWithDebInfo\core_engine.lib;vcpkg_installed\x64-windows\lib\glm.lib;vcpkg_installed\x64-windows\lib\glfw3dll.lib;vcpkg_installed\x64-windows\lib\spdlog.lib;vcpkg_installed\x64-windows\lib\fmt.lib;vcpkg_installed\x64-windows\lib\imgui.lib;vcpkg_installed\x64-windows\lib\vulkan-1.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>RelWithDebInfo\core_engine.lib;RelWithDebInfo\utilities.lib;RelWithDebInfo\vulkan_resources.lib;RelWithDebInfo\rendering.lib;RelWithDebInfo\camera.lib;RelWithDebInfo\game_logic.lib;RelWithDebInfo\memory_management.lib;RelWithDebInfo\core_engine.lib;vcpkg_installed\x64-windows\lib\glm.lib;vcpkg_installed\x64-windows\lib\glfw3dll.lib;vcpkg_installed\x64-windows\lib\spdlog.lib;vcpkg_installed\x64-windows\lib\fmt.lib;vcpkg_installed\x64-windows\lib\imgui.lib;vcpkg_installed\x64-windows\lib\vulkan-1.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -401,9 +401,21 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </ProjectReference>
+    <ProjectReference Include="C:\cpp-vulkan-hip-engine\build_minimal\camera.vcxproj">
+      <Project>{974C017C-8C9C-3091-A7A9-C79B21A9BD45}</Project>
+      <Name>camera</Name>
+    </ProjectReference>
     <ProjectReference Include="C:\cpp-vulkan-hip-engine\build_minimal\core_engine.vcxproj">
       <Project>{E42F5B37-1EA1-3D73-ADBF-B6125C2BAD55}</Project>
       <Name>core_engine</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\cpp-vulkan-hip-engine\build_minimal\game_logic.vcxproj">
+      <Project>{30D70843-9EF8-314B-8669-DDAACF0B40DF}</Project>
+      <Name>game_logic</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\cpp-vulkan-hip-engine\build_minimal\memory_management.vcxproj">
+      <Project>{8C86A5C8-F398-3F53-97EC-FD231B799F0B}</Project>
+      <Name>memory_management</Name>
     </ProjectReference>
     <ProjectReference Include="C:\cpp-vulkan-hip-engine\build_minimal\rendering.vcxproj">
       <Project>{F5DF46C1-C990-33C1-AA9A-2507DC3FB5E3}</Project>

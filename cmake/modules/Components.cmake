@@ -155,6 +155,7 @@ function(create_vulkan_resources_component)
         src/vulkan/resources/VulkanImageManager.cpp
         src/vulkan/resources/VulkanSwapChain.cpp
         src/vulkan/resources/VulkanFramebuffer.cpp
+        src/vulkan/resources/ShaderManager.cpp
     )
     
     add_library(vulkan_resources STATIC ${VULKAN_RESOURCES_SOURCES})

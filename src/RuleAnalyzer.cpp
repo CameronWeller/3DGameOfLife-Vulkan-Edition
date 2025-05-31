@@ -4,6 +4,10 @@
 #include <cmath>
 #include <sstream>
 #include <iomanip>
+#include <glm/glm.hpp>
+
+// Add namespace for Grid3D
+using namespace VulkanHIP;
 
 RuleAnalyzer::RuleAnalyzer() = default;
 RuleAnalyzer::~RuleAnalyzer() = default;
@@ -19,7 +23,7 @@ RuleAnalyzer::AnalysisResult RuleAnalyzer::analyzeRule(
     
     // Initialize test grid
     testGrid_ = std::make_unique<Grid3D>(width, height, depth);
-    testGrid_->setRules(rule);
+    testGrid_->initialize();
     testGrid_->randomize();
     
     // Track population history
@@ -28,17 +32,7 @@ RuleAnalyzer::AnalysisResult RuleAnalyzer::analyzeRule(
     // Run simulation for analysis
     for (int gen = 0; gen < DEFAULT_ANALYSIS_GENERATIONS; ++gen) {
         // Record current population
-        uint32_t population = 0;
-        for (uint32_t z = 0; z < depth; ++z) {
-            for (uint32_t y = 0; y < height; ++y) {
-                for (uint32_t x = 0; x < width; ++x) {
-                    if (testGrid_->getCell(x, y, z)) {
-                        population++;
-                    }
-                }
-            }
-        }
-        result.populationHistory.push_back(static_cast<float>(population));
+        result.populationHistory.push_back(static_cast<float>(testGrid_->getPopulation()));
         
         // Update grid
         testGrid_->update();
@@ -130,7 +124,8 @@ float RuleAnalyzer::calculateStability(const Grid3D& grid, int generations) {
     
     // Create a copy of the grid for testing
     auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
-    testGrid->setRules(grid.getRules());
+    testGrid->initialize();
+    testGrid->setRuleSet(grid.getCurrentRuleSet());
     
     // Copy initial state
     for (uint32_t z = 0; z < grid.getDepth(); ++z) {
@@ -143,17 +138,7 @@ float RuleAnalyzer::calculateStability(const Grid3D& grid, int generations) {
     
     // Track population changes
     for (int gen = 0; gen < generations; ++gen) {
-        uint32_t population = 0;
-        for (uint32_t z = 0; z < grid.getDepth(); ++z) {
-            for (uint32_t y = 0; y < grid.getHeight(); ++y) {
-                for (uint32_t x = 0; x < grid.getWidth(); ++x) {
-                    if (testGrid->getCell(x, y, z)) {
-                        population++;
-                    }
-                }
-            }
-        }
-        populations.push_back(population);
+        populations.push_back(static_cast<uint32_t>(testGrid->getPopulation()));
         testGrid->update();
     }
     
@@ -182,7 +167,8 @@ float RuleAnalyzer::calculateGrowthRate(const Grid3D& grid, int generations) {
     
     // Create a copy of the grid for testing
     auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
-    testGrid->setRules(grid.getRules());
+    testGrid->initialize();
+    testGrid->setRuleSet(grid.getCurrentRuleSet());
     
     // Copy initial state
     for (uint32_t z = 0; z < grid.getDepth(); ++z) {
@@ -195,17 +181,7 @@ float RuleAnalyzer::calculateGrowthRate(const Grid3D& grid, int generations) {
     
     // Track population changes
     for (int gen = 0; gen < generations; ++gen) {
-        uint32_t population = 0;
-        for (uint32_t z = 0; z < grid.getDepth(); ++z) {
-            for (uint32_t y = 0; y < grid.getHeight(); ++y) {
-                for (uint32_t x = 0; x < grid.getWidth(); ++x) {
-                    if (testGrid->getCell(x, y, z)) {
-                        population++;
-                    }
-                }
-            }
-        }
-        populations.push_back(population);
+        populations.push_back(static_cast<uint32_t>(testGrid->getPopulation()));
         testGrid->update();
     }
     
@@ -216,7 +192,10 @@ float RuleAnalyzer::calculateGrowthRate(const Grid3D& grid, int generations) {
     
     float initialPop = static_cast<float>(populations[0]);
     float finalPop = static_cast<float>(populations.back());
-    float totalCells = static_cast<float>(grid.getWidth() * grid.getHeight() * grid.getDepth());
+    
+    if (initialPop == 0.0f) {
+        return finalPop > 0.0f ? 1.0f : 0.0f;
+    }
     
     return (finalPop - initialPop) / (initialPop * static_cast<float>(generations));
 }
@@ -355,7 +334,8 @@ void RuleAnalyzer::generateRuleReport(const AnalysisResult& result, const std::s
 
 bool RuleAnalyzer::isStable(const Grid3D& grid, int generations) {
     auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
-    testGrid->setRules(grid.getRules());
+    testGrid->initialize();
+    testGrid->setRuleSet(grid.getCurrentRuleSet());
     
     // Copy initial state
     for (uint32_t z = 0; z < grid.getDepth(); ++z) {
@@ -365,37 +345,32 @@ bool RuleAnalyzer::isStable(const Grid3D& grid, int generations) {
             }
         }
     }
+    
+    // Store initial population for comparison
+    uint64_t initialPopulation = testGrid->getPopulation();
     
     // Check if pattern remains unchanged
     for (int gen = 0; gen < generations; ++gen) {
-        bool changed = false;
         testGrid->update();
         
-        for (uint32_t z = 0; z < grid.getDepth() && !changed; ++z) {
-            for (uint32_t y = 0; y < grid.getHeight() && !changed; ++y) {
-                for (uint32_t x = 0; x < grid.getWidth() && !changed; ++x) {
-                    if (testGrid->getCell(x, y, z) != grid.getCell(x, y, z)) {
-                        changed = true;
-                    }
-                }
-            }
-        }
-        
-        if (!changed) {
-            return true;
+        // Check if population changed significantly
+        uint64_t currentPopulation = testGrid->getPopulation();
+        if (std::abs(static_cast<int64_t>(currentPopulation - initialPopulation)) > 1) {
+            return false;
         }
     }
     
-    return false;
+    return true;
 }
 
 bool RuleAnalyzer::isOscillator(const Grid3D& grid, int maxPeriod) {
-    std::vector<std::vector<bool>> states;
-    states.reserve(maxPeriod);
+    std::vector<uint64_t> populationHistory;
+    populationHistory.reserve(maxPeriod + 1);
     
     // Create a copy of the grid for testing
     auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
-    testGrid->setRules(grid.getRules());
+    testGrid->initialize();
+    testGrid->setRuleSet(grid.getCurrentRuleSet());
     
     // Copy initial state
     for (uint32_t z = 0; z < grid.getDepth(); ++z) {
@@ -406,40 +381,21 @@ bool RuleAnalyzer::isOscillator(const Grid3D& grid, int maxPeriod) {
         }
     }
     
-    // Store initial state
-    std::vector<bool> initialState;
-    initialState.reserve(grid.getWidth() * grid.getHeight() * grid.getDepth());
-    for (uint32_t z = 0; z < grid.getDepth(); ++z) {
-        for (uint32_t y = 0; y < grid.getHeight(); ++y) {
-            for (uint32_t x = 0; x < grid.getWidth(); ++x) {
-                initialState.push_back(testGrid->getCell(x, y, z));
-            }
-        }
-    }
-    states.push_back(initialState);
+    // Store initial population
+    populationHistory.push_back(testGrid->getPopulation());
     
-    // Check for oscillation
+    // Check for oscillation based on population patterns
     for (int period = 1; period <= maxPeriod; ++period) {
         testGrid->update();
+        uint64_t currentPopulation = testGrid->getPopulation();
+        populationHistory.push_back(currentPopulation);
         
-        std::vector<bool> currentState;
-        currentState.reserve(grid.getWidth() * grid.getHeight() * grid.getDepth());
-        for (uint32_t z = 0; z < grid.getDepth(); ++z) {
-            for (uint32_t y = 0; y < grid.getHeight(); ++y) {
-                for (uint32_t x = 0; x < grid.getWidth(); ++x) {
-                    currentState.push_back(testGrid->getCell(x, y, z));
-                }
+        // Check if current population matches any previous population
+        for (size_t i = 0; i < populationHistory.size() - 1; ++i) {
+            if (currentPopulation == populationHistory[i]) {
+                return true; // Found a repeating pattern
             }
         }
-        
-        // Check if current state matches any previous state
-        for (size_t i = 0; i < states.size(); ++i) {
-            if (currentState == states[i]) {
-                return true;
-            }
-        }
-        
-        states.push_back(currentState);
     }
     
     return false;
@@ -448,7 +404,8 @@ bool RuleAnalyzer::isOscillator(const Grid3D& grid, int maxPeriod) {
 bool RuleAnalyzer::isSpaceship(const Grid3D& grid) {
     // Create a copy of the grid for testing
     auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
-    testGrid->setRules(grid.getRules());
+    testGrid->initialize();
+    testGrid->setRuleSet(grid.getCurrentRuleSet());
     
     // Copy initial state
     for (uint32_t z = 0; z < grid.getDepth(); ++z) {
@@ -495,14 +452,25 @@ bool RuleAnalyzer::isSpaceship(const Grid3D& grid) {
     glm::vec3 direction = centers[1] - centers[0];
     float speed = glm::length(direction);
     
+    if (speed < 0.1f) {
+        return false; // Too slow to be a spaceship
+    }
+    
     for (size_t i = 2; i < centers.size(); ++i) {
         glm::vec3 currentDirection = centers[i] - centers[i-1];
         float currentSpeed = glm::length(currentDirection);
         
         // Check if direction and speed are consistent
-        if (glm::dot(glm::normalize(direction), glm::normalize(currentDirection)) < 0.9f ||
-            std::abs(speed - currentSpeed) > 0.1f) {
+        if (std::abs(currentSpeed - speed) > 0.5f) {
             return false;
+        }
+        
+        // Check if direction is consistent (dot product close to 1)
+        if (glm::length(direction) > 0.0f && glm::length(currentDirection) > 0.0f) {
+            float similarity = glm::dot(glm::normalize(direction), glm::normalize(currentDirection));
+            if (similarity < 0.8f) {
+                return false;
+            }
         }
     }
     

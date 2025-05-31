@@ -289,6 +289,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="C:\cpp-vulkan-hip-engine\src\vulkan\resources\VulkanImageManager.cpp" />
     <ClCompile Include="C:\cpp-vulkan-hip-engine\src\vulkan\resources\VulkanSwapChain.cpp" />
     <ClCompile Include="C:\cpp-vulkan-hip-engine\src\vulkan\resources\VulkanFramebuffer.cpp" />
+    <ClCompile Include="C:\cpp-vulkan-hip-engine\src\vulkan\resources\ShaderManager.cpp" />
   </ItemGroup>
   <ItemGroup />
   <ItemGroup>

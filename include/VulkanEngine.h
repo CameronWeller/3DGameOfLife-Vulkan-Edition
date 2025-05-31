@@ -276,6 +276,13 @@ public:
     VkCommandBuffer beginSingleTimeCommands();
     void endSingleTimeCommands(VkCommandBuffer commandBuffer);
 
+    // Memory management utilities
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+    
+    // Pattern preview and image saving utilities
+    void renderPatternPreview(const std::string& patternPath);
+    void saveImageToFile(const std::string& filename);
+
     // Performance metrics getters
     float getCurrentFPS() const { return currentFPS_; }
     float getFrameTime() const { return frameTime_; }
