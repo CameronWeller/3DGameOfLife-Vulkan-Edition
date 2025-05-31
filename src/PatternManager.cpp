@@ -1,4 +1,5 @@
 #include "PatternManager.h"
+#include "Grid3D.h"
 #include <fstream>
 #include <filesystem>
 #include <algorithm>
@@ -144,7 +145,7 @@ std::vector<Pattern> getBuiltInPatterns() {
             "A simple 3D glider pattern that moves diagonally",
             5, 5, 5,
             cells,
-            static_cast<uint32_t>(Grid3D::RuleSet::CLASSIC),
+            static_cast<uint32_t>(RuleSet::CLASSIC),
             GameRules::BoundaryType::TOROIDAL
         );
     }
@@ -166,7 +167,7 @@ std::vector<Pattern> getBuiltInPatterns() {
             "A stable 2x2x2 block pattern",
             3, 3, 3,
             cells,
-            static_cast<uint32_t>(Grid3D::RuleSet::CLASSIC),
+            static_cast<uint32_t>(RuleSet::CLASSIC),
             GameRules::BoundaryType::TOROIDAL
         );
     }
@@ -190,7 +191,7 @@ std::vector<Pattern> getBuiltInPatterns() {
             "A 3D oscillating pattern that pulses between states",
             7, 7, 7,
             cells,
-            static_cast<uint32_t>(Grid3D::RuleSet::HIGHLIFE),
+            static_cast<uint32_t>(RuleSet::HIGHLIFE),
             GameRules::BoundaryType::TOROIDAL
         );
     }
@@ -217,7 +218,7 @@ std::vector<Pattern> getBuiltInPatterns() {
             "A complex 3D spaceship pattern that moves through space",
             6, 6, 6,
             cells,
-            static_cast<uint32_t>(Grid3D::RuleSet::DAY_NIGHT),
+            static_cast<uint32_t>(RuleSet::DAY_NIGHT),
             GameRules::BoundaryType::TOROIDAL
         );
     }
@@ -246,7 +247,7 @@ std::vector<Pattern> getBuiltInPatterns() {
             "A growing crystal-like pattern that expands outward",
             8, 8, 8,
             cells,
-            static_cast<uint32_t>(Grid3D::RuleSet::CUSTOM),
+            static_cast<uint32_t>(RuleSet::CUSTOM),
             GameRules::BoundaryType::TOROIDAL
         );
     }

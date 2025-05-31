@@ -1,13 +1,17 @@
 #include "UI.h"
-#include "VulkanEngine.h"
+#include "SaveManager.h"
 #include "AppState.h"
-#include <imgui.h>
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_vulkan.h"
+#include <GLFW/glfw3.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_vulkan.h>
 #include <sstream>
 #include <iomanip>
 #include <thread>
 #include <filesystem>
+#include <iostream>
+
+// Include VulkanEngine.h after other headers to resolve forward declaration
+#include "VulkanEngine.h"
 
 UI::UI(VulkanEngine* engine)
     : engine_(engine), isPaused_(true), tickRate(1.0f),
@@ -303,7 +307,7 @@ glm::vec3 UI::getMouseRayDirection() {
     glfwGetCursorPos(window, &xpos, &ypos);
     
     int width, height;
-    glfwGetFramebufferSize(window, &width, &height);
+    glfwGetWindowSize(window, &width, &height);
     
     // Convert to normalized device coordinates
     float x = (2.0f * xpos) / width - 1.0f;
@@ -313,13 +317,13 @@ glm::vec3 UI::getMouseRayDirection() {
     glm::vec4 clipCoords(x, y, -1.0f, 1.0f);
     
     // Convert to eye space
-    glm::mat4 invProj = glm::inverse(camera->getProjectionMatrix());
+    glm::mat4 invProj = glm::inverse(engine_->getCamera()->getProjectionMatrix());
     glm::vec4 eyeCoords = invProj * clipCoords;
     eyeCoords.z = -1.0f;
     eyeCoords.w = 0.0f;
     
     // Convert to world space
-    glm::mat4 invView = glm::inverse(camera->getViewMatrix());
+    glm::mat4 invView = glm::inverse(engine_->getCamera()->getViewMatrix());
     glm::vec4 worldCoords = invView * eyeCoords;
     
     return glm::normalize(glm::vec3(worldCoords));
@@ -327,7 +331,7 @@ glm::vec3 UI::getMouseRayDirection() {
 
 void UI::updatePlacementPosition() {
     RayCaster::Ray ray;
-    ray.origin = camera->getPosition();
+    ray.origin = engine_->getCamera()->getPosition();
     ray.direction = getMouseRayDirection();
     
     RayCaster::HitResult hit = RayCaster::castRay(ray, gridMin, gridMax);
@@ -651,7 +655,7 @@ void UI::renderPatternBrowser() {
                 ImGui::Separator();
                 ImGui::Text("Preview:");
                 ImGui::BeginChild("PreviewFrame", ImVec2(256, 256), true);
-                ImGui::Image(previewTextures_[previewPath], ImVec2(256, 256));
+                ImGui::Image(reinterpret_cast<ImTextureID>(previewTextures_[previewPath]), ImVec2(256, 256));
                 ImGui::EndChild();
             }
         }
@@ -744,8 +748,8 @@ void UI::renderSavePatternDialog() {
         metadata.ruleSet = engine_->getRuleSet();
         metadata.gridSize = gridMax;
         metadata.voxelSize = voxelSize;
-        metadata.creationTime = std::time(nullptr);
-        metadata.modificationTime = std::time(nullptr);
+        metadata.creationTime = std::chrono::system_clock::from_time_t(std::time(nullptr));
+        metadata.modificationTime = std::chrono::system_clock::from_time_t(std::time(nullptr));
         metadata.population = population;
         metadata.generation = generation;
         metadata.tags = tags;
@@ -850,14 +854,13 @@ void UI::renderRuleAnalysis() {
 
                 // Population history chart
                 if (!result.populationHistory.empty()) {
+                    float maxPop = static_cast<float>(engine_->getGridWidth() * 
+                                                    engine_->getGridHeight() * 
+                                                    engine_->getGridDepth());
                     ImGui::PlotLines("Population History", 
                         result.populationHistory.data(), 
                         static_cast<int>(result.populationHistory.size()),
-                        0, nullptr, 0.0f, 
-                        static_cast<float>(engine_->getGridWidth() * 
-                                         engine_->getGridHeight() * 
-                                         engine_->getGridDepth()),
-                        ImVec2(-1, 100));
+                        0, nullptr, 0.0f, maxPop, ImVec2(-1, 100));
                 }
             }
         }

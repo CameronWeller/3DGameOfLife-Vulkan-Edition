@@ -100,12 +100,14 @@ private:
     
     // State tracking
     std::vector<bool> currentState;
+    std::vector<bool> nextState;
     uint64_t generation;
     uint64_t population;
     bool needsStateSync;
     
     // Rule set
     RuleSet currentRuleSet;
+    GameRules::BoundaryType boundaryType;
     
     // Vulkan resources
     VkBuffer stateBuffer;

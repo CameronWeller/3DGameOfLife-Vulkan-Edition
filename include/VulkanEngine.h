@@ -34,6 +34,7 @@
 #include "SaveManager.h"
 #include "Camera.h"
 #include "Grid3D.h"
+#include "VulkanError.h"
 #include "vulkan/resources/VulkanBufferManager.h"
 #include "vulkan/rendering/VoxelRenderer.h"
 
@@ -133,35 +134,6 @@ struct ComputePipelineInfo {
     GameOfLifePushConstants pushConstants;
 };
 
-class VulkanError : public std::runtime_error {
-public:
-    explicit VulkanError(VkResult result, const std::string& message)
-        : std::runtime_error(message), result_(result) {}
-    
-    VkResult getResult() const { return result_; }
-    
-private:
-    VkResult result_;
-};
-
-class ValidationError : public VulkanError {
-public:
-    explicit ValidationError(const std::string& message)
-        : VulkanError(VK_ERROR_VALIDATION_FAILED_EXT, "Validation Error: " + message) {}
-};
-
-class DeviceLostError : public VulkanError {
-public:
-    explicit DeviceLostError(const std::string& message)
-        : VulkanError(VK_ERROR_DEVICE_LOST, "Device Lost: " + message) {}
-};
-
-class OutOfMemoryError : public VulkanError {
-public:
-    explicit OutOfMemoryError(const std::string& message)
-        : VulkanError(VK_ERROR_OUT_OF_DEVICE_MEMORY, "Out of Memory: " + message) {}
-};
-
 /**
  * @brief Helper macros for Vulkan error checking
  */
@@ -188,44 +160,6 @@ public:
  */
 inline bool isVulkanError(VkResult result) {
     return result < 0;
-}
-
-/**
- * @brief Helper function to get a string description of a Vulkan result
- */
-inline std::string getVulkanResultString(VkResult result) {
-    switch (result) {
-        case VK_SUCCESS: return "VK_SUCCESS";
-        case VK_NOT_READY: return "VK_NOT_READY";
-        case VK_TIMEOUT: return "VK_TIMEOUT";
-        case VK_EVENT_SET: return "VK_EVENT_SET";
-        case VK_EVENT_RESET: return "VK_EVENT_RESET";
-        case VK_INCOMPLETE: return "VK_INCOMPLETE";
-        case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
-        case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
-        case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
-        case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
-        case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
-        case VK_ERROR_LAYER_NOT_PRESENT: return "VK_ERROR_LAYER_NOT_PRESENT";
-        case VK_ERROR_EXTENSION_NOT_PRESENT: return "VK_ERROR_EXTENSION_NOT_PRESENT";
-        case VK_ERROR_FEATURE_NOT_PRESENT: return "VK_ERROR_FEATURE_NOT_PRESENT";
-        case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
-        case VK_ERROR_TOO_MANY_OBJECTS: return "VK_ERROR_TOO_MANY_OBJECTS";
-        case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED";
-        case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
-        case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY";
-        case VK_ERROR_INVALID_EXTERNAL_HANDLE: return "VK_ERROR_INVALID_EXTERNAL_HANDLE";
-        case VK_ERROR_FRAGMENTATION: return "VK_ERROR_FRAGMENTATION";
-        case VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS: return "VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS";
-        case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR";
-        case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR: return "VK_ERROR_NATIVE_WINDOW_IN_USE_KHR";
-        case VK_SUBOPTIMAL_KHR: return "VK_SUBOPTIMAL_KHR";
-        case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
-        case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR: return "VK_ERROR_INCOMPATIBLE_DISPLAY_KHR";
-        case VK_ERROR_VALIDATION_FAILED_EXT: return "VK_ERROR_VALIDATION_FAILED_EXT";
-        case VK_ERROR_INVALID_SHADER_NV: return "VK_ERROR_INVALID_SHADER_NV";
-        default: return "Unknown error";
-    }
 }
 
 /**
@@ -308,6 +242,13 @@ public:
     VkQueue getGraphicsQueue() const { return vulkanContext_->getGraphicsQueue(); }
     VkQueue getComputeQueue() const { return vulkanContext_->getComputeQueue(); }
     VkQueue getPresentQueue() const { return vulkanContext_->getPresentQueue(); }
+    
+    // Component getters
+    VulkanHIP::VulkanContext* getVulkanContext() const { return vulkanContext_; }
+    VulkanHIP::VulkanMemoryManager& getMemoryManager() const { return *memoryManager_; }
+    WindowManager* getWindowManager() const { return windowManager_; }
+    SaveManager* getSaveManager() const { return saveManager_.get(); }
+    Camera* getCamera() const { return camera_.get(); }
 
     // Performance metrics getters
     float getCurrentFPS() const { return currentFPS_; }
@@ -315,6 +256,25 @@ public:
     float getUpdateTime() const { return updateTime_; }
     size_t getTotalMemory() const { return totalMemory_; }
     size_t getUsedMemory() const { return usedMemory_; }
+    
+    // Grid and simulation getters
+    uint32_t getGridWidth() const { return grid_ ? grid_->getWidth() : 0; }
+    uint32_t getGridHeight() const { return grid_ ? grid_->getHeight() : 0; }
+    uint32_t getGridDepth() const { return grid_ ? grid_->getDepth() : 0; }
+    RuleSet getRuleSet() const { return grid_ ? grid_->getCurrentRuleSet() : RuleSet::CLASSIC; }
+    const VoxelData& getVoxelData() const { return loadedVoxelData_; }
+    VkDescriptorPool getDescriptorPool() const { return computePipeline_.descriptorPool; }
+    
+    // Simulation control methods
+    void setVoxelData(const VoxelData& data) { loadedVoxelData_ = data; }
+    void setGridSize(uint32_t size) { if (grid_) grid_->resize(size, size, size); }
+    void setVoxelSize(float size) { /* Implementation needed */ }
+    void setRuleSet(RuleSet ruleSet) { if (grid_) grid_->setRuleSet(ruleSet); }
+    void resetSimulation() { /* Implementation needed */ }
+    
+    // Command buffer utilities
+    VkCommandBuffer beginSingleTimeCommands();
+    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
 
 private:
     VulkanEngine() = default;
@@ -359,8 +319,6 @@ private:
 
     // Command buffers
     void createCommandBuffers();
-    VkCommandBuffer beginSingleTimeCommands();
-    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 
     // Descriptors
