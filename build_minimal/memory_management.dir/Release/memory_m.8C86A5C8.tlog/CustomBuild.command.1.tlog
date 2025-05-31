@@ -1,0 +1,10 @@
+^C:\CPP-VULKAN-HIP-ENGINE\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/cpp-vulkan-hip-engine -BC:/cpp-vulkan-hip-engine/build_minimal --check-stamp-file C:/cpp-vulkan-hip-engine/build_minimal/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

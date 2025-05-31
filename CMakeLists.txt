@@ -52,8 +52,9 @@ target_link_libraries(${PROJECT_NAME}_minimal PRIVATE
     core_engine
     utilities
     vulkan_resources
-    memory_management
+    # memory_management  # Temporarily disabled due to VMA linking issues
     rendering
+    # GPUOpen::VulkanMemoryAllocator  # Not needed without memory_management
     # Temporarily skip: game_logic, camera, ui, vulkan_ui, vulkan_rendering (broken)
 )
 

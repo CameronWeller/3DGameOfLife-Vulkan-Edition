@@ -7,7 +7,7 @@
 #include <mutex>
 #include "DeviceManager.h"
 #include "WindowManager.h"
-#include "VulkanMemoryManager.h"
+// #include "VulkanMemoryManager.h"  // Temporarily disabled for minimal build
 #include "Logger.h"
 #include "QueueFamilyIndices.h"
 #include "SwapChainSupportDetails.h"
@@ -71,7 +71,7 @@ public:
     VkQueue getPresentQueue() const { return presentQueue_; }
     VkQueue getComputeQueue() const { return computeQueue_; }
     QueueFamilyIndices getQueueFamilyIndices() const { return queueFamilyIndices_; }
-    VulkanMemoryManager& getMemoryManager() { return *memoryManager_; }
+    // VulkanMemoryManager& getMemoryManager() { return *memoryManager_; }  // Temporarily disabled
     VkCommandPool getGraphicsCommandPool() const { return graphicsCommandPool_; }
     VkCommandPool getComputeCommandPool() const { return computeCommandPool_; }
 
@@ -170,7 +170,7 @@ private:
     ValidationLayerConfig validationConfig_;
     
     mutable std::vector<const char*> deviceExtensions_ = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
-    std::unique_ptr<VulkanMemoryManager> memoryManager_;
+    // std::unique_ptr<VulkanMemoryManager> memoryManager_;  // Temporarily disabled
     std::unique_ptr<DeviceManager> deviceManager_;
 };
 
