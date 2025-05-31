@@ -1,6 +1,6 @@
 #include "SparseGrid3D.h"
-#include <random>
 #include <algorithm>
+#include <random>
 
 SparseGrid3D::SparseGrid3D(uint32_t width, uint32_t height, uint32_t depth)
     : width(width), height(height), depth(depth),

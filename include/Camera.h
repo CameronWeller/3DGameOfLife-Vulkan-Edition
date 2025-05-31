@@ -4,6 +4,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+namespace VulkanHIP {
+
 class Grid3D; // Forward declaration
 
 enum class CameraMode {
@@ -15,7 +17,7 @@ enum class CameraMode {
 
 class Camera {
 public:
-    Camera(GLFWwindow* window, float fov = 45.0f, float near = 0.1f, float far = 1000.0f);
+    Camera(GLFWwindow* window = nullptr, float fov = 45.0f, float near = 0.1f, float far = 1000.0f);
     ~Camera() = default;
 
     // Core functionality
@@ -50,39 +52,41 @@ public:
 
 private:
     // Camera vectors
-    glm::vec3 position;
-    glm::vec3 front;
-    glm::vec3 up;
-    glm::vec3 right;
-    glm::vec3 worldUp;
-    glm::vec3 target;
+    glm::vec3 position{0.0f, 0.0f, 0.0f};
+    glm::vec3 front{0.0f, 0.0f, -1.0f};
+    glm::vec3 up{0.0f, 1.0f, 0.0f};
+    glm::vec3 right{1.0f, 0.0f, 0.0f};
+    glm::vec3 worldUp{0.0f, 1.0f, 0.0f};
+    glm::vec3 target{0.0f, 0.0f, 0.0f};
 
     // Euler angles
-    float yaw;
-    float pitch;
+    float yaw = -90.0f;
+    float pitch = 0.0f;
 
     // Camera options
-    float movementSpeed;
-    float mouseSensitivity;
-    float zoom;
-    float minZoom;
-    float maxZoom;
-    float orbitDistance;
+    float movementSpeed = 2.5f;
+    float mouseSensitivity = 0.1f;
+    float zoom = 45.0f;
+    float minZoom = 1.0f;
+    float maxZoom = 90.0f;
+    float orbitDistance = 5.0f;
 
     // Projection parameters
-    float fov;
-    float near;
-    float far;
+    float fov = 45.0f;
+    float near = 0.1f;
+    float far = 1000.0f;
 
     // Mode and window
-    CameraMode mode;
-    GLFWwindow* window;
+    CameraMode mode = CameraMode::Fly;
+    GLFWwindow* window = nullptr;
 
     // Grid reference for collision detection
-    Grid3D* grid_;
+    Grid3D* grid_ = nullptr;
 
     // Helper methods
     void updateCameraVectors();
     bool checkCollision(const glm::vec3& newPosition) const;
     glm::vec3 resolveCollision(const glm::vec3& currentPos, const glm::vec3& targetPos) const;
 };
+
+} // namespace VulkanHIP

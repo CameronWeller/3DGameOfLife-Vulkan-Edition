@@ -1,8 +1,12 @@
 #include "Grid3D.h"
 #include "VulkanEngine.h"
+#include "VulkanError.h"
 #include <stdexcept>
 #include <algorithm>
+#include <cstring>
 #include <random>
+
+namespace VulkanHIP {
 
 Grid3D::Grid3D(uint32_t width, uint32_t height, uint32_t depth)
     : width(width), height(height), depth(depth),
@@ -53,8 +57,8 @@ void Grid3D::cleanup() {
 }
 
 void Grid3D::createBuffers() {
-    VkDevice device = VulkanEngine::getInstance()->getVulkanContext()->getDevice();
-    auto& memoryManager = VulkanEngine::getInstance()->getMemoryManager();
+    VkDevice device = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getDevice();
+    auto& memoryManager = VulkanHIP::VulkanEngine::getInstance()->getMemoryManager();
     
     VkDeviceSize bufferSize = sizeof(uint32_t) * width * height * depth;
     
@@ -68,25 +72,32 @@ void Grid3D::createBuffers() {
     VmaAllocationCreateInfo allocInfo{};
     allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
     
-    VK_CHECK(vmaCreateBuffer(memoryManager.getVmaAllocator(), &bufferInfo, &allocInfo,
+    VK_CHECK(vmaCreateBuffer(memoryManager.getAllocator(), &bufferInfo, &allocInfo,
         &stateBuffer, &stateMemory, nullptr));
     
     // Create next state buffer
-    VK_CHECK(vmaCreateBuffer(memoryManager.getVmaAllocator(), &bufferInfo, &allocInfo,
+    VK_CHECK(vmaCreateBuffer(memoryManager.getAllocator(), &bufferInfo, &allocInfo,
         &nextStateBuffer, &nextStateMemory, nullptr));
     
     // Create staging buffer for initial data
     auto stagingBuffer = memoryManager.createStagingBuffer(bufferSize);
     void* data = memoryManager.mapStagingBuffer(stagingBuffer);
-    memcpy(data, currentState.data(), bufferSize);
+    
+    // Convert bool vector to uint32_t data for GPU
+    std::vector<uint32_t> gpuData(width * height * depth);
+    for (size_t i = 0; i < currentState.size(); ++i) {
+        gpuData[i] = currentState[i] ? 1 : 0;
+    }
+    
+    memcpy(data, gpuData.data(), bufferSize);
     memoryManager.unmapStagingBuffer(stagingBuffer);
     
     // Copy initial data to state buffer
-    VkCommandBuffer commandBuffer = VulkanEngine::getInstance()->beginSingleTimeCommands();
+    VkCommandBuffer commandBuffer = VulkanHIP::VulkanEngine::getInstance()->beginSingleTimeCommands();
     VkBufferCopy copyRegion{};
     copyRegion.size = bufferSize;
     vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, stateBuffer, 1, &copyRegion);
-    VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
+    VulkanHIP::VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
     
     // Clean up staging buffer
     memoryManager.destroyStagingBuffer(stagingBuffer);
@@ -94,20 +105,20 @@ void Grid3D::createBuffers() {
 
 void Grid3D::destroyBuffers() {
     if (stateBuffer != VK_NULL_HANDLE) {
-        vmaDestroyBuffer(VulkanEngine::getInstance()->getMemoryManager().getVmaAllocator(), stateBuffer, stateMemory);
+        vmaDestroyBuffer(VulkanHIP::VulkanEngine::getInstance()->getMemoryManager().getAllocator(), stateBuffer, stateMemory);
         stateBuffer = VK_NULL_HANDLE;
         stateMemory = VK_NULL_HANDLE;
     }
     
     if (nextStateBuffer != VK_NULL_HANDLE) {
-        vmaDestroyBuffer(VulkanEngine::getInstance()->getMemoryManager().getVmaAllocator(), nextStateBuffer, nextStateMemory);
+        vmaDestroyBuffer(VulkanHIP::VulkanEngine::getInstance()->getMemoryManager().getAllocator(), nextStateBuffer, nextStateMemory);
         nextStateBuffer = VK_NULL_HANDLE;
         nextStateMemory = VK_NULL_HANDLE;
     }
 }
 
 void Grid3D::createComputeResources() {
-    VkDevice device = VulkanEngine::getInstance()->getVulkanContext()->getDevice();
+    VkDevice device = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getDevice();
     
     // Create descriptor set layout
     VkDescriptorSetLayoutBinding stateBufferBinding{};
@@ -190,7 +201,7 @@ void Grid3D::createComputeResources() {
     pipelineLayoutInfo.setLayoutCount = 1;
     pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
     
-    // Add push constant range
+    // Add push constants for grid dimensions and rule set
     VkPushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     pushConstantRange.offset = 0;
@@ -202,30 +213,39 @@ void Grid3D::createComputeResources() {
     VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout));
     
     // Create compute pipeline
+    auto computeStage = VulkanHIP::VulkanEngine::getInstance()->getShaderManager()->createComputeStage(
+        "shaders/game_of_life_3d.comp.spv");
+    
     VkComputePipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipelineInfo.stage = computeStage;
     pipelineInfo.layout = pipelineLayout;
-    
-    // Load and create shader module
-    auto computeShaderCode = VulkanEngine::getInstance()->readFile("shaders/game_of_life_3d.comp");
-    VkShaderModule computeShaderModule = VulkanEngine::getInstance()->createShaderModule(computeShaderCode);
-    
-    VkPipelineShaderStageCreateInfo computeShaderStageInfo{};
-    computeShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    computeShaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    computeShaderStageInfo.module = computeShaderModule;
-    computeShaderStageInfo.pName = "main";
-    
-    pipelineInfo.stage = computeShaderStageInfo;
     
     VK_CHECK(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computePipeline));
     
-    // Cleanup shader module
-    vkDestroyShaderModule(device, computeShaderModule, nullptr);
+    // Create command buffer for compute operations
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getComputeQueueFamilyIndex();
+    
+    VkCommandPool computeCommandPool;
+    VK_CHECK(vkCreateCommandPool(device, &poolInfo, nullptr, &computeCommandPool));
+    
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = computeCommandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = 1;
+    
+    VK_CHECK(vkAllocateCommandBuffers(device, &allocInfo, &computeCommandBuffer));
+    
+    // Record compute commands
+    recordComputeCommands();
 }
 
 void Grid3D::destroyComputeResources() {
-    VkDevice device = VulkanEngine::getInstance()->getVulkanContext()->getDevice();
+    VkDevice device = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getDevice();
     
     if (computePipeline != VK_NULL_HANDLE) {
         vkDestroyPipeline(device, computePipeline, nullptr);
@@ -251,8 +271,8 @@ void Grid3D::destroyComputeResources() {
 void Grid3D::update() {
     if (!isInitialized) return;
     
-    VkDevice device = VulkanEngine::getInstance()->getVulkanContext()->getDevice();
-    VkCommandBuffer commandBuffer = VulkanEngine::getInstance()->beginSingleTimeCommands();
+    VkDevice device = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getDevice();
+    VkCommandBuffer commandBuffer = VulkanHIP::VulkanEngine::getInstance()->beginSingleTimeCommands();
     
     // Bind compute pipeline
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
@@ -297,7 +317,7 @@ void Grid3D::update() {
     );
     
     // End command buffer
-    VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
+    VulkanHIP::VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
     
     // Swap buffers
     std::swap(stateBuffer, nextStateBuffer);
@@ -355,8 +375,8 @@ void Grid3D::setCell(uint32_t x, uint32_t y, uint32_t z, bool state) {
         population += state ? 1 : -1;
         
         // Update GPU buffer
-        VkDevice device = VulkanEngine::getInstance()->getVulkanContext()->getDevice();
-        auto& memoryManager = VulkanEngine::getInstance()->getMemoryManager();
+        VkDevice device = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getDevice();
+        auto& memoryManager = VulkanHIP::VulkanEngine::getInstance()->getMemoryManager();
         
         // Create staging buffer for the update
         VkBufferCreateInfo bufferInfo{};
@@ -381,7 +401,7 @@ void Grid3D::setCell(uint32_t x, uint32_t y, uint32_t z, bool state) {
         vmaUnmapMemory(memoryManager.getVmaAllocator(), stagingMemory);
         
         // Copy to device buffer
-        VkCommandBuffer commandBuffer = VulkanEngine::getInstance()->beginSingleTimeCommands();
+        VkCommandBuffer commandBuffer = VulkanHIP::VulkanEngine::getInstance()->beginSingleTimeCommands();
         
         VkBufferCopy copyRegion{};
         copyRegion.srcOffset = 0;
@@ -390,7 +410,7 @@ void Grid3D::setCell(uint32_t x, uint32_t y, uint32_t z, bool state) {
         
         vkCmdCopyBuffer(commandBuffer, stagingBuffer, stateBuffer, 1, &copyRegion);
         
-        VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
+        VulkanHIP::VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
         
         // Cleanup staging buffer
         vmaDestroyBuffer(memoryManager.getVmaAllocator(), stagingBuffer, stagingMemory);
@@ -433,7 +453,7 @@ void Grid3D::setRuleSet(RuleSet ruleSet) {
     pushConstants.ruleSet = static_cast<uint32_t>(ruleSet);
     
     // Update push constants in the compute pipeline
-    VkCommandBuffer commandBuffer = VulkanEngine::getInstance()->beginSingleTimeCommands();
+    VkCommandBuffer commandBuffer = VulkanHIP::VulkanEngine::getInstance()->beginSingleTimeCommands();
     
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
@@ -442,7 +462,7 @@ void Grid3D::setRuleSet(RuleSet ruleSet) {
     // Dispatch a single compute shader invocation to update the rule set
     vkCmdDispatch(commandBuffer, 1, 1, 1);
     
-    VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
+    VulkanHIP::VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
     
     // Force a state sync to ensure the new rules are applied
     needsStateSync = true;
@@ -507,8 +527,8 @@ uint32_t Grid3D::countNeighbors(uint32_t x, uint32_t y, uint32_t z) const {
 }
 
 void Grid3D::syncStateToGPU() {
-    VkDevice device = VulkanEngine::getInstance()->getVulkanContext()->getDevice();
-    auto& memoryManager = VulkanEngine::getInstance()->getMemoryManager();
+    VkDevice device = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getDevice();
+    auto& memoryManager = VulkanHIP::VulkanEngine::getInstance()->getMemoryManager();
     
     // Create staging buffer
     VkDeviceSize bufferSize = sizeof(uint32_t) * width * height * depth;
@@ -524,36 +544,36 @@ void Grid3D::syncStateToGPU() {
     memoryManager.unmapStagingBuffer(stagingBuffer);
     
     // Copy to device buffer
-    VkCommandBuffer commandBuffer = VulkanEngine::getInstance()->beginSingleTimeCommands();
+    VkCommandBuffer commandBuffer = VulkanHIP::VulkanEngine::getInstance()->beginSingleTimeCommands();
     
     VkBufferCopy copyRegion{};
     copyRegion.size = bufferSize;
     
     vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, stateBuffer, 1, &copyRegion);
     
-    VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
+    VulkanHIP::VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
     
     // Cleanup staging buffer
     memoryManager.destroyStagingBuffer(stagingBuffer);
 }
 
 void Grid3D::syncStateFromGPU() {
-    VkDevice device = VulkanEngine::getInstance()->getVulkanContext()->getDevice();
-    auto& memoryManager = VulkanEngine::getInstance()->getMemoryManager();
+    VkDevice device = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getDevice();
+    auto& memoryManager = VulkanHIP::VulkanEngine::getInstance()->getMemoryManager();
     
     // Create staging buffer
     VkDeviceSize bufferSize = sizeof(uint32_t) * width * height * depth;
     auto stagingBuffer = memoryManager.createStagingBuffer(bufferSize);
     
     // Copy from device buffer to staging buffer
-    VkCommandBuffer commandBuffer = VulkanEngine::getInstance()->beginSingleTimeCommands();
+    VkCommandBuffer commandBuffer = VulkanHIP::VulkanEngine::getInstance()->beginSingleTimeCommands();
     
     VkBufferCopy copyRegion{};
     copyRegion.size = bufferSize;
     
     vkCmdCopyBuffer(commandBuffer, stateBuffer, stagingBuffer.buffer, 1, &copyRegion);
     
-    VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
+    VulkanHIP::VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
     
     // Map staging buffer and copy to CPU state
     void* data = memoryManager.mapStagingBuffer(stagingBuffer);
@@ -640,8 +660,8 @@ void Grid3D::setRules(const GameRules& rules) {
 }
 
 void Grid3D::createLODResources() {
-    VkDevice device = VulkanEngine::getInstance()->getVulkanContext()->getDevice();
-    auto& memoryManager = VulkanEngine::getInstance()->getMemoryManager();
+    VkDevice device = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getDevice();
+    auto& memoryManager = VulkanHIP::VulkanEngine::getInstance()->getMemoryManager();
     
     // Create LOD levels
     uint32_t currentWidth = width;
@@ -716,8 +736,8 @@ void Grid3D::createLODResources() {
 }
 
 void Grid3D::destroyLODResources() {
-    VkDevice device = VulkanEngine::getInstance()->getVulkanContext()->getDevice();
-    auto& memoryManager = VulkanEngine::getInstance()->getMemoryManager();
+    VkDevice device = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getDevice();
+    auto& memoryManager = VulkanHIP::VulkanEngine::getInstance()->getMemoryManager();
     
     for (auto& level : lodLevels) {
         if (level.imageView != VK_NULL_HANDLE) {
@@ -737,8 +757,8 @@ void Grid3D::destroyLODResources() {
 }
 
 void Grid3D::updateLODTextures() {
-    VkDevice device = VulkanEngine::getInstance()->getVulkanContext()->getDevice();
-    auto& memoryManager = VulkanEngine::getInstance()->getMemoryManager();
+    VkDevice device = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getDevice();
+    auto& memoryManager = VulkanHIP::VulkanEngine::getInstance()->getMemoryManager();
     
     // Create staging buffer
     VkDeviceSize bufferSize = width * height * depth;
@@ -755,7 +775,7 @@ void Grid3D::updateLODTextures() {
     
     // Copy to each LOD level
     for (auto& level : lodLevels) {
-        VkCommandBuffer commandBuffer = VulkanEngine::getInstance()->beginSingleTimeCommands();
+        VkCommandBuffer commandBuffer = VulkanHIP::VulkanEngine::getInstance()->beginSingleTimeCommands();
         
         // Transition image layout
         VkImageMemoryBarrier barrier{};
@@ -813,7 +833,7 @@ void Grid3D::updateLODTextures() {
             0, nullptr,
             1, &barrier);
         
-        VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
+        VulkanHIP::VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
     }
     
     // Cleanup staging buffer
@@ -821,7 +841,7 @@ void Grid3D::updateLODTextures() {
 }
 
 void Grid3D::generateMipmaps(VkImage image, uint32_t width, uint32_t height, uint32_t depth) {
-    VkCommandBuffer commandBuffer = VulkanEngine::getInstance()->beginSingleTimeCommands();
+    VkCommandBuffer commandBuffer = VulkanHIP::VulkanEngine::getInstance()->beginSingleTimeCommands();
     
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -904,12 +924,12 @@ void Grid3D::generateMipmaps(VkImage image, uint32_t width, uint32_t height, uin
         0, nullptr,
         1, &barrier);
     
-    VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
+    VulkanHIP::VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
 }
 
 void Grid3D::updateLOD(const glm::vec3& cameraPos) {
-    VkDevice device = VulkanEngine::getInstance()->getVulkanContext()->getDevice();
-    auto& memoryManager = VulkanEngine::getInstance()->getMemoryManager();
+    VkDevice device = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getDevice();
+    auto& memoryManager = VulkanHIP::VulkanEngine::getInstance()->getMemoryManager();
     
     void* data;
     vmaMapMemory(memoryManager.getVmaAllocator(), lodMemory, &data);
@@ -1008,4 +1028,34 @@ bool Grid3D::isVisible(const glm::vec3& position, float radius) const {
     return true;
 }
 
-// ... (keep existing Vulkan-related placeholder implementations) 
+void Grid3D::recordComputeCommands() {
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+    
+    VK_CHECK(vkBeginCommandBuffer(computeCommandBuffer, &beginInfo));
+    
+    vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
+    vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+        pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+    
+    ComputePushConstants pushConstants{};
+    pushConstants.width = width;
+    pushConstants.height = height;
+    pushConstants.depth = depth;
+    pushConstants.time = 0.0f;  // Updated during update()
+    pushConstants.ruleSet = static_cast<uint32_t>(currentRuleSet);
+    
+    vkCmdPushConstants(computeCommandBuffer, pipelineLayout,
+        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants), &pushConstants);
+    
+    // Dispatch compute shader
+    uint32_t groupsX = (width + 7) / 8;
+    uint32_t groupsY = (height + 7) / 8;
+    uint32_t groupsZ = (depth + 7) / 8;
+    vkCmdDispatch(computeCommandBuffer, groupsX, groupsY, groupsZ);
+    
+    VK_CHECK(vkEndCommandBuffer(computeCommandBuffer));
+}
+
+} // namespace VulkanHIP 

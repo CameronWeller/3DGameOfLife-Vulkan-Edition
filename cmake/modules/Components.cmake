@@ -3,7 +3,7 @@
 # Core Engine Component
 function(create_core_engine_component)
     set(CORE_ENGINE_SOURCES
-        src/VulkanEngine.cpp
+        # src/VulkanEngine.cpp  # Temporarily disabled for minimal build
         src/VulkanContext.cpp
         src/DeviceManager.cpp
         src/WindowManager.cpp
@@ -41,7 +41,7 @@ function(create_memory_component)
     
     add_library(memory_management STATIC ${MEMORY_SOURCES} ${MEMORY_HEADERS})
     apply_common_settings(memory_management)
-    target_link_libraries(memory_management PUBLIC core_engine project_dependencies)
+    target_link_libraries(memory_management PUBLIC core_engine project_dependencies GPUOpen::VulkanMemoryAllocator)
     
     set_target_properties(memory_management PROPERTIES EXPORT_NAME MemoryManagement)
 endfunction()
@@ -49,7 +49,6 @@ endfunction()
 # Rendering Component
 function(create_rendering_component)
     set(RENDERING_SOURCES
-        src/Vertex.cpp
         src/RayCaster.cpp
     )
     
@@ -60,7 +59,7 @@ function(create_rendering_component)
     
     add_library(rendering STATIC ${RENDERING_SOURCES} ${RENDERING_HEADERS})
     apply_common_settings(rendering)
-    target_link_libraries(rendering PUBLIC core_engine memory_management project_dependencies)
+    target_link_libraries(rendering PUBLIC core_engine project_dependencies)
     
     set_target_properties(rendering PROPERTIES EXPORT_NAME Rendering)
 endfunction()
@@ -156,6 +155,7 @@ function(create_vulkan_resources_component)
         src/vulkan/resources/VulkanImageManager.cpp
         src/vulkan/resources/VulkanSwapChain.cpp
         src/vulkan/resources/VulkanFramebuffer.cpp
+        src/vulkan/resources/ShaderManager.cpp
     )
     
     add_library(vulkan_resources STATIC ${VULKAN_RESOURCES_SOURCES})
@@ -244,7 +244,7 @@ endfunction()
 # Update create_all_components function
 function(create_all_components)
     create_core_engine_component()
-    create_memory_management_component()
+    create_memory_component()
     create_rendering_component()
     create_game_logic_component()
     create_vulkan_resources_component()

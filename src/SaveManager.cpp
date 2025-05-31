@@ -37,6 +37,13 @@ std::filesystem::path getDefaultPatternDirectory() {
     return patternDir;
 }
 
+SaveManager::SaveManager(VulkanEngine* engine) 
+    : engine_(engine), 
+      patternDirectory_(getDefaultPatternDirectory()),
+      previewDirectory_(patternDirectory_ / "previews") {
+    createPatternDirectory();
+}
+
 SaveManager::SaveManager() 
     : patternDirectory_(getDefaultPatternDirectory()),
       previewDirectory_(patternDirectory_ / "previews"),
@@ -289,7 +296,12 @@ bool SaveManager::validatePatternFile(const std::filesystem::path& path) const {
 App::SaveInfo SaveManager::createSaveInfo(const std::filesystem::path& path) const {
     App::SaveInfo info;
     info.filename = path.filename().string();
-    info.timestamp = fs::last_write_time(path).time_since_epoch().count();
+    
+    // Convert file time to system clock time point
+    auto fileTime = fs::last_write_time(path);
+    auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+        fileTime - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
+    info.timestamp = sctp;
     
     // Try to read metadata for additional info
     try {

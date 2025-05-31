@@ -31,6 +31,55 @@ void VoxelData::clear() {
     voxels_.clear();
 }
 
+// Grid-based access methods (int versions)
+void VoxelData::setVoxel(int x, int y, int z, bool active) {
+    setVoxel(glm::ivec3(x, y, z), active);
+}
+
+void VoxelData::setVoxel(const glm::ivec3& pos, bool active) {
+    glm::vec3 position(pos.x, pos.y, pos.z);
+    
+    // Find existing voxel at this position
+    auto it = std::find_if(voxels_.begin(), voxels_.end(),
+        [&position](const Voxel& v) {
+            return v.position == position;
+        });
+    
+    if (active) {
+        if (it != voxels_.end()) {
+            it->active = true;
+        } else {
+            // Create new voxel
+            Voxel voxel;
+            voxel.position = position;
+            voxel.active = true;
+            voxel.color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f); // Default white
+            voxel.type = 0;
+            voxels_.push_back(voxel);
+        }
+    } else {
+        if (it != voxels_.end()) {
+            it->active = false;
+        }
+    }
+}
+
+bool VoxelData::getVoxel(int x, int y, int z) const {
+    return getVoxel(glm::ivec3(x, y, z));
+}
+
+bool VoxelData::getVoxel(const glm::ivec3& pos) const {
+    glm::vec3 position(pos.x, pos.y, pos.z);
+    
+    auto it = std::find_if(voxels_.begin(), voxels_.end(),
+        [&position](const Voxel& v) {
+            return v.position == position;
+        });
+    
+    return (it != voxels_.end()) && it->active;
+}
+
+// SaveManager compatibility methods (uint32_t versions)
 bool VoxelData::getVoxel(uint32_t x, uint32_t y, uint32_t z) const {
     glm::vec3 pos(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
     auto it = std::find_if(voxels_.begin(), voxels_.end(),
@@ -62,16 +111,24 @@ void VoxelData::setVoxel(uint32_t x, uint32_t y, uint32_t z, bool active) {
     }
 }
 
+std::vector<Voxel> VoxelData::getActiveVoxels() const {
+    std::vector<Voxel> activeVoxels;
+    std::copy_if(voxels_.begin(), voxels_.end(), std::back_inserter(activeVoxels),
+        [](const Voxel& v) { return v.active; });
+    return activeVoxels;
+}
+
 glm::vec3 VoxelData::getCenter() const {
     if (voxels_.empty()) {
         return glm::vec3(0.0f);
     }
     
-    glm::vec3 sum(0.0f);
+    glm::vec3 center(0.0f);
     for (const auto& voxel : voxels_) {
-        sum += voxel.position;
+        center += voxel.position;
     }
-    return sum / static_cast<float>(voxels_.size());
+    center /= static_cast<float>(voxels_.size());
+    return center;
 }
 
 float VoxelData::getBoundingRadius() const {
@@ -94,6 +151,7 @@ nlohmann::json VoxelData::toJson() const {
     nlohmann::json json;
     json["version"] = "1.0";
     json["voxelCount"] = voxels_.size();
+    json["dimensions"] = {dimensions.x, dimensions.y, dimensions.z};
     
     nlohmann::json voxelsArray = nlohmann::json::array();
     for (const auto& voxel : voxels_) {
@@ -109,6 +167,12 @@ std::unique_ptr<VoxelData> VoxelData::fromJson(const nlohmann::json& json) {
     
     if (!json.contains("version") || !json.contains("voxels")) {
         return nullptr;
+    }
+    
+    // Load dimensions if available
+    if (json.contains("dimensions")) {
+        auto dims = json["dimensions"];
+        voxelData->dimensions = glm::ivec3(dims[0], dims[1], dims[2]);
     }
     
     const auto& voxelsArray = json["voxels"];

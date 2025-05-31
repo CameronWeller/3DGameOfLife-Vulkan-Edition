@@ -6,6 +6,7 @@
 #include <mutex>
 #include <atomic>
 #include <memory>
+#include <vulkan/vulkan.h>
 
 namespace VulkanHIP {
 
@@ -41,6 +42,11 @@ public:
     bool isMinimized() const;
     void getFramebufferSize(int* width, int* height) const;
     void getWindowSize(int* width, int* height) const;
+    VkExtent2D getWindowExtent() const {
+        int width, height;
+        getFramebufferSize(&width, &height);
+        return VkExtent2D{static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+    }
     void pollEvents() const;
     void waitEvents() const;
 

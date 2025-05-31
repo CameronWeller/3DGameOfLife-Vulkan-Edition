@@ -1,0 +1,5 @@
+if(EXISTS "C:/cpp-vulkan-hip-engine/build_minimal/integration_tests[1]_tests.cmake")
+  include("C:/cpp-vulkan-hip-engine/build_minimal/integration_tests[1]_tests.cmake")
+else()
+  add_test(integration_tests_NOT_BUILT integration_tests_NOT_BUILT)
+endif()

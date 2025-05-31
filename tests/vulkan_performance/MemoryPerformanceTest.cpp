@@ -56,7 +56,8 @@ TEST_F(MemoryPerformanceTest, MemoryAllocation) {
         VkMemoryAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         allocInfo.allocationSize = memRequirements.size;
-        allocInfo.memoryTypeIndex = 0; // TODO: Find the right memory type
+        // Find appropriate memory type for device local memory
+        allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
         VkDeviceMemory memory;
         if (vkAllocateMemory(device, &allocInfo, nullptr, &memory) != VK_SUCCESS) {
@@ -89,7 +90,9 @@ TEST_F(MemoryPerformanceTest, MemoryMapping) {
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = 0; // TODO: Find the right memory type
+    // Find memory type that is host visible and coherent for mapping
+    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, 
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
     VkDeviceMemory memory;
     if (vkAllocateMemory(device, &allocInfo, nullptr, &memory) != VK_SUCCESS) {
@@ -164,7 +167,9 @@ static void BM_MemoryAllocationAndMapping(benchmark::State& state) {
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = 0; // TODO: Find suitable memory type
+    // Find memory type suitable for host mapping
+    allocInfo.memoryTypeIndex = test.findMemoryType(memRequirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
     for (auto _ : state) {
         VkDeviceMemory memory;
