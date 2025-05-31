@@ -34,7 +34,9 @@ struct LODLevel {
     VmaAllocation memory;
 };
 
-class VulkanEngine;
+namespace VulkanHIP {
+    class VulkanEngine;
+}
 
 enum class RuleSet {
     CLASSIC,    // Classic 3D Game of Life

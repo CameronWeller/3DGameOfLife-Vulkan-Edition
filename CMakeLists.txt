@@ -42,11 +42,28 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${PROJECT_NAME}_lib
 )
 
-# Apply common settings to main executable
-apply_common_settings(${PROJECT_NAME})
+# Minimal executable using only working components
+add_executable(${PROJECT_NAME}_minimal
+    src/main_minimal.cpp
+)
 
-# Apply static analysis to main executable
+# Link minimal executable with only working components
+target_link_libraries(${PROJECT_NAME}_minimal PRIVATE
+    core_engine
+    utilities
+    vulkan_resources
+    memory_management
+    rendering
+    # Skip: game_logic, ui, vulkan_ui, vulkan_rendering (broken)
+)
+
+# Apply common settings to executables
+apply_common_settings(${PROJECT_NAME})
+apply_common_settings(${PROJECT_NAME}_minimal)
+
+# Apply static analysis to executables
 apply_static_analysis(${PROJECT_NAME})
+apply_static_analysis(${PROJECT_NAME}_minimal)
 
 # Enable sanitizers for main executable
 enable_sanitizers(${PROJECT_NAME})

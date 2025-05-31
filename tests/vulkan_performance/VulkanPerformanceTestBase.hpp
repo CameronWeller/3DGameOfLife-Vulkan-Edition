@@ -8,6 +8,7 @@
 #include <string>
 #include <chrono>
 #include <functional>
+#include <optional>
 
 class VulkanPerformanceTestBase : public ::testing::Test {
 public:
@@ -51,11 +52,14 @@ public:
         // Select the first device for now
         physicalDevice = devices[0];
 
+        // Find queue family that supports graphics operations
+        uint32_t queueFamilyIndex = findQueueFamilies(physicalDevice);
+
         // Create logical device
         float queuePriority = 1.0f;
         VkDeviceQueueCreateInfo queueCreateInfo{};
         queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfo.queueFamilyIndex = 0; // TODO: Find the right queue family
+        queueCreateInfo.queueFamilyIndex = queueFamilyIndex;
         queueCreateInfo.queueCount = 1;
         queueCreateInfo.pQueuePriorities = &queuePriority;
 
@@ -67,6 +71,10 @@ public:
         if (vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create logical device");
         }
+
+        // Get the queue handle
+        vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue);
+        graphicsQueueFamily = queueFamilyIndex;
     }
 
     void TearDown() override {
@@ -76,6 +84,39 @@ public:
         if (instance != VK_NULL_HANDLE) {
             vkDestroyInstance(instance, nullptr);
         }
+    }
+
+    // Helper function to find suitable queue families
+    uint32_t findQueueFamilies(VkPhysicalDevice device) {
+        uint32_t queueFamilyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+        std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+        // Find a queue family that supports graphics operations
+        for (uint32_t i = 0; i < queueFamilies.size(); i++) {
+            if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                return i;
+            }
+        }
+
+        throw std::runtime_error("Failed to find suitable queue family");
+    }
+
+    // Helper function to find memory type
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+        VkPhysicalDeviceMemoryProperties memProperties;
+        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+        for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+            if ((typeFilter & (1 << i)) && 
+                (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+                return i;
+            }
+        }
+
+        throw std::runtime_error("Failed to find suitable memory type");
     }
 
     // Helper functions for performance testing
@@ -121,4 +162,5 @@ public:
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
     VkQueue queue = VK_NULL_HANDLE;
+    uint32_t graphicsQueueFamily = 0;
 }; 

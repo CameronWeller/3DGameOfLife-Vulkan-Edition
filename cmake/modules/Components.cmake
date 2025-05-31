@@ -49,7 +49,6 @@ endfunction()
 # Rendering Component
 function(create_rendering_component)
     set(RENDERING_SOURCES
-        src/Vertex.cpp
         src/RayCaster.cpp
     )
     
