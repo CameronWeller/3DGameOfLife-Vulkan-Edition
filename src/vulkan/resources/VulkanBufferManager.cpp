@@ -20,17 +20,17 @@ VulkanBufferManager::~VulkanBufferManager() {
 void VulkanBufferManager::createVertexBuffer(const std::vector<Vertex>& vertices) {
     VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 
-    // Create staging buffer
-    auto stagingBuffer = memoryManager_->createStagingBuffer(bufferSize);
-    void* data = memoryManager_->mapStagingBuffer(stagingBuffer);
-    memcpy(data, vertices.data(), static_cast<size_t>(bufferSize));
-    memoryManager_->unmapStagingBuffer(stagingBuffer);
+    // Create staging buffer using modern VMA patterns
+    auto stagingBuffer = memoryManager_->createHostVisibleBuffer(
+        bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
 
-    // Create vertex buffer
-    auto vertexBufferAlloc = memoryManager_->createBuffer(
+    // Copy data using the new convenience function
+    memoryManager_->copyToAllocation(vertices.data(), stagingBuffer, bufferSize);
+
+    // Create vertex buffer using modern patterns
+    auto vertexBufferAlloc = memoryManager_->createDeviceLocalBuffer(
         bufferSize,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
     );
     vertexBuffer_ = vertexBufferAlloc.buffer;
     vertexBufferAllocation_ = vertexBufferAlloc.allocation;
@@ -39,23 +39,23 @@ void VulkanBufferManager::createVertexBuffer(const std::vector<Vertex>& vertices
     copyBuffer(stagingBuffer.buffer, vertexBuffer_, bufferSize);
 
     // Destroy staging buffer
-    memoryManager_->destroyStagingBuffer(stagingBuffer);
+    memoryManager_->destroyBuffer(stagingBuffer);
 }
 
 void VulkanBufferManager::createIndexBuffer(const std::vector<uint32_t>& indices) {
     VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
 
-    // Create staging buffer
-    auto stagingBuffer = memoryManager_->createStagingBuffer(bufferSize);
-    void* data = memoryManager_->mapStagingBuffer(stagingBuffer);
-    memcpy(data, indices.data(), static_cast<size_t>(bufferSize));
-    memoryManager_->unmapStagingBuffer(stagingBuffer);
+    // Create staging buffer using modern VMA patterns
+    auto stagingBuffer = memoryManager_->createHostVisibleBuffer(
+        bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
 
-    // Create index buffer
-    auto indexBufferAlloc = memoryManager_->createBuffer(
+    // Copy data using the new convenience function
+    memoryManager_->copyToAllocation(indices.data(), stagingBuffer, bufferSize);
+
+    // Create index buffer using modern patterns
+    auto indexBufferAlloc = memoryManager_->createDeviceLocalBuffer(
         bufferSize,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
     );
     indexBuffer_ = indexBufferAlloc.buffer;
     indexBufferAllocation_ = indexBufferAlloc.allocation;
@@ -64,7 +64,7 @@ void VulkanBufferManager::createIndexBuffer(const std::vector<uint32_t>& indices
     copyBuffer(stagingBuffer.buffer, indexBuffer_, bufferSize);
 
     // Destroy staging buffer
-    memoryManager_->destroyStagingBuffer(stagingBuffer);
+    memoryManager_->destroyBuffer(stagingBuffer);
 }
 
 void VulkanBufferManager::createUniformBuffers(uint32_t maxFramesInFlight) {
@@ -75,24 +75,12 @@ void VulkanBufferManager::createUniformBuffers(uint32_t maxFramesInFlight) {
     uniformBuffersMapped_.resize(maxFramesInFlight);
 
     for (size_t i = 0; i < maxFramesInFlight; i++) {
-        VkBufferCreateInfo bufferInfo{};
-        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufferInfo.size = bufferSize;
-        bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-        VmaAllocationCreateInfo allocInfo{};
-        allocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
-        allocInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
-
-        VmaAllocationInfo allocationInfo;
-        if (vmaCreateBuffer(memoryManager_->getAllocator(), &bufferInfo, &allocInfo,
-            &uniformBuffers_[i], &uniformBufferAllocations_[i], &allocationInfo) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create uniform buffer!");
-        }
-
-        uniformBuffersMapped_[i] = allocationInfo.pMappedData;
+        // Use the new convenience function for uniform buffers
+        auto uniformBufferAlloc = memoryManager_->createUniformBuffer(bufferSize, true);
+        
+        uniformBuffers_[i] = uniformBufferAlloc.buffer;
+        uniformBufferAllocations_[i] = uniformBufferAlloc.allocation;
+        uniformBuffersMapped_[i] = uniformBufferAlloc.mappedData;
     }
 }
 
@@ -180,12 +168,16 @@ void VulkanBufferManager::createBuffer(VkDeviceSize size, VkBufferUsageFlags usa
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VmaAllocationCreateInfo allocInfo{};
+    // Use modern VMA patterns instead of deprecated usage flags
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    allocInfo.flags = 0;
+    
     if (properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
-        allocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
-    } else {
-        allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+        if (properties & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) {
+            allocInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        }
     }
-    allocInfo.requiredFlags = properties;
 
     if (vmaCreateBuffer(memoryManager_->getAllocator(), &bufferInfo, &allocInfo,
         &buffer, &allocation, nullptr) != VK_SUCCESS) {

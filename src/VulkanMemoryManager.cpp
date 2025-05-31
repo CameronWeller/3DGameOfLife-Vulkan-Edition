@@ -115,7 +115,7 @@ VulkanMemoryManager::BufferAllocation VulkanMemoryManager::createBuffer(
     // Add priority for large allocations or render targets
     if (size > 16 * 1024 * 1024) { // 16MB threshold
         allocInfo.priority = 1.0f;
-        if (usage & (VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_IMAGE_BIT)) {
+        if (usage & (VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)) {
             allocInfo.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
         }
     }
