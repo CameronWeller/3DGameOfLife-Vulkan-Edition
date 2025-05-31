@@ -6,7 +6,7 @@
 #include <cstring>
 #include <random>
 
-using namespace VulkanHIP;
+namespace VulkanHIP {
 
 Grid3D::Grid3D(uint32_t width, uint32_t height, uint32_t depth)
     : width(width), height(height), depth(depth),
@@ -201,7 +201,7 @@ void Grid3D::createComputeResources() {
     pipelineLayoutInfo.setLayoutCount = 1;
     pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
     
-    // Add push constant range
+    // Add push constants for grid dimensions and rule set
     VkPushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     pushConstantRange.offset = 0;
@@ -213,26 +213,35 @@ void Grid3D::createComputeResources() {
     VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout));
     
     // Create compute pipeline
+    auto computeStage = VulkanHIP::VulkanEngine::getInstance()->getShaderManager()->createComputeStage(
+        "shaders/game_of_life_3d.comp.spv");
+    
     VkComputePipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipelineInfo.stage = computeStage;
     pipelineInfo.layout = pipelineLayout;
-    
-    // Load and create shader module
-    auto computeShaderCode = VulkanHIP::VulkanEngine::getInstance()->readFile("shaders/game_of_life_3d.comp");
-    VkShaderModule computeShaderModule = VulkanHIP::VulkanEngine::getInstance()->createShaderModule(computeShaderCode);
-    
-    VkPipelineShaderStageCreateInfo computeShaderStageInfo{};
-    computeShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    computeShaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    computeShaderStageInfo.module = computeShaderModule;
-    computeShaderStageInfo.pName = "main";
-    
-    pipelineInfo.stage = computeShaderStageInfo;
     
     VK_CHECK(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computePipeline));
     
-    // Cleanup shader module
-    vkDestroyShaderModule(device, computeShaderModule, nullptr);
+    // Create command buffer for compute operations
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getComputeQueueFamilyIndex();
+    
+    VkCommandPool computeCommandPool;
+    VK_CHECK(vkCreateCommandPool(device, &poolInfo, nullptr, &computeCommandPool));
+    
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = computeCommandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = 1;
+    
+    VK_CHECK(vkAllocateCommandBuffers(device, &allocInfo, &computeCommandBuffer));
+    
+    // Record compute commands
+    recordComputeCommands();
 }
 
 void Grid3D::destroyComputeResources() {
@@ -1019,4 +1028,34 @@ bool Grid3D::isVisible(const glm::vec3& position, float radius) const {
     return true;
 }
 
-// ... (keep existing Vulkan-related placeholder implementations) 
+void Grid3D::recordComputeCommands() {
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+    
+    VK_CHECK(vkBeginCommandBuffer(computeCommandBuffer, &beginInfo));
+    
+    vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
+    vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+        pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+    
+    ComputePushConstants pushConstants{};
+    pushConstants.width = width;
+    pushConstants.height = height;
+    pushConstants.depth = depth;
+    pushConstants.time = 0.0f;  // Updated during update()
+    pushConstants.ruleSet = static_cast<uint32_t>(currentRuleSet);
+    
+    vkCmdPushConstants(computeCommandBuffer, pipelineLayout,
+        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants), &pushConstants);
+    
+    // Dispatch compute shader
+    uint32_t groupsX = (width + 7) / 8;
+    uint32_t groupsY = (height + 7) / 8;
+    uint32_t groupsZ = (depth + 7) / 8;
+    vkCmdDispatch(computeCommandBuffer, groupsX, groupsY, groupsZ);
+    
+    VK_CHECK(vkEndCommandBuffer(computeCommandBuffer));
+}
+
+} // namespace VulkanHIP 
