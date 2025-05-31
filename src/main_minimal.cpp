@@ -670,23 +670,6 @@ private:
     }
     
     void renderFrame() {
-        // Add bounds checking for all vector accesses
-        if (currentFrame >= MAX_FRAMES_IN_FLIGHT) {
-            throw std::runtime_error("Current frame index out of range! currentFrame: " + std::to_string(currentFrame) + 
-                                    ", MAX_FRAMES_IN_FLIGHT: " + std::to_string(MAX_FRAMES_IN_FLIGHT));
-        }
-        
-        if (currentFrame >= inFlightFences.size() || 
-            currentFrame >= imageAvailableSemaphores.size() || 
-            currentFrame >= renderFinishedSemaphores.size() ||
-            currentFrame >= commandBuffers.size()) {
-            throw std::runtime_error("Current frame index exceeds vector sizes! currentFrame: " + std::to_string(currentFrame) +
-                                    ", inFlightFences.size(): " + std::to_string(inFlightFences.size()) +
-                                    ", imageAvailableSemaphores.size(): " + std::to_string(imageAvailableSemaphores.size()) +
-                                    ", renderFinishedSemaphores.size(): " + std::to_string(renderFinishedSemaphores.size()) +
-                                    ", commandBuffers.size(): " + std::to_string(commandBuffers.size()));
-        }
-        
         // Wait for the previous frame to finish
         vkWaitForFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
         vkResetFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame]);
@@ -698,6 +681,17 @@ private:
         
         if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
             std::cerr << "Failed to acquire swap chain image! Error: " << result << std::endl;
+            return;
+        }
+        
+        // Bounds checking for safety
+        if (imageIndex >= framebuffers.size()) {
+            std::cerr << "Error: imageIndex " << imageIndex << " is out of bounds for framebuffers (size: " << framebuffers.size() << ")" << std::endl;
+            return;
+        }
+        
+        if (currentFrame >= commandBuffers.size()) {
+            std::cerr << "Error: currentFrame " << currentFrame << " is out of bounds for commandBuffers (size: " << commandBuffers.size() << ")" << std::endl;
             return;
         }
         
