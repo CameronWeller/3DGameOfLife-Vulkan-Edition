@@ -3,7 +3,7 @@
 # Core Engine Component
 function(create_core_engine_component)
     set(CORE_ENGINE_SOURCES
-        src/VulkanEngine.cpp
+        # src/VulkanEngine.cpp  # Temporarily disabled for minimal build
         src/VulkanContext.cpp
         src/DeviceManager.cpp
         src/WindowManager.cpp
