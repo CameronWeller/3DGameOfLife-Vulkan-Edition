@@ -41,7 +41,7 @@ function(create_memory_component)
     
     add_library(memory_management STATIC ${MEMORY_SOURCES} ${MEMORY_HEADERS})
     apply_common_settings(memory_management)
-    target_link_libraries(memory_management PUBLIC core_engine project_dependencies)
+    target_link_libraries(memory_management PUBLIC core_engine project_dependencies GPUOpen::VulkanMemoryAllocator)
     
     set_target_properties(memory_management PROPERTIES EXPORT_NAME MemoryManagement)
 endfunction()
@@ -59,7 +59,7 @@ function(create_rendering_component)
     
     add_library(rendering STATIC ${RENDERING_SOURCES} ${RENDERING_HEADERS})
     apply_common_settings(rendering)
-    target_link_libraries(rendering PUBLIC core_engine memory_management project_dependencies)
+    target_link_libraries(rendering PUBLIC core_engine project_dependencies)
     
     set_target_properties(rendering PROPERTIES EXPORT_NAME Rendering)
 endfunction()
@@ -243,7 +243,7 @@ endfunction()
 # Update create_all_components function
 function(create_all_components)
     create_core_engine_component()
-    create_memory_management_component()
+    create_memory_component()
     create_rendering_component()
     create_game_logic_component()
     create_vulkan_resources_component()

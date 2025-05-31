@@ -1,36 +1,23 @@
-// Minimal Vulkan Application - Uses only working components
+// Minimal Vulkan Application - Uses only confirmed working components
 #include <iostream>
 #include <stdexcept>
 #include <memory>
+#include <chrono>
+#include <thread>
 
-// Core engine includes
-#include "core/Window.h"
-#include "core/InputManager.h"
-
-// Vulkan resources includes
-#include "vulkan/VulkanContext.h"
-#include "vulkan/VulkanInstance.h"
-#include "vulkan/VulkanDevice.h"
-#include "vulkan/VulkanSwapchain.h"
-#include "vulkan/VulkanCommandBuffer.h"
-#include "vulkan/VulkanFramebuffer.h"
-#include "vulkan/VulkanRenderPass.h"
-#include "vulkan/VulkanPipeline.h"
-
-// Memory management
-#include "memory/MemoryPool.h"
-#include "memory/ResourceManager.h"
-
-// Utilities
-#include "utils/Logger.h"
-#include "utils/Config.h"
+// Only include headers we know exist
+#include "WindowManager.h"
+#include "VulkanContext.h"
+#include "DeviceManager.h"
+// #include "VulkanMemoryManager.h"  // Temporarily disabled due to VMA linking issues
+#include "Logger.h"
 
 using namespace VulkanHIP;
 
 class MinimalVulkanApp {
 public:
     MinimalVulkanApp() {
-        Logger::info("Starting Minimal Vulkan Application");
+        std::cout << "Starting Minimal Vulkan Application" << std::endl;
     }
 
     ~MinimalVulkanApp() {
@@ -44,256 +31,96 @@ public:
             mainLoop();
         }
         catch (const std::exception& e) {
-            Logger::error("Application error: {}", e.what());
+            std::cerr << "Application error: " << e.what() << std::endl;
             throw;
         }
     }
 
 private:
-    // Window
-    std::unique_ptr<Window> window;
-    
-    // Vulkan core components
-    std::shared_ptr<VulkanContext> vulkanContext;
-    std::unique_ptr<VulkanInstance> instance;
-    std::unique_ptr<VulkanDevice> device;
-    std::unique_ptr<VulkanSwapchain> swapchain;
-    std::unique_ptr<VulkanRenderPass> renderPass;
-    std::unique_ptr<VulkanPipeline> pipeline;
-    
-    // Command buffers
-    std::vector<std::unique_ptr<VulkanCommandBuffer>> commandBuffers;
-    
-    // Memory management
-    std::unique_ptr<MemoryPool> memoryPool;
+    // Use references to singletons instead of unique_ptr
+    WindowManager* windowManager = nullptr;
+    VulkanContext* vulkanContext = nullptr;
+    // std::unique_ptr<VulkanMemoryManager> memoryManager;  // Temporarily disabled
     
     void initWindow() {
-        Logger::info("Initializing window...");
+        std::cout << "Initializing window..." << std::endl;
         
-        WindowConfig windowConfig;
-        windowConfig.width = 1280;
-        windowConfig.height = 720;
-        windowConfig.title = "Vulkan HIP Engine - Minimal Build";
-        windowConfig.vsync = true;
+        // Get singleton instance
+        windowManager = &WindowManager::getInstance();
         
-        window = std::make_unique<Window>(windowConfig);
+        // Initialize window
+        WindowManager::WindowConfig config{};
+        config.width = 1280;
+        config.height = 720;
+        config.title = "Vulkan HIP Engine - Minimal Build";
         
-        Logger::info("Window created: {}x{}", windowConfig.width, windowConfig.height);
+        windowManager->init(config);
+        
+        std::cout << "Window created: " << config.width << "x" << config.height << std::endl;
     }
     
     void initVulkan() {
-        Logger::info("Initializing Vulkan...");
+        std::cout << "Initializing Vulkan..." << std::endl;
         
-        // Create Vulkan context
-        vulkanContext = std::make_shared<VulkanContext>();
+        // Get singleton instance
+        vulkanContext = &VulkanContext::getInstance();
         
-        // Create instance
-        VulkanInstanceConfig instanceConfig;
-        instanceConfig.appName = "Minimal Vulkan App";
-        instanceConfig.engineName = "VulkanHIP Engine";
-        instanceConfig.enableValidation = true;
+        // Initialize with basic extensions
+        std::vector<const char*> extensions;
+        vulkanContext->init(extensions);
         
-        instance = std::make_unique<VulkanInstance>(instanceConfig);
-        vulkanContext->instance = instance->getInstance();
+        // Skip memory manager for now
+        // memoryManager = std::make_unique<VulkanMemoryManager>(
+        //     vulkanContext->getDevice(),
+        //     vulkanContext->getPhysicalDevice()
+        // );
         
-        // Create device
-        VulkanDeviceConfig deviceConfig;
-        deviceConfig.enableValidation = true;
-        deviceConfig.preferredDeviceType = VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
-        
-        device = std::make_unique<VulkanDevice>(*instance, deviceConfig);
-        vulkanContext->device = device->getDevice();
-        vulkanContext->physicalDevice = device->getPhysicalDevice();
-        vulkanContext->graphicsQueue = device->getGraphicsQueue();
-        vulkanContext->presentQueue = device->getPresentQueue();
-        
-        // Create swapchain
-        VulkanSwapchainConfig swapchainConfig;
-        swapchainConfig.width = window->getWidth();
-        swapchainConfig.height = window->getHeight();
-        swapchainConfig.vsync = true;
-        
-        swapchain = std::make_unique<VulkanSwapchain>(
-            *device, 
-            window->getSurface(instance->getInstance()),
-            swapchainConfig
-        );
-        
-        // Create render pass
-        renderPass = std::make_unique<VulkanRenderPass>(*device, swapchain->getImageFormat());
-        
-        // Create graphics pipeline (minimal - just clear color)
-        VulkanPipelineConfig pipelineConfig;
-        pipelineConfig.vertexShaderPath = "shaders/minimal.vert.spv";
-        pipelineConfig.fragmentShaderPath = "shaders/minimal.frag.spv";
-        pipelineConfig.renderPass = renderPass->getRenderPass();
-        pipelineConfig.extent = swapchain->getExtent();
-        
-        pipeline = std::make_unique<VulkanPipeline>(*device, pipelineConfig);
-        
-        // Create command buffers
-        createCommandBuffers();
-        
-        // Initialize memory pool
-        MemoryPoolConfig memoryConfig;
-        memoryConfig.deviceMemorySize = 256 * 1024 * 1024; // 256MB
-        memoryConfig.hostMemorySize = 64 * 1024 * 1024;    // 64MB
-        
-        memoryPool = std::make_unique<MemoryPool>(*device, memoryConfig);
-        
-        Logger::info("Vulkan initialization complete");
-    }
-    
-    void createCommandBuffers() {
-        commandBuffers.clear();
-        
-        VulkanCommandBufferConfig cmdConfig;
-        cmdConfig.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        cmdConfig.count = swapchain->getImageCount();
-        
-        for (size_t i = 0; i < swapchain->getImageCount(); i++) {
-            auto cmdBuffer = std::make_unique<VulkanCommandBuffer>(*device, cmdConfig);
-            
-            // Record command buffer
-            cmdBuffer->begin();
-            
-            // Begin render pass
-            VkRenderPassBeginInfo renderPassInfo{};
-            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-            renderPassInfo.renderPass = renderPass->getRenderPass();
-            renderPassInfo.framebuffer = swapchain->getFramebuffer(i);
-            renderPassInfo.renderArea.offset = {0, 0};
-            renderPassInfo.renderArea.extent = swapchain->getExtent();
-            
-            // Clear to blue color
-            VkClearValue clearColor = {{{0.1f, 0.2f, 0.4f, 1.0f}}};
-            renderPassInfo.clearValueCount = 1;
-            renderPassInfo.pClearValues = &clearColor;
-            
-            vkCmdBeginRenderPass(cmdBuffer->getCommandBuffer(), &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-            
-            // Bind pipeline
-            vkCmdBindPipeline(cmdBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipeline());
-            
-            // End render pass
-            vkCmdEndRenderPass(cmdBuffer->getCommandBuffer());
-            
-            cmdBuffer->end();
-            
-            commandBuffers.push_back(std::move(cmdBuffer));
-        }
+        std::cout << "Vulkan initialization complete" << std::endl;
     }
     
     void mainLoop() {
-        Logger::info("Entering main loop...");
+        std::cout << "Entering main loop..." << std::endl;
         
-        while (!window->shouldClose()) {
-            window->pollEvents();
-            drawFrame();
+        while (!windowManager->shouldClose()) {
+            windowManager->pollEvents();
+            
+            // Simple frame timing
+            std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60fps
         }
-        
-        // Wait for device to finish
-        vkDeviceWaitIdle(device->getDevice());
-    }
-    
-    void drawFrame() {
-        // Acquire next image
-        uint32_t imageIndex;
-        VkResult result = swapchain->acquireNextImage(imageIndex);
-        
-        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-            recreateSwapchain();
-            return;
-        }
-        
-        // Submit command buffer
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        
-        VkSemaphore waitSemaphores[] = {swapchain->getImageAvailableSemaphore()};
-        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-        submitInfo.waitSemaphoreCount = 1;
-        submitInfo.pWaitSemaphores = waitSemaphores;
-        submitInfo.pWaitDstStageMask = waitStages;
-        
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &commandBuffers[imageIndex]->getCommandBuffer();
-        
-        VkSemaphore signalSemaphores[] = {swapchain->getRenderFinishedSemaphore()};
-        submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores = signalSemaphores;
-        
-        vkQueueSubmit(device->getGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
-        
-        // Present
-        swapchain->present(imageIndex);
-    }
-    
-    void recreateSwapchain() {
-        // Handle window resize
-        int width = 0, height = 0;
-        while (width == 0 || height == 0) {
-            width = window->getWidth();
-            height = window->getHeight();
-            window->waitEvents();
-        }
-        
-        vkDeviceWaitIdle(device->getDevice());
-        
-        // Recreate swapchain
-        VulkanSwapchainConfig config;
-        config.width = width;
-        config.height = height;
-        config.vsync = true;
-        
-        swapchain->recreate(config);
-        
-        // Recreate command buffers
-        createCommandBuffers();
     }
     
     void cleanup() {
-        Logger::info("Cleaning up resources...");
-        
-        if (device) {
-            vkDeviceWaitIdle(device->getDevice());
-        }
+        std::cout << "Cleaning up resources..." << std::endl;
         
         // Cleanup in reverse order
-        commandBuffers.clear();
-        pipeline.reset();
-        renderPass.reset();
-        swapchain.reset();
-        memoryPool.reset();
-        device.reset();
-        instance.reset();
-        window.reset();
+        // memoryManager.reset();  // Temporarily disabled
         
-        Logger::info("Cleanup complete");
+        if (vulkanContext) {
+            vulkanContext->cleanup();
+        }
+        
+        if (windowManager) {
+            windowManager->cleanup();
+        }
+        
+        std::cout << "Cleanup complete" << std::endl;
     }
 };
 
 int main() {
     try {
-        // Initialize logger
-        LoggerConfig logConfig;
-        logConfig.logLevel = LogLevel::Debug;
-        logConfig.logToFile = true;
-        logConfig.logFilePath = "vulkan_minimal.log";
-        Logger::init(logConfig);
-        
-        // Load configuration
-        Config::load("config/app.json");
+        // Initialize logger if available
+        std::cout << "Starting Vulkan HIP Engine - Minimal Build" << std::endl;
         
         // Run application
         MinimalVulkanApp app;
         app.run();
         
-        Logger::info("Application exited successfully");
+        std::cout << "Application exited successfully" << std::endl;
         return 0;
     }
     catch (const std::exception& e) {
-        Logger::error("Fatal error: {}", e.what());
+        std::cerr << "Fatal error: " << e.what() << std::endl;
         return 1;
     }
 } 
