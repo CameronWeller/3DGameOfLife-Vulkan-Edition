@@ -262,4 +262,43 @@ void VulkanEngine::drawFrame() {
     vkDeviceWaitIdle(vulkanContext_->getDevice());
 }
 
+uint32_t VulkanEngine::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(vulkanContext_->getPhysicalDevice(), &memProperties);
+
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+        if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+        }
+    }
+
+    throw std::runtime_error("Failed to find suitable memory type!");
+}
+
+void VulkanEngine::renderPatternPreview(const std::string& patternPath) {
+    // Placeholder implementation for pattern preview rendering
+    // This would load a pattern and render it to a preview texture
+    try {
+        // Load pattern data from file
+        // Create preview render target
+        // Render pattern to preview
+        std::cout << "Rendering pattern preview for: " << patternPath << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to render pattern preview: " << e.what() << std::endl;
+    }
+}
+
+void VulkanEngine::saveImageToFile(const std::string& filename) {
+    // Placeholder implementation for saving rendered image to file
+    // This would capture the current frame buffer and save it as an image
+    try {
+        // Get current frame buffer data
+        // Convert to image format
+        // Write to file
+        std::cout << "Saving image to: " << filename << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to save image to file: " << e.what() << std::endl;
+    }
+}
+
 } // namespace VulkanHIP

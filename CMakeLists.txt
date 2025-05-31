@@ -54,8 +54,34 @@ target_link_libraries(${PROJECT_NAME}_minimal PRIVATE
     vulkan_resources
     # memory_management  # Temporarily disabled due to VMA linking issues
     rendering
+    camera  # Add camera for 3D functionality
     # GPUOpen::VulkanMemoryAllocator  # Not needed without memory_management
-    # Temporarily skip: game_logic, camera, ui, vulkan_ui, vulkan_rendering (broken)
+    # Temporarily skip: game_logic, ui, vulkan_ui, vulkan_rendering (broken)
+)
+
+# Self-contained minimal target that doesn't depend on main project libraries
+add_executable(minimal_3d_vulkan
+    src/main_minimal.cpp
+    src/VulkanContext.cpp
+    src/DeviceManager.cpp
+    src/WindowManager.cpp
+    src/Logger.cpp
+    src/Camera.cpp
+    src/vulkan/resources/ShaderManager.cpp
+)
+
+# Link only essential libraries for the self-contained target
+target_link_libraries(minimal_3d_vulkan PRIVATE
+    ${VULKAN_LIBRARIES}
+    glfw
+    glm::glm
+)
+
+target_include_directories(minimal_3d_vulkan PRIVATE
+    include
+    include/vulkan
+    include/vulkan/resources
+    ${VULKAN_INCLUDE_DIRS}
 )
 
 # Apply common settings to executables
