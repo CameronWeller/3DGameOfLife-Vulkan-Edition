@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\c0d57a918d56fe9f65dc59f0315c270a\test_memory_leak.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\cpp-vulkan-hip-engine\build_minimal\CMakeFiles\test_memory_leak" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{62808F55-F87A-3960-964E-C29B9BEB5977}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

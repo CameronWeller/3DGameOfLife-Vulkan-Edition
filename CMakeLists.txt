@@ -152,8 +152,19 @@ message(STATUS "Shaders: compile_shaders, copy_shaders, validate_shaders, clean_
 message(STATUS "")
 
 # Add new vulkan module sources
-file(GLOB_RECURSE VULKAN_SOURCES "src/vulkan/*.cpp")
+file(GLOB_RECURSE VULKAN_SOURCES 
+    "src/vulkan/*.cpp"
+    "src/vulkan/resources/*.cpp"
+    "src/vulkan/compute/*.cpp"
+    "src/vulkan/rendering/*.cpp"
+)
 target_sources(${PROJECT_NAME} PRIVATE ${VULKAN_SOURCES})
 
 # Add new include directories
-target_include_directories(${PROJECT_NAME} PRIVATE include/vulkan)
+target_include_directories(${PROJECT_NAME} PRIVATE 
+    include
+    include/vulkan
+    include/vulkan/resources
+    include/vulkan/compute
+    include/vulkan/rendering
+)

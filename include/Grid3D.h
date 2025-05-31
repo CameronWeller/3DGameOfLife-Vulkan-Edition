@@ -10,6 +10,8 @@
 #include <glm/glm.hpp>
 #include <string>
 
+namespace VulkanHIP {
+
 struct ComputePushConstants {
     uint32_t width;
     uint32_t height;
@@ -34,9 +36,7 @@ struct LODLevel {
     VmaAllocation memory;
 };
 
-namespace VulkanHIP {
-    class VulkanEngine;
-}
+class VulkanEngine;
 
 enum class RuleSet {
     CLASSIC,    // Classic 3D Game of Life
@@ -186,3 +186,5 @@ private:
     void updateFrustumPlanes(const glm::mat4& viewProj);
     bool isVisible(const glm::vec3& position, float radius) const;
 }; 
+
+} // namespace VulkanHIP 

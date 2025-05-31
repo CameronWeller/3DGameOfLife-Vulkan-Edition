@@ -29,6 +29,7 @@ public:
     void createVoxelRenderingResources();
     void updateVoxelInstances(const VoxelData& voxelData);
     void renderVoxels(VkCommandBuffer commandBuffer);
+    void renderGrid(VkCommandBuffer commandBuffer, const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix);
     void cleanup();
     
 private:
@@ -48,6 +49,7 @@ private:
     std::vector<VoxelInstance> voxelInstances_;
     
     void createVoxelGeometry();
+    void updateUniformBuffer(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix);
 };
 
 } // namespace VulkanHIP

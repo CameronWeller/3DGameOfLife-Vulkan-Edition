@@ -52,6 +52,7 @@ class VoxelRenderer;
 class VulkanFramebuffer;
 class VulkanCompute;
 class VulkanImGui;
+class ShaderManager;
 
 /**
  * @brief RAII wrapper for Vulkan resources
@@ -227,11 +228,12 @@ public:
     void init();
     void run();
     void cleanup();
+    void drawFrame();
 
     // Rendering configuration setters
-    void setWireframeMode(bool enabled);
-    void setShowGrid(bool enabled);
-    void setTransparency(float transparency);
+    void setWireframeMode(bool enabled) { wireframeMode_ = enabled; }
+    void setShowGrid(bool enabled) { showGrid_ = enabled; }
+    void setTransparency(float transparency) { transparency_ = transparency; }
     void setRenderMode(int mode) { renderMode_ = mode; }
     void setCustomRules(int birthMin, int birthMax, int survivalMin, int survivalMax);
 
@@ -244,11 +246,35 @@ public:
     VkQueue getPresentQueue() const { return vulkanContext_->getPresentQueue(); }
     
     // Component getters
-    VulkanHIP::VulkanContext* getVulkanContext() const { return vulkanContext_; }
-    VulkanHIP::VulkanMemoryManager& getMemoryManager() const { return *memoryManager_; }
-    WindowManager* getWindowManager() const { return windowManager_; }
+    VulkanContext* getVulkanContext() const { return vulkanContext_.get(); }
+    VulkanMemoryManager* getMemoryManager() const { return memoryManager_.get(); }
+    WindowManager* getWindowManager() const { return windowManager_.get(); }
     SaveManager* getSaveManager() const { return saveManager_.get(); }
     Camera* getCamera() const { return camera_.get(); }
+    VulkanImageManager* getImageManager() const { return imageManager_.get(); }
+    VulkanSwapChain* getSwapChain() const { return swapChain_.get(); }
+    VulkanRenderer* getRenderer() const { return renderer_.get(); }
+    VoxelRenderer* getVoxelRenderer() const { return voxelRenderer_.get(); }
+    VulkanFramebuffer* getFramebuffer() const { return framebuffer_.get(); }
+    VulkanCompute* getCompute() const { return compute_.get(); }
+    VulkanImGui* getImGui() const { return imGui_.get(); }
+    ShaderManager* getShaderManager() const { return shaderManager_.get(); }
+    
+    // Grid and simulation getters
+    uint32_t getGridWidth() const { return grid_ ? grid_->getWidth() : 0; }
+    uint32_t getGridHeight() const { return grid_ ? grid_->getHeight() : 0; }
+    uint32_t getGridDepth() const { return grid_ ? grid_->getDepth() : 0; }
+    RuleSet getRuleSet() const { return grid_ ? grid_->getCurrentRuleSet() : RuleSet::CLASSIC; }
+    
+    // Simulation control methods
+    void setGridSize(uint32_t size) { if (grid_) grid_->resize(size, size, size); }
+    void setVoxelSize(float size) { voxelSize_ = size; }
+    void setRuleSet(RuleSet ruleSet) { if (grid_) grid_->setRuleSet(ruleSet); }
+    void resetSimulation();
+
+    // Command buffer utilities
+    VkCommandBuffer beginSingleTimeCommands();
+    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
 
     // Performance metrics getters
     float getCurrentFPS() const { return currentFPS_; }
@@ -256,25 +282,6 @@ public:
     float getUpdateTime() const { return updateTime_; }
     size_t getTotalMemory() const { return totalMemory_; }
     size_t getUsedMemory() const { return usedMemory_; }
-    
-    // Grid and simulation getters
-    uint32_t getGridWidth() const { return grid_ ? grid_->getWidth() : 0; }
-    uint32_t getGridHeight() const { return grid_ ? grid_->getHeight() : 0; }
-    uint32_t getGridDepth() const { return grid_ ? grid_->getDepth() : 0; }
-    RuleSet getRuleSet() const { return grid_ ? grid_->getCurrentRuleSet() : RuleSet::CLASSIC; }
-    const VoxelData& getVoxelData() const { return loadedVoxelData_; }
-    VkDescriptorPool getDescriptorPool() const { return computePipeline_.descriptorPool; }
-    
-    // Simulation control methods
-    void setVoxelData(const VoxelData& data) { loadedVoxelData_ = data; }
-    void setGridSize(uint32_t size) { if (grid_) grid_->resize(size, size, size); }
-    void setVoxelSize(float size) { /* Implementation needed */ }
-    void setRuleSet(RuleSet ruleSet) { if (grid_) grid_->setRuleSet(ruleSet); }
-    void resetSimulation() { /* Implementation needed */ }
-    
-    // Command buffer utilities
-    VkCommandBuffer beginSingleTimeCommands();
-    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
 
 private:
     VulkanEngine() = default;
@@ -355,12 +362,20 @@ private:
     void applyEnabledDeviceFeatures(VkPhysicalDeviceFeatures& features);
 
     // Member variables
-    VulkanHIP::VulkanContext* vulkanContext_;
-    VulkanHIP::WindowManager* windowManager_;
-    std::unique_ptr<VulkanHIP::VulkanMemoryManager> memoryManager_;
+    std::unique_ptr<VulkanContext> vulkanContext_;
+    std::unique_ptr<WindowManager> windowManager_;
+    std::unique_ptr<VulkanMemoryManager> memoryManager_;
+    std::unique_ptr<VulkanImageManager> imageManager_;
+    std::unique_ptr<VulkanSwapChain> swapChain_;
+    std::unique_ptr<VulkanRenderer> renderer_;
+    std::unique_ptr<VoxelRenderer> voxelRenderer_;
+    std::unique_ptr<VulkanFramebuffer> framebuffer_;
+    std::unique_ptr<VulkanCompute> compute_;
+    std::unique_ptr<VulkanImGui> imGui_;
+    std::unique_ptr<ShaderManager> shaderManager_;
     std::unique_ptr<SaveManager> saveManager_;
-    std::unique_ptr<::Camera> camera_;
-    std::unique_ptr<::Grid3D> grid_;
+    std::unique_ptr<Camera> camera_;
+    std::unique_ptr<Grid3D> grid_;
     EngineStateMachine stateMachine_;
 
     // Compute pipeline
@@ -377,8 +392,7 @@ private:
 
     // Rendering configuration
     int renderMode_ = 0;
-    float minLODDistance_ = 10.0f;
-    float maxLODDistance_ = 100.0f;
+    float voxelSize_ = 1.0f;
     bool wireframeMode_ = false;
     bool showGrid_ = true;
     float transparency_ = 1.0f;

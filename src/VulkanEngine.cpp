@@ -24,16 +24,16 @@ namespace VulkanHIP {
 
 void VulkanEngine::init() {
     try {
-        // Initialize window manager (singleton pattern)
-        windowManager_ = &VulkanHIP::WindowManager::getInstance();
-        VulkanHIP::WindowManager::WindowConfig config;
-        config.width = 800;
-        config.height = 600;
-        config.title = "3D Game of Life - Vulkan Edition";
-        windowManager_->init(config);
+        // Initialize window manager
+        windowManager_ = std::make_unique<WindowManager>();
+        windowManager_->init(WindowManager::WindowConfig{
+            .width = 800,
+            .height = 600,
+            .title = "3D Game of Life - Vulkan Edition"
+        });
 
-        // Initialize Vulkan context (singleton pattern)
-        vulkanContext_ = &VulkanHIP::VulkanContext::getInstance();
+        // Initialize Vulkan context
+        vulkanContext_ = std::make_unique<VulkanContext>();
         std::vector<const char*> extensions;
         uint32_t glfwExtensionCount = 0;
         const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
@@ -41,21 +41,42 @@ void VulkanEngine::init() {
         vulkanContext_->init(extensions);
 
         // Initialize memory manager
-        memoryManager_ = std::make_unique<VulkanHIP::VulkanMemoryManager>(
-            vulkanContext_->getDevice(), 
-            vulkanContext_->getPhysicalDevice()
-        );
+        memoryManager_ = std::make_unique<VulkanMemoryManager>(vulkanContext_.get());
 
         // Initialize save manager
         saveManager_ = std::make_unique<SaveManager>();
 
-        // Initialize camera (Camera is not in VulkanHIP namespace)
-        camera_ = std::make_unique<::Camera>(windowManager_->getWindow());
+        // Initialize camera
+        camera_ = std::make_unique<Camera>();
         camera_->setPosition(glm::vec3(0.0f, 0.0f, 5.0f));
 
         // Initialize grid
-        grid_ = std::make_unique<::Grid3D>(64, 64, 64);
+        grid_ = std::make_unique<Grid3D>(64, 64, 64);
         grid_->initialize();
+
+        // Initialize shader manager
+        shaderManager_ = std::make_unique<ShaderManager>(vulkanContext_.get());
+
+        // Initialize image manager
+        imageManager_ = std::make_unique<VulkanImageManager>(vulkanContext_.get(), memoryManager_.get());
+
+        // Initialize swap chain
+        swapChain_ = std::make_unique<VulkanSwapChain>(vulkanContext_.get(), windowManager_.get());
+
+        // Initialize renderer
+        renderer_ = std::make_unique<VulkanRenderer>(vulkanContext_.get(), swapChain_.get(), imageManager_.get());
+
+        // Initialize voxel renderer
+        voxelRenderer_ = std::make_unique<VoxelRenderer>(vulkanContext_.get(), swapChain_.get(), imageManager_.get());
+
+        // Initialize framebuffer
+        framebuffer_ = std::make_unique<VulkanFramebuffer>(vulkanContext_.get(), swapChain_.get());
+
+        // Initialize compute
+        compute_ = std::make_unique<VulkanCompute>(vulkanContext_.get(), memoryManager_.get());
+
+        // Initialize ImGui
+        imGui_ = std::make_unique<VulkanImGui>(vulkanContext_.get(), swapChain_.get());
 
         std::cout << "VulkanEngine initialized successfully" << std::endl;
 
@@ -80,9 +101,8 @@ void VulkanEngine::run() {
                 grid_->update();
             }
 
-            // Basic render loop would go here
-            // For now just sleep to avoid spinning
-            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            // Draw frame
+            drawFrame();
         }
     } catch (const std::exception& e) {
         std::cerr << "Error in main loop: " << e.what() << std::endl;
@@ -92,21 +112,24 @@ void VulkanEngine::run() {
 
 void VulkanEngine::cleanup() {
     if (vulkanContext_) {
-        VkDevice device = vulkanContext_->getDevice();
-        if (device != VK_NULL_HANDLE) {
-            vkDeviceWaitIdle(device);
-        }
+        vkDeviceWaitIdle(vulkanContext_->getDevice());
     }
 
-    // Cleanup in reverse order
+    // Cleanup in reverse order of initialization
+    imGui_.reset();
+    compute_.reset();
+    framebuffer_.reset();
+    voxelRenderer_.reset();
+    renderer_.reset();
+    swapChain_.reset();
+    imageManager_.reset();
+    shaderManager_.reset();
     grid_.reset();
-    camera_.reset(); 
+    camera_.reset();
     saveManager_.reset();
     memoryManager_.reset();
-    vulkanContext_ = nullptr;
-    
-    // WindowManager is a singleton, just set pointer to nullptr
-    windowManager_ = nullptr;
+    vulkanContext_.reset();
+    windowManager_.reset();
 
     std::cout << "VulkanEngine cleanup complete" << std::endl;
 }
@@ -168,6 +191,75 @@ VkShaderModule VulkanEngine::createShaderModule(const std::vector<char>& code) {
         }
     }
     return shaderModule;
+}
+
+void VulkanEngine::drawFrame() {
+    if (!vulkanContext_ || !windowManager_ || !grid_) return;
+    
+    // Update camera
+    if (camera_) {
+        camera_->update(0.016f); // ~60fps
+    }
+    
+    // Update grid simulation
+    if (grid_) {
+        grid_->update();
+    }
+    
+    // Begin frame
+    VkCommandBuffer commandBuffer = vulkanContext_->beginSingleTimeCommands();
+    
+    // Record commands
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    
+    VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
+    
+    // Clear color
+    VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+    
+    // Begin render pass
+    VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = swapChain_->getRenderPass();
+    renderPassInfo.framebuffer = swapChain_->getCurrentFramebuffer();
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = windowManager_->getWindowExtent();
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearColor;
+    
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    
+    // Render grid
+    if (voxelRenderer_) {
+        voxelRenderer_->renderGrid(commandBuffer, camera_->getViewMatrix(), camera_->getProjectionMatrix());
+    }
+    
+    // End render pass
+    vkCmdEndRenderPass(commandBuffer);
+    
+    VK_CHECK(vkEndCommandBuffer(commandBuffer));
+    
+    // Submit command buffer
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+    
+    VK_CHECK(vkQueueSubmit(vulkanContext_->getGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE));
+    
+    // Present
+    VkPresentInfoKHR presentInfo{};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = &swapChain_->getSwapChain();
+    presentInfo.pImageIndices = &swapChain_->getCurrentImageIndex();
+    
+    VK_CHECK(vkQueuePresentKHR(vulkanContext_->getPresentQueue(), &presentInfo));
+    
+    // Wait for device idle (temporary, will be optimized later)
+    vkDeviceWaitIdle(vulkanContext_->getDevice());
 }
 
 } // namespace VulkanHIP
