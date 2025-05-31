@@ -2,48 +2,13 @@
 # 3D Game of Life - Vulkan Edition - .gitignore
 # =============================================================================
 
-# Build directories and outputs
+# Build directories
 build/
-build_*/
-out/
+build_minimal/
+.cmake/
 cmake-build-*/
-dist/
-x64/
-Release/
-Debug/
-
-# CMake generated files
-CMakeCache.txt
-CMakeFiles/
-cmake_install.cmake
-install_manifest.txt
-compile_commands.json
-CTestTestfile.cmake
-CMakeSettings.json
-DartConfiguration.tcl
-
-# Visual Studio / MSBuild files
-*.sln
-*.vcxproj
-*.vcxproj.filters
-*.vcxproj.user
-*.suo
-*.user
-*.sln.docstates
-*.ilk
-*.meta
-*.recipe
-
-# Build artifacts and intermediate files
-*.tlog/
-*.lastbuildstate
-*.unsuccessfulbuild
-*.idb
-*.pdb
 
 # Compiled Object files
-*.slo
-*.lo
 *.o
 *.obj
 
@@ -56,6 +21,10 @@ DartConfiguration.tcl
 *.dylib
 *.dll
 
+# Fortran module files
+*.mod
+*.smod
+
 # Compiled Static libraries
 *.lai
 *.la
@@ -67,30 +36,77 @@ DartConfiguration.tcl
 *.out
 *.app
 
-# Shader compilation output
-shaders/*.spv
-*.spirv
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
 
-# VCPKG
+# vcpkg
 vcpkg_installed/
 .vcpkg-root
 
-# Package manager directories
-vcpkg/downloads/
-vcpkg/buildtrees/
-vcpkg/packages/
-
-# IDE and Editor files
+# Visual Studio
 .vs/
+*.vcxproj.user
+*.vcxproj.filters
+*.sln.docstates
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+x64/
+x86/
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+[Xx]64/
+[Xx]86/
+[Bb]uild/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+
+# Visual Studio Code
 .vscode/
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
+*.code-workspace
+
+# CLion
 .idea/
-*.swp
-*.swo
+cmake-build-*/
+
+# Qt Creator
+CMakeLists.txt.user
+CMakeLists.txt.user.*
+
+# Conan
+conandata.yml
+conanfile.txt
+conaninfo.txt
+conanbuildinfo.*
+
+# Shader compilation outputs
+*.spv
+shaders/compiled/
+
+# Logs and debug files
+*.log
+logs/
+vulkan_validation_*.log
+
+# Temporary files
+*.tmp
+*.temp
 *~
+.#*
 
 # OS generated files
 .DS_Store
@@ -102,99 +118,84 @@ ehthumbs.db
 Thumbs.db
 desktop.ini
 
-# Log files
-*.log
-*.log.*
-build_output.log
-# Note: io.log and IOlog.txt are project-specific logs that should be tracked
-
 # Backup files
 *.bak
 *.backup
-*.old
 *.orig
-*.rej
-*.tmp
-
-# Coverage and profiling
-coverage/
-.coverage
-htmlcov/
-*.gcno
-*.gcda
-*.gcov
-*.lcov
-
-# Test outputs
-test-results/
-Testing/Temporary/
 
 # Documentation build
+docs/build/
 docs/_build/
-docs/_static/
-docs/_templates/
-Doxygen/
+doxygen_output/
 
-# Archive files
-*.7z
-*.dmg
-*.gz
-*.iso
-*.jar
-*.rar
-*.tar
-*.zip
+# Testing
+Testing/
+test_results/
+coverage/
+*.gcov
+*.gcda
+*.gcno
 
-# Cache and temporary directories
-.cache/
-tmp/
-temp/
-cache/
+# Profiling
+*.prof
+*.gprof
+callgrind.out.*
+massif.out.*
 
-# Database files (if any)
-*.db
-*.sqlite
-*.sqlite3
+# Valgrind
+vgcore.*
+
+# GDB
+.gdb_history
+
+# Core dumps
+core
+core.*
+
+# Memory dumps
+*.dmp
+
+# Performance data
+*.perf
+
+# Static analysis
+cppcheck-results.xml
+clang-tidy-results.txt
+iwyu-results.txt
 
 # Environment files
 .env
-.env.*
-!.env.example
+.env.local
+.env.*.local
 
-# Screenshots and media (project specific)
-screenshots/
-recordings/
-captures/
+# Local configuration
+config/local.*
 
-# Memory dumps and crash files
-*.dmp
-core.*
+# SSL certificates
+*.pem
+*.key
+*.crt
 
-# Static analysis outputs
-.clang-tidy-cache/
-cppcheck-result.xml
-iwyu.log
+# Docker
+.dockerignore
+docker-compose.override.yml
 
 # Vulkan SDK and driver specific
 VulkanSDK/
-*.spv-dis
 
-# Local development files
-.local/
-*.local
-config.local.*
+# Game data
+saves/
+patterns/
+user_data/
 
-# Large data files that shouldn't be in git
-models/
-datasets/
-training_data/
-*.model
-*.onnx
+# Screenshots and recordings
+screenshots/
+recordings/
 
-# Agent communication (project specific)
-agent_swap.json.bak*
+# Benchmarks and performance data
+benchmarks/
+performance_data/
 
-# Accidentally tracked files that should be removed
-# (These patterns help prevent re-adding deleted files)
+# Minimal build artifacts
 minimal_vulkan_app.dir/
 minimal_vulkan_app.vcxproj* 
