@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <stdexcept>
+#include <random>
 
 namespace PatternManager {
 

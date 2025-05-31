@@ -294,6 +294,13 @@ public:
     void run();
     void cleanup();
 
+    // Rendering configuration setters
+    void setWireframeMode(bool enabled);
+    void setShowGrid(bool enabled);
+    void setTransparency(float transparency);
+    void setRenderMode(int mode) { renderMode_ = mode; }
+    void setCustomRules(int birthMin, int birthMax, int survivalMin, int survivalMax);
+
     // Getters
     VkInstance getVkInstance() const { return vulkanContext_->getVkInstance(); }
     VkDevice getDevice() const { return vulkanContext_->getDevice(); }
@@ -301,6 +308,13 @@ public:
     VkQueue getGraphicsQueue() const { return vulkanContext_->getGraphicsQueue(); }
     VkQueue getComputeQueue() const { return vulkanContext_->getComputeQueue(); }
     VkQueue getPresentQueue() const { return vulkanContext_->getPresentQueue(); }
+
+    // Performance metrics getters
+    float getCurrentFPS() const { return currentFPS_; }
+    float getFrameTime() const { return frameTime_; }
+    float getUpdateTime() const { return updateTime_; }
+    size_t getTotalMemory() const { return totalMemory_; }
+    size_t getUsedMemory() const { return usedMemory_; }
 
 private:
     VulkanEngine() = default;
@@ -407,6 +421,9 @@ private:
     int renderMode_ = 0;
     float minLODDistance_ = 10.0f;
     float maxLODDistance_ = 100.0f;
+    bool wireframeMode_ = false;
+    bool showGrid_ = true;
+    float transparency_ = 1.0f;
 
     // Voxel data
     VoxelData loadedVoxelData_;
@@ -416,6 +433,13 @@ private:
 
     // Timing
     std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
+
+    // Performance metrics
+    float currentFPS_ = 0.0f;
+    float frameTime_ = 0.0f;
+    float updateTime_ = 0.0f;
+    size_t totalMemory_ = 0;
+    size_t usedMemory_ = 0;
 };
 
 // Resource deleters

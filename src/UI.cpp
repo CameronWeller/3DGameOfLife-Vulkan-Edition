@@ -1,7 +1,9 @@
 #include "UI.h"
+#include "VulkanEngine.h"
+#include "AppState.h"
 #include <imgui.h>
-#include <backends/imgui_impl_glfw.h>
-#include <backends/imgui_impl_vulkan.h>
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_vulkan.h"
 #include <sstream>
 #include <iomanip>
 #include <thread>
@@ -19,10 +21,13 @@ UI::UI(VulkanEngine* engine)
 
 UI::~UI() {
     cleanupPreviewTextures();
-    ImGui::ShutdownForVulkan();
+    ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 }
+
+// Global variable for window close state
+bool g_shouldClose = false;
 
 void UI::init() {
     IMGUI_CHECKVERSION();
@@ -119,7 +124,7 @@ void UI::init() {
 }
 
 void UI::render() {
-    ImGui::NewFrameForVulkan();
+    ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
     
@@ -470,27 +475,37 @@ void UI::renderSettings() {
         static bool showGrid = true;
         static float transparency = 1.0f;
         
-        ImGui::Checkbox("Wireframe Mode", &wireframe);
-        ImGui::Checkbox("Show Grid", &showGrid);
-        ImGui::SliderFloat("Transparency", &transparency, 0.0f, 1.0f);
-        
-        // TODO: Apply these settings to the renderer
+        if (ImGui::Checkbox("Wireframe Mode", &wireframe)) {
+            engine_->setWireframeMode(wireframe);
+        }
+        if (ImGui::Checkbox("Show Grid", &showGrid)) {
+            engine_->setShowGrid(showGrid);
+        }
+        if (ImGui::SliderFloat("Transparency", &transparency, 0.0f, 1.0f)) {
+            engine_->setTransparency(transparency);
+        }
     }
     
     if (ImGui::CollapsingHeader("Rule Settings")) {
         static int selectedRule = 0;
         const char* rules[] = { "5766", "4555", "Custom" };
         
-        ImGui::Combo("Rule Set", &selectedRule, rules, IM_ARRAYSIZE(rules));
+        if (ImGui::Combo("Rule Set", &selectedRule, rules, IM_ARRAYSIZE(rules))) {
+            // Apply rule set changes immediately
+            engine_->setRenderMode(selectedRule);
+        }
         
         if (selectedRule == 2) { // Custom rules
             static int birthMin = 5, birthMax = 7;
             static int survivalMin = 6, survivalMax = 6;
             
-            ImGui::SliderInt2("Birth Range", &birthMin, 0, 26);
-            ImGui::SliderInt2("Survival Range", &survivalMin, 0, 26);
+            bool customRulesChanged = false;
+            customRulesChanged |= ImGui::SliderInt2("Birth Range", &birthMin, 0, 26);
+            customRulesChanged |= ImGui::SliderInt2("Survival Range", &survivalMin, 0, 26);
             
-            // TODO: Apply custom rules
+            if (customRulesChanged) {
+                engine_->setCustomRules(birthMin, birthMax, survivalMin, survivalMax);
+            }
         }
     }
     
@@ -500,24 +515,29 @@ void UI::renderSettings() {
 void UI::renderPerformance() {
     ImGui::Begin("Performance", &showPerformanceWindow_);
     
-    // FPS counter
-    static float fps = 0.0f;
-    static float frameTime = 0.0f;
-    static float updateTime = 0.0f;
+    // FPS counter - get real values from engine
+    float fps = engine_->getCurrentFPS();
+    float frameTime = engine_->getFrameTime();
+    float updateTime = engine_->getUpdateTime();
     
     ImGui::Text("FPS: %.1f", fps);
     ImGui::Text("Frame Time: %.2f ms", frameTime);
     ImGui::Text("Update Time: %.2f ms", updateTime);
     
-    // Memory usage
-    static size_t totalMemory = 0;
-    static size_t usedMemory = 0;
+    // Memory usage - get real values from engine
+    size_t totalMemory = engine_->getTotalMemory();
+    size_t usedMemory = engine_->getUsedMemory();
     
     ImGui::Text("Memory Usage: %.2f MB / %.2f MB", 
                 usedMemory / (1024.0f * 1024.0f),
                 totalMemory / (1024.0f * 1024.0f));
     
-    // TODO: Update these values from the engine
+    // Progress bars for visual feedback
+    if (totalMemory > 0) {
+        float memoryUsagePercent = static_cast<float>(usedMemory) / static_cast<float>(totalMemory);
+        ImGui::ProgressBar(memoryUsagePercent, ImVec2(0.0f, 0.0f), 
+                          (std::to_string(static_cast<int>(memoryUsagePercent * 100)) + "%").c_str());
+    }
     
     ImGui::End();
 }

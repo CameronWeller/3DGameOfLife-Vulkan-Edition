@@ -37,6 +37,7 @@ struct Voxel {
 class VoxelData {
 public:
     VoxelData() = default;
+    VoxelData(const glm::ivec3& dimensions) : dimensions_(dimensions) {}
     ~VoxelData() = default;
 
     // Voxel management
@@ -45,6 +46,14 @@ public:
     void clear();
     size_t getVoxelCount() const { return voxels_.size(); }
     const std::vector<Voxel>& getVoxels() const { return voxels_; }
+    
+    // Missing methods referenced in the code
+    bool getVoxel(int x, int y, int z) const;
+    void setVoxel(int x, int y, int z, bool active);
+    glm::ivec3 dimensions = glm::ivec3(64, 64, 64);  // Default dimensions
+    glm::vec3 getCenter() const;
+    float getBoundingRadius() const;
+    std::vector<Voxel> getActiveVoxels() const;
 
     // Serialization
     nlohmann::json toJson() const;
@@ -56,4 +65,5 @@ public:
 
 private:
     std::vector<Voxel> voxels_;
+    glm::ivec3 dimensions_ = glm::ivec3(64, 64, 64);
 }; 

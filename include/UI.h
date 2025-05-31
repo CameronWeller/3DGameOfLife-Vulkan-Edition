@@ -12,6 +12,7 @@
 #include "RayCaster.h"
 #include "VoxelData.h"
 #include "PatternMetadata.h"
+#include "RuleAnalyzer.h"
 
 class VulkanEngine;
 
