@@ -37,6 +37,15 @@ target_link_libraries(project_dependencies INTERFACE
     imgui::imgui
 )
 
+# Add VMA submodule include for documentation access by agents
+# This provides full source code with comprehensive comments while still using vcpkg for actual linking
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/VulkanMemoryAllocator/include")
+    target_include_directories(project_dependencies INTERFACE
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/VulkanMemoryAllocator/include"
+    )
+    message(STATUS "VMA Documentation: Added VMA submodule include path for agent documentation access")
+endif()
+
 # Create testing dependencies target
 add_library(testing_dependencies INTERFACE)
 target_link_libraries(testing_dependencies INTERFACE
@@ -58,6 +67,13 @@ set(PROJECT_INCLUDE_DIRS
 # Function to apply common settings to targets
 function(apply_common_settings target_name)
     target_include_directories(${target_name} PUBLIC ${PROJECT_INCLUDE_DIRS})
+    
+    # Add VMA submodule include for documentation access by agents
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/VulkanMemoryAllocator/include")
+        target_include_directories(${target_name} PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/VulkanMemoryAllocator/include"
+        )
+    endif()
     
     # Add compiler definitions
     target_compile_definitions(${target_name} PRIVATE
