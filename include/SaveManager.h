@@ -10,6 +10,9 @@
 
 namespace VulkanHIP {
 
+// Forward declaration
+class VulkanEngine;
+
 struct PatternMetadata {
     std::string name;
     std::string description;
@@ -27,7 +30,7 @@ struct PatternMetadata {
 
 class SaveManager {
 public:
-    SaveManager();
+    SaveManager(VulkanEngine* engine = nullptr);
     ~SaveManager();
 
     // Error handling
@@ -69,7 +72,7 @@ public:
     void cleanupOldAutoSaves(int maxAutoSaves = 5);
     
     // Pattern preview
-    bool generatePreview(const std::string& filename, const std::string& previewPath);
+    void generatePreview(const std::string& filename, const VoxelData& voxelData);
     bool hasPreview(const std::string& filename) const;
     std::string getPreviewPath(const std::string& filename) const;
 
@@ -78,6 +81,7 @@ public:
     void clearLastError() { lastError_.clear(); }
 
 private:
+    VulkanEngine* engine_;
     std::filesystem::path patternDirectory_;
     std::filesystem::path previewDirectory_;
     std::string lastPatternFile_;

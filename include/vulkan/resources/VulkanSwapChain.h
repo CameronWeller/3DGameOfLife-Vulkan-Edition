@@ -25,9 +25,9 @@ public:
     // Getters
     VkSwapchainKHR getSwapChain() const { return swapChain_; }
     const std::vector<VkImage>& getImages() const { return swapChainImages_; }
-    const std::vector<VkImageView>& getImageViews() const { return swapChainImageViews_; }
-    VkFormat getImageFormat() const { return swapChainImageFormat_; }
-    VkExtent2D getExtent() const { return swapChainExtent_; }
+    const std::vector<VkImageView>& getSwapChainImageViews() const { return swapChainImageViews_; }
+    VkFormat getSwapChainImageFormat() const { return swapChainImageFormat_; }
+    VkExtent2D getSwapChainExtent() const { return swapChainExtent_; }
     
 private:
     VulkanContext* vulkanContext_;

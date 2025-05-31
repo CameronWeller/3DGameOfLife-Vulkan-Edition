@@ -41,7 +41,7 @@ void VulkanImGui::initialize() {
     createDescriptorPool();
     
     ImGui_ImplVulkan_InitInfo init_info = {};
-    init_info.Instance = vulkanContext_->getInstance();
+    init_info.Instance = vulkanContext_->getVkInstance();
     init_info.PhysicalDevice = vulkanContext_->getPhysicalDevice();
     init_info.Device = vulkanContext_->getDevice();
     init_info.QueueFamily = vulkanContext_->getQueueFamilyIndices().graphicsFamily.value();
@@ -55,14 +55,19 @@ void VulkanImGui::initialize() {
     init_info.Allocator = nullptr;
     init_info.CheckVkResultFn = nullptr;
     
-    ImGui_ImplVulkan_Init(&init_info, renderPass_);
+    // Initialize ImGui Vulkan backend - newer API doesn't take renderPass parameter
+    if (!ImGui_ImplVulkan_Init(&init_info)) {
+        throw std::runtime_error("Failed to initialize ImGui Vulkan backend!");
+    }
 
     // Upload fonts - use memory manager for command buffer operations
     VkCommandBuffer commandBuffer = vulkanContext_->getMemoryManager().beginSingleTimeCommands();
-    ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
+    if (!ImGui_ImplVulkan_CreateFontsTexture()) {
+        throw std::runtime_error("Failed to create ImGui fonts texture!");
+    }
     vulkanContext_->getMemoryManager().endSingleTimeCommands(commandBuffer);
     
-    ImGui_ImplVulkan_DestroyFontUploadObjects();
+    // Note: Font upload cleanup is handled automatically in newer ImGui versions
     
     initialized_ = true;
 }

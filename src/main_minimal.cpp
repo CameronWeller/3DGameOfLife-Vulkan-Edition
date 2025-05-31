@@ -7,23 +7,23 @@ using namespace VulkanHIP;
 
 int main() {
     try {
-        // Initialize logger
-        Logger logger;
-        logger.log(LogLevel::Info, "Starting minimal Vulkan application");
+        // Initialize logger (singleton)
+        Logger& logger = Logger::getInstance();
+        logger.log(Logger::LogLevel::Info, "Starting minimal Vulkan application");
 
         // Get VulkanEngine instance (singleton)
         VulkanEngine* engine = VulkanEngine::getInstance();
         
-        logger.log(LogLevel::Info, "Initializing Vulkan engine...");
+        logger.log(Logger::LogLevel::Info, "Initializing Vulkan engine...");
         engine->init();
         
-        logger.log(LogLevel::Info, "Running Vulkan engine...");
+        logger.log(Logger::LogLevel::Info, "Running Vulkan engine...");
         engine->run();
         
-        logger.log(LogLevel::Info, "Cleaning up...");
+        logger.log(Logger::LogLevel::Info, "Cleaning up...");
         engine->cleanup();
         
-        logger.log(LogLevel::Info, "Application completed successfully");
+        logger.log(Logger::LogLevel::Info, "Application completed successfully");
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
