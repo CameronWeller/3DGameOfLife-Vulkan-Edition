@@ -30,6 +30,8 @@ public:
     void moveRight(float distance);
     void moveUp(float distance);
     void rotate(float yaw, float pitch);
+    void orbit(float yaw, float pitch);
+    void pan(float x, float y);
 
     // Mouse input
     void processMouseMovement(float xoffset, float yoffset, bool constrainPitch = true);
@@ -85,6 +87,7 @@ private:
 
     // Helper methods
     void updateCameraVectors();
+    void updateOrbitPosition();
     bool checkCollision(const glm::vec3& newPosition) const;
     glm::vec3 resolveCollision(const glm::vec3& currentPos, const glm::vec3& targetPos) const;
 };

@@ -326,6 +326,23 @@ public:
     void* mapMemory(const BufferAllocation& allocation);
     void unmapMemory(const BufferAllocation& allocation);
 
+    // Modern VMA convenience functions
+    BufferAllocation createHostVisibleBuffer(VkDeviceSize size, VkBufferUsageFlags usage, 
+                                           bool sequentialWrite = true);
+    BufferAllocation createDeviceLocalBuffer(VkDeviceSize size, VkBufferUsageFlags usage, 
+                                           bool dedicatedMemory = false);
+    BufferAllocation createUniformBuffer(VkDeviceSize size, bool dynamic = false);
+    
+    // VMA copy functions for efficient data transfer
+    void copyToAllocation(const void* srcData, const BufferAllocation& dstAllocation, 
+                         VkDeviceSize size, VkDeviceSize offset = 0);
+    void copyFromAllocation(const BufferAllocation& srcAllocation, void* dstData, 
+                           VkDeviceSize size, VkDeviceSize offset = 0);
+    
+    // Memory budget and statistics
+    void getMemoryBudget(VmaBudget* budget) const;
+    void printMemoryStatistics() const;
+
     // Staging buffer management
     StagingBuffer createStagingBuffer(VkDeviceSize size);
     void destroyStagingBuffer(StagingBuffer& stagingBuffer);

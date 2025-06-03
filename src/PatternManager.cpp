@@ -277,4 +277,8 @@ std::vector<Pattern> getBuiltInPatterns() {
     return patterns;
 }
 
+uint32_t getIndex(uint32_t x, uint32_t y, uint32_t z, uint32_t width, uint32_t height) const {
+    return z * width * height + y * width + x;
+}
+
 } // namespace PatternManager 

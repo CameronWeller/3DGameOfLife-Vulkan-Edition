@@ -411,16 +411,14 @@ void VulkanContext::createLogicalDevice() {
     }
 
     // Load device features from config
-    VkPhysicalDeviceFeatures2 deviceFeatures2{};
-    deviceFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    vkGetPhysicalDeviceFeatures2(physicalDevice_, &deviceFeatures2);
+    VkPhysicalDeviceFeatures deviceFeatures{};
+    vkGetPhysicalDeviceFeatures(physicalDevice_, &deviceFeatures);
 
     VkDeviceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    createInfo.pNext = &deviceFeatures2;
     createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
     createInfo.pQueueCreateInfos = queueCreateInfos.data();
-    createInfo.pEnabledFeatures = &deviceFeatures2.features;
+    createInfo.pEnabledFeatures = &deviceFeatures;
 
     // Add validation features if validation layers are enabled
     VkValidationFeaturesEXT validationFeatures{};
@@ -533,6 +531,8 @@ void VulkanContext::createLogicalDevice() {
     }
 
     // Create timeline semaphores for synchronization
+    // Disabled for minimal build to avoid validation warnings
+    /*
     VkSemaphoreTypeCreateInfo timelineCreateInfo{};
     timelineCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
     timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
@@ -553,6 +553,7 @@ void VulkanContext::createLogicalDevice() {
     if (result != VK_SUCCESS) {
         throw VulkanError(result, "Failed to create compute-present synchronization semaphore!");
     }
+    */
 }
 
 void VulkanContext::createCommandPools() {

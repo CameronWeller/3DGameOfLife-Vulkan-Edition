@@ -70,7 +70,9 @@ void Grid3D::createBuffers() {
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     
     VmaAllocationCreateInfo allocInfo{};
-    allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+    // Use modern VMA patterns - GPU-only storage buffers for compute
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    allocInfo.flags = 0; // Device-local, no host access needed
     
     VK_CHECK(vmaCreateBuffer(memoryManager.getAllocator(), &bufferInfo, &allocInfo,
         &stateBuffer, &stateMemory, nullptr));
@@ -386,7 +388,11 @@ void Grid3D::setCell(uint32_t x, uint32_t y, uint32_t z, bool state) {
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         
         VmaAllocationCreateInfo allocInfo{};
-        allocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+        // Use modern VMA patterns - staging buffer for CPU-to-GPU transfer
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+        allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
+                          VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
+                          VMA_ALLOCATION_CREATE_MAPPED_BIT;
         
         VkBuffer stagingBuffer;
         VmaAllocation stagingMemory;
@@ -726,8 +732,11 @@ void Grid3D::createLODResources() {
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     
     VmaAllocationCreateInfo allocInfo{};
-    allocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
-    allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    // Use modern VMA patterns - dynamic vertex buffer with CPU updates
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                      VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
+                      VMA_ALLOCATION_CREATE_MAPPED_BIT;
     
     VK_CHECK(vmaCreateBuffer(memoryManager.getVmaAllocator(), &bufferInfo, &allocInfo,
         &lodBuffer, &lodMemory, nullptr));

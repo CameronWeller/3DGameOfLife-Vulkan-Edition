@@ -72,7 +72,8 @@ public:
     void cleanupOldAutoSaves(int maxAutoSaves = 5);
     
     // Pattern preview
-    void generatePreview(const std::string& filename, const VoxelData& voxelData);
+    bool generatePreview(const std::string& filename, const VoxelData& voxelData);
+    bool generatePreview(const std::string& filename, const std::string& previewPath);
     bool hasPreview(const std::string& filename) const;
     std::string getPreviewPath(const std::string& filename) const;
 

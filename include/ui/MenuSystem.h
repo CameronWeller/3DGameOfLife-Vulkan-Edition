@@ -32,6 +32,10 @@ public:
     bool shouldShowNewProjectDialog() const { return showNewProjectDialog_; }
     bool shouldShowSettings() const { return showSettings_; }
     
+    void cleanup();
+    void render();
+    void update(float deltaTime);
+    
 private:
     App::State currentState_ = App::State::Menu;
     App::MenuState menuState_;
@@ -43,6 +47,8 @@ private:
     
     std::vector<App::SaveInfo> saveFiles_;
     int selectedSaveIndex_ = -1;
+    
+    bool initialized_ = false;
     
     void refreshSaveFiles();
 };

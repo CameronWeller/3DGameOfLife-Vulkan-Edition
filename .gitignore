@@ -1,21 +1,14 @@
+# =============================================================================
+# 3D Game of Life - Vulkan Edition - .gitignore
+# =============================================================================
+
 # Build directories
 build/
-out/
+build_minimal/
+.cmake/
 cmake-build-*/
 
-# IDE files
-.vs/
-.vscode/
-*.swp
-*.swo
-.idea/
-*.user
-*.suo
-*.sln.docstates
-
 # Compiled Object files
-*.slo
-*.lo
 *.o
 *.obj
 
@@ -28,6 +21,10 @@ cmake-build-*/
 *.dylib
 *.dll
 
+# Fortran module files
+*.mod
+*.smod
+
 # Compiled Static libraries
 *.lai
 *.la
@@ -39,16 +36,77 @@ cmake-build-*/
 *.out
 *.app
 
-# CMake generated files
+# CMake
 CMakeCache.txt
 CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
 cmake_install.cmake
 install_manifest.txt
 compile_commands.json
 CTestTestfile.cmake
+_deps
 
-# Shader compilation output
-shaders/*.spv
+# vcpkg
+vcpkg_installed/
+.vcpkg-root
+
+# Visual Studio
+.vs/
+*.vcxproj.user
+*.vcxproj.filters
+*.sln.docstates
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+x64/
+x86/
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+[Xx]64/
+[Xx]86/
+[Bb]uild/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# CLion
+.idea/
+cmake-build-*/
+
+# Qt Creator
+CMakeLists.txt.user
+CMakeLists.txt.user.*
+
+# Conan
+conandata.yml
+conanfile.txt
+conaninfo.txt
+conanbuildinfo.*
+
+# Shader compilation outputs
+*.spv
+shaders/compiled/
+
+# Logs and debug files
+*.log
+logs/
+vulkan_validation_*.log
+
+# Temporary files
+*.tmp
+*.temp
+*~
+.#*
 
 # OS generated files
 .DS_Store
@@ -58,174 +116,86 @@ shaders/*.spv
 .Trashes
 ehthumbs.db
 Thumbs.db
-
-# Log files
-*.log
-*.log.*
-# io.log is a persistent log file and should never be deleted or ignored (see README)
-# !io.log
-# !IOlog.txt
-build_output.log
-
-# VCPKG
-vcpkg_installed/
-vcpkg/
+desktop.ini
 
 # Backup files
 *.bak
 *.backup
-*.old
 *.orig
-*.rej
-*.tmp
 
-# Dependencies
-node_modules/
-vendor/
+# Documentation build
+docs/build/
+docs/_build/
+doxygen_output/
+
+# Testing
+Testing/
+test_results/
+coverage/
+*.gcov
+*.gcda
+*.gcno
+
+# Profiling
+*.prof
+*.gprof
+callgrind.out.*
+massif.out.*
+
+# Valgrind
+vgcore.*
+
+# GDB
+.gdb_history
+
+# Core dumps
+core
+core.*
+
+# Memory dumps
+*.dmp
+
+# Performance data
+*.perf
+
+# Static analysis
+cppcheck-results.xml
+clang-tidy-results.txt
+iwyu-results.txt
 
 # Environment files
 .env
-.env.*
-!.env.example
-
-# Generated documentation
-docs/_build/
-docs/_static/
-docs/_templates/
-
-# Test coverage
-coverage/
-.coverage
-htmlcov/
-
-# Package files
-*.7z
-*.dmg
-*.gz
-*.iso
-*.jar
-*.rar
-*.tar
-*.zip
-
-# Script cache directory
-scripts/cache/
-
-# Build outputs
-dist/
-.cache/
-*.tsbuildinfo
-
-# Environment variables
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*.local
 
-# Logs
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Local configuration
+config/local.*
 
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
+# SSL certificates
+*.pem
+*.key
+*.crt
 
-# Coverage directory used by tools like istanbul
-*.lcov
+# Docker
+.dockerignore
+docker-compose.override.yml
 
-# nyc test coverage
-.nyc_output
+# Vulkan SDK and driver specific
+VulkanSDK/
 
-# Dependency directories
-jspm_packages/
+# Game data
+saves/
+patterns/
+user_data/
 
-# TypeScript cache
-*.tsbuildinfo
-
-# Optional npm cache directory
-.npm
-
-# Optional eslint cache
-.eslintcache
-
-# Optional REPL history
-.node_repl_history
-
-# Output of 'npm pack'
-*.tgz
-
-# Yarn Integrity file
-.yarn-integrity
-
-# dotenv environment variables file
-.env.test
-.env.production
-
-# parcel-bundler cache (https://parceljs.org/)
-.cache
-.parcel-cache
-
-# Next.js build output
-.next
-out
-
-# Nuxt.js build / generate output
-.nuxt
-dist
-
-# Gatsby files
-.cache/
-public
-
-# Storybook build outputs
-.storybook-out
-
-# Temporary folders
-tmp/
-temp/
-
-# Editor directories and files
-.vscode/
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# Database files
-*.db
-*.sqlite
-*.sqlite3
-
-# Screenshots and media
+# Screenshots and recordings
 screenshots/
-uploads/
-media/
+recordings/
 
-# Test files
-test-results/
-playwright-report/
+# Benchmarks and performance data
+benchmarks/
+performance_data/
 
-# ML Training data
-training_data/
-models/
-*.model
-*.pkl
-*.joblib
-
-# Agent communication backups
-agent_swap.json.bak*
-
-# Local development
-.local/
-*.local 
+# Minimal build artifacts
+minimal_vulkan_app.dir/
+minimal_vulkan_app.vcxproj* 

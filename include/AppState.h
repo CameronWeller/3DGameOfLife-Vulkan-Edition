@@ -29,6 +29,12 @@ struct SaveInfo {
     std::chrono::system_clock::time_point timestamp;
     size_t size;
     bool created;
+    
+    // Additional members required by SaveManager
+    std::string name;
+    std::string description;
+    std::string author;
+    std::string version;
 };
 
 struct MenuState {

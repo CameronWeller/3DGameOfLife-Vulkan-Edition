@@ -37,6 +37,8 @@
 #include "VulkanError.h"
 #include "vulkan/resources/VulkanBufferManager.h"
 #include "vulkan/rendering/VoxelRenderer.h"
+#include "VulkanError.h"
+#include "VoxelData.h"
 
 namespace VulkanHIP {
 
@@ -144,14 +146,14 @@ struct ComputePipelineInfo {
         std::string errorMsg = "Vulkan error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__); \
         switch (err) { \
             case VK_ERROR_VALIDATION_FAILED_EXT: \
-                throw ValidationError(errorMsg); \
+                throw VulkanHIP::ValidationError(errorMsg); \
             case VK_ERROR_DEVICE_LOST: \
-                throw DeviceLostError(errorMsg); \
+                throw VulkanHIP::DeviceLostError(errorMsg); \
             case VK_ERROR_OUT_OF_DEVICE_MEMORY: \
             case VK_ERROR_OUT_OF_HOST_MEMORY: \
-                throw OutOfMemoryError(errorMsg); \
+                throw VulkanHIP::OutOfMemoryError(errorMsg); \
             default: \
-                throw VulkanError(err, errorMsg); \
+                throw VulkanHIP::VulkanError(err, errorMsg); \
         } \
     } \
 } while(0)
@@ -408,7 +410,7 @@ private:
     VoxelData loadedVoxelData_;
     VkBuffer voxelInstanceBuffer_ = VK_NULL_HANDLE;
     VmaAllocation voxelInstanceBufferAllocation_ = VK_NULL_HANDLE;
-    std::vector<VulkanHIP::VoxelInstance> voxelInstances_;
+    std::vector<VoxelInstance> voxelInstances_;
 
     // Timing
     std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
