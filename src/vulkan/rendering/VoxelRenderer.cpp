@@ -49,7 +49,7 @@ void VoxelRenderer::createVoxelGeometry() {
     voxelVertexBufferAllocation_ = memoryManager_->createBuffer(
         vertexBufferSize,
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
+        VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE
     );
     voxelVertexBuffer_ = voxelVertexBufferAllocation_.buffer;
 
@@ -58,7 +58,7 @@ void VoxelRenderer::createVoxelGeometry() {
     voxelIndexBufferAllocation_ = memoryManager_->createBuffer(
         indexBufferSize,
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
+        VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE
     );
     voxelIndexBuffer_ = voxelIndexBufferAllocation_.buffer;
 
@@ -89,7 +89,7 @@ void VoxelRenderer::updateVoxelInstances(const VoxelData& voxelData) {
         voxelInstanceBufferAllocation_ = memoryManager_->createBuffer(
             bufferSize,
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            VMA_MEMORY_USAGE_CPU_TO_GPU
+            VMA_MEMORY_USAGE_AUTO // Modern pattern for dynamic instance data
         );
         voxelInstanceBuffer_ = voxelInstanceBufferAllocation_.buffer;
 

@@ -1,82 +1,160 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
-# Source code
-*.js text eol=lf
-*.ts text eol=lf
-*.tsx text eol=lf
+# Source code files
+*.cpp text eol=lf
+*.cxx text eol=lf
+*.cc text eol=lf
+*.c text eol=lf
+*.hpp text eol=lf
+*.hxx text eol=lf
+*.h text eol=lf
+*.inl text eol=lf
+
+# Shader files
+*.vert text eol=lf
+*.frag text eol=lf
+*.comp text eol=lf
+*.geom text eol=lf
+*.tesc text eol=lf
+*.tese text eol=lf
+*.glsl text eol=lf
+*.hlsl text eol=lf
+*.spv binary
+
+# Build system files
+CMakeLists.txt text eol=lf
+*.cmake text eol=lf
+*.in text eol=lf
+Makefile text eol=lf
+*.mk text eol=lf
+
+# Configuration files
 *.json text eol=lf
-*.md text eol=lf
+*.xml text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
-
-# Package files
-package.json text eol=lf
-package-lock.json text eol=lf -diff
-
-# Config files
-*.config.js text eol=lf
-*.config.ts text eol=lf
-.env* text eol=lf
-.gitignore text eol=lf
-.gitattributes text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+*.conf text eol=lf
 
 # Documentation
 *.md text eol=lf
 *.txt text eol=lf
+*.rst text eol=lf
+Doxyfile text eol=lf
+
+# Version control files
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.gitmodules text eol=lf
+
+# Package manager files
+vcpkg.json text eol=lf
+conanfile.txt text eol=lf
+conanfile.py text eol=lf
 
 # Docker files
 Dockerfile* text eol=lf
 *.dockerfile text eol=lf
+docker-compose*.yml text eol=lf
 
-# Kubernetes manifests
-*.yaml text eol=lf
-*.yml text eol=lf
-
-# Shell scripts
+# Scripts
 *.sh text eol=lf
+*.py text eol=lf
+*.pl text eol=lf
 
-# Batch scripts
+# Windows batch files
 *.bat text eol=crlf
 *.cmd text eol=crlf
+*.ps1 text eol=crlf
 
 # Binary files
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.a binary
+*.lib binary
+*.obj binary
+*.o binary
+*.pdb binary
+*.idb binary
+
+# Image files
 *.png binary
 *.jpg binary
 *.jpeg binary
 *.gif binary
+*.bmp binary
+*.tga binary
+*.dds binary
 *.ico binary
-*.svg binary
-*.pdf binary
+*.svg text eol=lf
+
+# Archive files
 *.zip binary
-*.tar.gz binary
-*.tgz binary
+*.tar binary
+*.gz binary
+*.bz2 binary
+*.xz binary
+*.7z binary
+*.rar binary
 
 # Font files
-*.woff binary
-*.woff2 binary
-*.eot binary
 *.ttf binary
 *.otf binary
+*.woff binary
+*.woff2 binary
 
-# Generated files
-*.map binary
-dist/* linguist-generated=true
+# Audio/Video files
+*.wav binary
+*.mp3 binary
+*.ogg binary
+*.mp4 binary
+*.avi binary
+*.mov binary
+
+# 3D model files
+*.obj text eol=lf
+*.fbx binary
+*.dae text eol=lf
+*.gltf text eol=lf
+*.glb binary
+
+# Generated files (mark as generated for GitHub linguist)
 build/* linguist-generated=true
-coverage/* linguist-generated=true
+cmake-build-*/* linguist-generated=true
+out/* linguist-generated=true
+*.vcxproj linguist-generated=true
+*.vcxproj.filters linguist-generated=true
+*.sln linguist-generated=true
+compile_commands.json linguist-generated=true
 
-# Agent swap files (treat as text but don't diff)
-agent_swap.json text -diff
-agent_swap.json.bak* text -diff
+# Large binary files that should use Git LFS
+*.model filter=lfs diff=lfs merge=lfs -text
+*.weights filter=lfs diff=lfs merge=lfs -text
+*.bin filter=lfs diff=lfs merge=lfs -text
+*.dat filter=lfs diff=lfs merge=lfs -text
 
-# Lock files (don't diff)
-package-lock.json -diff
-yarn.lock -diff
-
-# Large datasets (use Git LFS if needed)
+# Database files
 *.db filter=lfs diff=lfs merge=lfs -text
 *.sqlite filter=lfs diff=lfs merge=lfs -text
 *.sqlite3 filter=lfs diff=lfs merge=lfs -text
-training_data/* filter=lfs diff=lfs merge=lfs -text
-models/* filter=lfs diff=lfs merge=lfs -text
-*.model filter=lfs diff=lfs merge=lfs -text 
+
+# Don't diff certain file types
+*.png -diff
+*.jpg -diff
+*.jpeg -diff
+*.gif -diff
+*.spv -diff
+*.bin -diff
+
+# Treat certain files as text despite unusual extensions
+*.vert linguist-language=GLSL
+*.frag linguist-language=GLSL
+*.comp linguist-language=GLSL
+*.geom linguist-language=GLSL
+*.tesc linguist-language=GLSL
+*.tese linguist-language=GLSL 

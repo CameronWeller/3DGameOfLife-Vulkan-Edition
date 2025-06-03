@@ -1,0 +1,303 @@
+{
+  "project": "3DGameOfLife-Vulkan-Edition",
+  "version": "1.0.0",
+  "last_updated": "2024-12-07T10:30:00Z",
+  "orchestrator": {
+    "name": "Project Orchestrator",
+    "status": "ACTIVE",
+    "current_sprint": "2024-W49-VMA-Modernization"
+  },
+  "tasks": {
+    "T-2024-12-07-001": {
+      "title": "Implement Modern VMA Memory Usage Patterns",
+      "status": "READY_FOR_ASSIGNMENT",
+      "agent": "UNASSIGNED",
+      "priority": "P0",
+      "category": "IMPROVEMENT",
+      "estimated_hours": 3,
+      "actual_hours": 0,
+      "dependencies": [],
+      "created": "2024-12-07T10:30:00Z",
+      "due_date": "2024-12-07T18:00:00Z",
+      "description": "Replace deprecated VMA usage patterns with modern VMA 3.3.0 AUTO patterns",
+      "acceptance_criteria": [
+        "All VMA allocations use VMA_MEMORY_USAGE_AUTO or AUTO_PREFER_* patterns",
+        "Proper allocation flags for host access patterns",
+        "Performance maintained or improved",
+        "Memory usage reduced by at least 10%",
+        "All existing tests pass",
+        "New unit tests for VMA patterns added"
+      ],
+      "files_to_modify": [
+        "src/VulkanMemoryManager.cpp",
+        "include/VulkanMemoryManager.h",
+        "tests/memory_manager_tests.cpp"
+      ],
+      "validation_commands": [
+        "./scripts/build/build_minimal.ps1",
+        "./scripts/test/run_memory_tests.ps1"
+      ]
+    },
+    "T-2024-12-07-002": {
+      "title": "Add Advanced VMA Allocation Flags",
+      "status": "PLANNED",
+      "agent": "UNASSIGNED",
+      "priority": "P1",
+      "category": "IMPROVEMENT",
+      "estimated_hours": 4,
+      "actual_hours": 0,
+      "dependencies": ["T-2024-12-07-001"],
+      "created": "2024-12-07T10:30:00Z",
+      "due_date": "2024-12-08T12:00:00Z",
+      "description": "Implement advanced VMA allocation flags for optimal memory access patterns",
+      "acceptance_criteria": [
+        "HOST_ACCESS_SEQUENTIAL_WRITE_BIT implemented for staging buffers",
+        "HOST_ACCESS_RANDOM_BIT implemented for readback buffers",
+        "ALLOW_TRANSFER_INSTEAD_BIT added for fallback scenarios",
+        "STRATEGY flags implemented for allocation optimization",
+        "Documentation updated with usage guidelines"
+      ],
+      "files_to_modify": [
+        "src/VulkanMemoryManager.cpp",
+        "include/VulkanMemoryManager.h",
+        "docs/VMA_USAGE_GUIDE.md"
+      ]
+    },
+    "T-2024-12-07-003": {
+      "title": "Implement VMA Budget Management System",
+      "status": "PLANNED",
+      "agent": "UNASSIGNED",
+      "priority": "P1",
+      "category": "FEATURE",
+      "estimated_hours": 8,
+      "actual_hours": 0,
+      "dependencies": ["T-2024-12-07-001"],
+      "created": "2024-12-07T10:30:00Z",
+      "due_date": "2024-12-08T18:00:00Z",
+      "description": "Add VK_EXT_memory_budget integration for memory pressure handling",
+      "acceptance_criteria": [
+        "VK_EXT_memory_budget extension integrated",
+        "Real-time memory usage monitoring",
+        "Budget-aware allocation strategies",
+        "Memory pressure callbacks implemented",
+        "Automatic quality reduction on memory pressure",
+        "Budget statistics in debug UI"
+      ],
+      "files_to_modify": [
+        "src/VulkanMemoryManager.cpp",
+        "include/VulkanMemoryManager.h",
+        "src/VulkanEngine.cpp",
+        "include/BudgetManager.h"
+      ]
+    },
+    "T-2024-12-07-004": {
+      "title": "Create Smart Buffer Factory",
+      "status": "PLANNED",
+      "agent": "UNASSIGNED",
+      "priority": "P2",
+      "category": "IMPROVEMENT",
+      "estimated_hours": 12,
+      "actual_hours": 0,
+      "dependencies": ["T-2024-12-07-001", "T-2024-12-07-002"],
+      "created": "2024-12-07T10:30:00Z",
+      "due_date": "2024-12-09T18:00:00Z",
+      "description": "Implement intelligent buffer factory with automatic usage pattern detection",
+      "acceptance_criteria": [
+        "SmartBufferFactory class created",
+        "Automatic buffer type detection based on usage flags",
+        "Buffer pooling for common sizes",
+        "Intelligent allocation strategy selection",
+        "Performance benchmarks showing improvement",
+        "Comprehensive unit tests"
+      ],
+      "files_to_modify": [
+        "include/SmartBufferFactory.h",
+        "src/SmartBufferFactory.cpp",
+        "src/VulkanMemoryManager.cpp",
+        "tests/smart_buffer_tests.cpp"
+      ]
+    },
+    "T-2024-12-07-005": {
+      "title": "Add VMA Statistics and Profiling",
+      "status": "PLANNED",
+      "agent": "UNASSIGNED",
+      "priority": "P2",
+      "category": "FEATURE",
+      "estimated_hours": 10,
+      "actual_hours": 0,
+      "dependencies": ["T-2024-12-07-003"],
+      "created": "2024-12-07T10:30:00Z",
+      "due_date": "2024-12-10T18:00:00Z",
+      "description": "Implement comprehensive VMA statistics, profiling, and JSON dump support",
+      "acceptance_criteria": [
+        "JSON dump integration for detailed memory analysis",
+        "Real-time memory usage visualization",
+        "Allocation tracking with call stacks",
+        "Memory leak detection system",
+        "Performance regression detection",
+        "ImGui debug panels for statistics"
+      ],
+      "files_to_modify": [
+        "src/VulkanMemoryManager.cpp",
+        "include/MemoryProfiler.h",
+        "src/MemoryProfiler.cpp",
+        "src/DebugUI.cpp"
+      ]
+    },
+    "T-2024-12-07-006": {
+      "title": "Implement Custom Memory Pools",
+      "status": "PLANNED",
+      "agent": "UNASSIGNED",
+      "priority": "P2",
+      "category": "FEATURE",
+      "estimated_hours": 16,
+      "actual_hours": 0,
+      "dependencies": ["T-2024-12-07-004"],
+      "created": "2024-12-07T10:30:00Z",
+      "due_date": "2024-12-11T18:00:00Z",
+      "description": "Create specialized memory pools for different resource types and usage patterns",
+      "acceptance_criteria": [
+        "Dedicated pools for vertex/index/uniform buffers",
+        "Linear allocation pools for temporary resources",
+        "Ring buffer pools for streaming data",
+        "Stack allocators for frame-temporary data",
+        "Pool defragmentation support",
+        "Pool statistics and monitoring"
+      ],
+      "files_to_modify": [
+        "include/MemoryPools.h",
+        "src/MemoryPools.cpp",
+        "src/VulkanMemoryManager.cpp",
+        "tests/memory_pool_tests.cpp"
+      ]
+    },
+    "T-2024-12-07-007": {
+      "title": "Add VMA Extension Support",
+      "status": "PLANNED",
+      "agent": "UNASSIGNED",
+      "priority": "P3",
+      "category": "IMPROVEMENT",
+      "estimated_hours": 6,
+      "actual_hours": 0,
+      "dependencies": ["T-2024-12-07-003"],
+      "created": "2024-12-07T10:30:00Z",
+      "due_date": "2024-12-12T18:00:00Z",
+      "description": "Integrate additional VMA-supported Vulkan extensions",
+      "acceptance_criteria": [
+        "VK_EXT_memory_priority support for allocation prioritization",
+        "VK_AMD_device_coherent_memory for AMD optimization",
+        "VK_KHR_buffer_device_address for GPU pointers",
+        "Extension availability detection",
+        "Graceful fallback when extensions unavailable"
+      ],
+      "files_to_modify": [
+        "src/VulkanEngine.cpp",
+        "src/VulkanMemoryManager.cpp",
+        "include/VulkanExtensions.h"
+      ]
+    },
+    "T-2024-12-07-008": {
+      "title": "Implement Defragmentation System",
+      "status": "PLANNED",
+      "agent": "UNASSIGNED",
+      "priority": "P3",
+      "category": "FEATURE",
+      "estimated_hours": 20,
+      "actual_hours": 0,
+      "dependencies": ["T-2024-12-07-006"],
+      "created": "2024-12-07T10:30:00Z",
+      "due_date": "2024-12-15T18:00:00Z",
+      "description": "Create automated memory defragmentation system",
+      "acceptance_criteria": [
+        "Automatic defragmentation scheduling",
+        "Incremental defragmentation to avoid frame drops",
+        "GPU-assisted defragmentation where possible",
+        "Defragmentation metrics and reporting",
+        "Configurable defragmentation policies",
+        "Background defragmentation thread"
+      ],
+      "files_to_modify": [
+        "include/DefragmentationManager.h",
+        "src/DefragmentationManager.cpp",
+        "src/VulkanMemoryManager.cpp",
+        "tests/defragmentation_tests.cpp"
+      ]
+    }
+  },
+  "agents": {
+    "VMA_SPECIALIST": {
+      "name": "VMA Memory Management Specialist",
+      "status": "AVAILABLE",
+      "current_task": null,
+      "specializations": ["vulkan_memory", "vma", "performance_optimization", "memory_debugging"],
+      "workload": "LOW",
+      "expertise_level": "EXPERT",
+      "preferred_task_categories": ["IMPROVEMENT", "FEATURE"],
+      "max_concurrent_tasks": 2,
+      "last_activity": "2024-12-07T10:30:00Z"
+    },
+    "GRAPHICS_SPECIALIST": {
+      "name": "Vulkan Graphics and Rendering Specialist",
+      "status": "AVAILABLE",
+      "current_task": null,
+      "specializations": ["vulkan_graphics", "shaders", "rendering_pipeline", "compute_shaders"],
+      "workload": "LOW",
+      "expertise_level": "EXPERT",
+      "preferred_task_categories": ["FEATURE", "IMPROVEMENT"],
+      "max_concurrent_tasks": 2,
+      "last_activity": "2024-12-07T10:30:00Z"
+    },
+    "ARCHITECTURE_SPECIALIST": {
+      "name": "System Architecture and Design Specialist",
+      "status": "AVAILABLE",
+      "current_task": null,
+      "specializations": ["system_design", "architecture", "refactoring", "design_patterns"],
+      "workload": "LOW",
+      "expertise_level": "EXPERT",
+      "preferred_task_categories": ["REFACTOR", "IMPROVEMENT"],
+      "max_concurrent_tasks": 1,
+      "last_activity": "2024-12-07T10:30:00Z"
+    },
+    "QA_SPECIALIST": {
+      "name": "Testing and Quality Assurance Specialist",
+      "status": "AVAILABLE",
+      "current_task": null,
+      "specializations": ["testing", "ci_cd", "quality_assurance", "automation"],
+      "workload": "LOW",
+      "expertise_level": "EXPERT",
+      "preferred_task_categories": ["SETUP", "BUGFIX"],
+      "max_concurrent_tasks": 3,
+      "last_activity": "2024-12-07T10:30:00Z"
+    }
+  },
+  "sprint_info": {
+    "current_sprint": "2024-W49-VMA-Modernization",
+    "start_date": "2024-12-07T00:00:00Z",
+    "end_date": "2024-12-13T23:59:59Z",
+    "goal": "Modernize VMA integration with latest 3.3.0 features and best practices",
+    "tasks_planned": 4,
+    "tasks_completed": 0,
+    "estimated_hours": 31,
+    "actual_hours": 0
+  },
+  "backlog": [
+    "T-2024-12-07-005",
+    "T-2024-12-07-006",
+    "T-2024-12-07-007",
+    "T-2024-12-07-008"
+  ],
+  "completed_tasks": [],
+  "metrics": {
+    "task_completion_rate": 0.0,
+    "average_task_duration": 0.0,
+    "quality_score": 0.0,
+    "agent_utilization": 0.0,
+    "rework_percentage": 0.0
+  },
+  "quality_gates": {
+    "code_coverage_threshold": 90,
+    "performance_regression_threshold": 5,
+    "memory_leak_tolerance": 0,
+    "integration_test_success_rate": 100
+  }
+} 

@@ -31,6 +31,7 @@ void VoxelData::clear() {
     voxels_.clear();
 }
 
+// Grid-based access methods (int versions)
 void VoxelData::setVoxel(int x, int y, int z, bool active) {
     setVoxel(glm::ivec3(x, y, z), active);
 }
@@ -76,6 +77,38 @@ bool VoxelData::getVoxel(const glm::ivec3& pos) const {
         });
     
     return (it != voxels_.end()) && it->active;
+}
+
+// SaveManager compatibility methods (uint32_t versions)
+bool VoxelData::getVoxel(uint32_t x, uint32_t y, uint32_t z) const {
+    glm::vec3 pos(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+    auto it = std::find_if(voxels_.begin(), voxels_.end(),
+        [&pos](const Voxel& v) {
+            return v.position == pos && v.active;
+        });
+    return it != voxels_.end();
+}
+
+void VoxelData::setVoxel(uint32_t x, uint32_t y, uint32_t z, bool active) {
+    glm::vec3 pos(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+    auto it = std::find_if(voxels_.begin(), voxels_.end(),
+        [&pos](const Voxel& v) {
+            return v.position == pos;
+        });
+    
+    if (it != voxels_.end()) {
+        it->active = active;
+        if (!active) {
+            voxels_.erase(it);
+        }
+    } else if (active) {
+        Voxel newVoxel;
+        newVoxel.position = pos;
+        newVoxel.active = true;
+        newVoxel.color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f); // Default white
+        newVoxel.type = 0;
+        voxels_.push_back(newVoxel);
+    }
 }
 
 std::vector<Voxel> VoxelData::getActiveVoxels() const {

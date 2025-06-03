@@ -2,7 +2,7 @@
 <Project>
   <ProjectOutputs>
     <ProjectOutput>
-      <FullPath>C:\cpp-vulkan-hip-engine\build_minimal\x64\Release\ZERO_CHECK</FullPath>
+      <FullPath>C:\Dev\3DGameOfLife-Vulkan-Edition\build_minimal\x64\Release\ZERO_CHECK</FullPath>
     </ProjectOutput>
   </ProjectOutputs>
   <ContentFiles />

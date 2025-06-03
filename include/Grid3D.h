@@ -6,6 +6,7 @@
 #include <memory>
 #include "GameRules.h"
 #include "PatternManager.h"
+#include "VulkanError.h"
 #include <vk_mem_alloc.h>
 #include <glm/glm.hpp>
 #include <string>
@@ -36,6 +37,7 @@ struct LODLevel {
     VmaAllocation memory;
 };
 
+// Forward declarations
 class VulkanEngine;
 
 enum class RuleSet {
@@ -65,6 +67,12 @@ public:
     // Rule set management
     void setRuleSet(RuleSet ruleSet);
     RuleSet getCurrentRuleSet() const { return currentRuleSet; }
+    void setRules(const GameRules& rules);
+    const GameRules& getRules() const { return rules_; }
+    
+    // Boundary management
+    void setBoundaryType(GameRules::BoundaryType type);
+    GameRules::BoundaryType getBoundaryType() const { return boundaryType; }
     
     // Pattern management
     bool loadPattern(const std::string& filename);
@@ -105,8 +113,9 @@ private:
     uint64_t population;
     bool needsStateSync;
     
-    // Rule set
+    // Rule set and boundary
     RuleSet currentRuleSet;
+    GameRules rules_;
     GameRules::BoundaryType boundaryType;
     
     // Vulkan resources
@@ -130,6 +139,8 @@ private:
     uint32_t getIndex(uint32_t x, uint32_t y, uint32_t z) const;
     void updatePopulation();
     bool isInitialized;
+    bool isValidPosition(uint32_t x, uint32_t y, uint32_t z) const;
+    bool getWrappedCell(int x, int y, int z) const;
     
     // Compute resources
     VkCommandBuffer computeCommandBuffer;
@@ -138,6 +149,7 @@ private:
     VkPipeline populationPipeline;
     VkBuffer populationBuffer;
     VmaAllocation populationMemory;
+    std::vector<uint8_t> computeShaderCode;
     
     void recordComputeCommands();
     
