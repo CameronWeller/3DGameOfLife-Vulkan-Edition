@@ -179,7 +179,7 @@ function(create_vulkan_image_component)
     target_link_libraries(vulkan_image PUBLIC
         core_engine
         memory_management
-        ${Vulkan_LIBRARIES}
+        Vulkan::Vulkan
     )
 endfunction()
 
@@ -201,7 +201,7 @@ function(create_vulkan_rendering_component)
         vulkan_resources
         vulkan_image
         rendering
-        ${Vulkan_LIBRARIES}
+        Vulkan::Vulkan
     )
 endfunction()
 
@@ -219,7 +219,7 @@ function(create_vulkan_compute_component)
     target_link_libraries(vulkan_compute PUBLIC
         core_engine
         game_logic
-        ${Vulkan_LIBRARIES}
+        Vulkan::Vulkan
     )
 endfunction()
 
@@ -236,36 +236,12 @@ function(create_vulkan_ui_component)
     
     target_link_libraries(vulkan_ui PUBLIC
         core_engine
-        ${Vulkan_LIBRARIES}
+        Vulkan::Vulkan
         imgui
     )
 endfunction()
 
 # Update create_all_components function
-function(create_all_components)
-    create_core_engine_component()
-    create_memory_component()
-    create_rendering_component()
-    create_game_logic_component()
-    create_vulkan_resources_component()
-    create_vulkan_image_component()
-    create_vulkan_rendering_component()
-    create_vulkan_compute_component()
-    create_vulkan_ui_component()
-endfunction()
-
-function(create_vulkan_ui_component)
-    set(VULKAN_UI_SOURCES
-        src/vulkan/ui/VulkanImGui.cpp
-        src/ui/MenuSystem.cpp
-    )
-    
-    add_library(vulkan_ui STATIC ${VULKAN_UI_SOURCES})
-    target_include_directories(vulkan_ui PUBLIC ${CMAKE_SOURCE_DIR}/include)
-    target_link_libraries(vulkan_ui PUBLIC imgui::imgui glfw)
-endfunction()
-
-# Function to create all components
 function(create_all_components)
     create_utilities_component()
     create_core_engine_component()
@@ -275,6 +251,7 @@ function(create_all_components)
     create_camera_component()
     create_ui_component()
     create_vulkan_resources_component()
+    create_vulkan_image_component()
     create_vulkan_rendering_component()
     create_vulkan_compute_component()
     create_vulkan_ui_component()
@@ -295,6 +272,7 @@ function(create_unified_library)
         vulkan_rendering
         vulkan_compute
         vulkan_ui
+        project_dependencies
     )
     
     apply_common_settings(${PROJECT_NAME}_lib)

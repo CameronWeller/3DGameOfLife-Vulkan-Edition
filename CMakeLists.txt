@@ -78,7 +78,7 @@ add_executable(minimal_3d_vulkan
 
 # Link only essential libraries for the self-contained target
 target_link_libraries(minimal_3d_vulkan PRIVATE
-    ${VULKAN_LIBRARIES}
+    Vulkan::Vulkan
     glfw
     glm::glm
 )
@@ -87,7 +87,6 @@ target_include_directories(minimal_3d_vulkan PRIVATE
     include
     include/vulkan
     include/vulkan/resources
-    ${VULKAN_INCLUDE_DIRS}
 )
 
 # Apply common settings to executables
