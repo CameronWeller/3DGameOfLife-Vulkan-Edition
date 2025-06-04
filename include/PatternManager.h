@@ -5,6 +5,7 @@
 #include <memory>
 #include <filesystem>
 #include <fstream>
+#include <ctime>
 #include <glm/glm.hpp>
 #include "Grid3D.h"
 #include "GameRules.h"
@@ -19,6 +20,7 @@ struct Pattern {
     uint32_t ruleSet;
     glm::uvec3 dimensions;
     std::vector<bool> data;
+    uint32_t boundaryType;
     
     // Metadata
     std::time_t creationTime;
@@ -28,13 +30,29 @@ struct Pattern {
     std::vector<std::string> tags;
 
     Pattern(const std::string& n, const std::string& desc,
+            uint32_t w, uint32_t h, uint32_t d,
+            const std::vector<bool>& c,
+            uint32_t rs, uint32_t bt,
+            uint32_t pop = 0, uint32_t gen = 0)
+        : name(n), description(desc), 
+          ruleSet(rs), dimensions(w, h, d), data(c), boundaryType(bt),
+          population(pop), generation(gen) {
+        creationTime = std::time(nullptr);
+        modificationTime = creationTime;
+    }
+    
+    // Alternative constructor for backward compatibility
+    Pattern(const std::string& n, const std::string& desc,
             const std::string& author, const std::string& version,
             uint32_t ruleSet, const glm::uvec3& dims,
             const std::vector<bool>& c,
             uint32_t pop = 0, uint32_t gen = 0)
         : name(n), description(desc), author(author), version(version),
-          ruleSet(ruleSet), dimensions(dims), data(c),
-          population(pop), generation(gen) {}
+          ruleSet(ruleSet), dimensions(dims), data(c), boundaryType(0),
+          population(pop), generation(gen) {
+        creationTime = std::time(nullptr);
+        modificationTime = creationTime;
+    }
 };
 
 // Pattern file format version
@@ -47,6 +65,10 @@ struct PatternFileHeader {
     uint32_t height;
     uint32_t depth;
     uint32_t ruleSet;
+    uint32_t boundaryType;
+    uint32_t nameLength;
+    uint32_t descriptionLength;
+    uint32_t dataSize;
     char name[64];
     char description[256];
     char author[64];
