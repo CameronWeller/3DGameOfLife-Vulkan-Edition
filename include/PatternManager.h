@@ -67,16 +67,10 @@ std::string getPatternDirectory();
 std::vector<Pattern> getBuiltInPatterns();
 
 // Utility functions
-uint32_t getIndex(uint32_t x, uint32_t y, uint32_t z, uint32_t width, uint32_t height) const;
+uint32_t getIndex(uint32_t x, uint32_t y, uint32_t z, uint32_t width, uint32_t height);
 
-private:
-    std::filesystem::path patternsDirectory_;
-    std::vector<Pattern> builtInPatterns_;
-    
-    // Helper functions
-    bool validatePatternFile(const std::filesystem::path& path) const;
-    void loadBuiltInPatterns();
-    
-    // Utility functions
-    uint32_t getIndex(uint32_t x, uint32_t y, uint32_t z, uint32_t width, uint32_t height) const;
+// Internal helper functions
+bool validatePatternFile(const std::filesystem::path& path);
+void loadBuiltInPatterns();
+
 } // namespace PatternManager 

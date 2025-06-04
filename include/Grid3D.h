@@ -40,13 +40,6 @@ struct LODLevel {
 // Forward declarations
 class VulkanEngine;
 
-enum class RuleSet {
-    CLASSIC,    // Classic 3D Game of Life
-    HIGHLIFE,   // HighLife 3D
-    DAY_NIGHT,  // Day & Night 3D
-    CUSTOM      // Custom 3D rules
-};
-
 class Grid3D {
 public:
     Grid3D(uint32_t width, uint32_t height, uint32_t depth);
@@ -65,10 +58,10 @@ public:
     void randomize(float density = 0.5f);
     
     // Rule set management
-    void setRuleSet(RuleSet ruleSet);
-    RuleSet getCurrentRuleSet() const { return currentRuleSet; }
-    void setRules(const GameRules& rules);
-    const GameRules& getRules() const { return rules_; }
+    void setRuleSet(const GameRules::RuleSet& ruleSet);
+    const GameRules::RuleSet& getCurrentRuleSet() const { return currentRuleSet; }
+    void setRules(const GameRules::RuleSet& rules);
+    const GameRules::RuleSet& getRules() const { return rules_; }
     
     // Boundary management
     void setBoundaryType(GameRules::BoundaryType type);
@@ -114,8 +107,8 @@ private:
     bool needsStateSync;
     
     // Rule set and boundary
-    RuleSet currentRuleSet;
-    GameRules rules_;
+    GameRules::RuleSet currentRuleSet;
+    GameRules::RuleSet rules_;
     GameRules::BoundaryType boundaryType;
     
     // Vulkan resources
