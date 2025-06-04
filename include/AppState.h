@@ -19,22 +19,16 @@ enum class State {
 struct SaveInfo {
     std::string filename;
     std::string displayName;
-    std::string name;  // For compatibility with SaveManager
-    std::string description;
-    std::string author;
-    std::string version;
-    std::chrono::system_clock::time_point lastModified;
-    size_t voxelCount;
-    std::string thumbnailPath;  // Optional: path to save preview image
-    std::chrono::system_clock::time_point timestamp;
-    size_t size;
-    bool created;
-    
-    // Additional members required by SaveManager
     std::string name;
     std::string description;
     std::string author;
     std::string version;
+    std::chrono::system_clock::time_point lastModified;
+    std::chrono::system_clock::time_point creationTime;  // Renamed from timestamp
+    size_t voxelCount;
+    size_t size;
+    std::string thumbnailPath;  // Optional: path to save preview image
+    bool created;
 };
 
 struct MenuState {

@@ -18,6 +18,12 @@ if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
 endif()
 
+# Ensure vcpkg packages are found - explicit path for local vcpkg installation
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed")
+    list(APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows")
+    message(STATUS "Added vcpkg packages to CMAKE_PREFIX_PATH: ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows")
+endif()
+
 # Include modular configuration
 include(Options)           # Build options and compiler settings
 include(Dependencies)      # External dependencies
