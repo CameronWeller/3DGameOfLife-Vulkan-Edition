@@ -1212,7 +1212,7 @@ VulkanMemoryManager::BufferAllocation VulkanMemoryManager::createUniformBuffer(
         allocInfo.flags |= VMA_ALLOCATION_CREATE_STRATEGY_MIN_MEMORY_BIT; // Optimize for memory efficiency
         // For small static uniform buffers, we still want host access for initial upload
         if (size <= 64 * 1024) { // 64KB threshold
-            allocInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
         }
     }
     
