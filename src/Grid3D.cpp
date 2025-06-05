@@ -1,10 +1,11 @@
 #include "Grid3D.h"
 #include "VulkanEngine.h"
-#include "VulkanError.h"
+#include "VulkanMemoryManager.h"
+#include "PatternManager.h"
 #include <stdexcept>
 #include <algorithm>
-#include <cstring>
 #include <random>
+#include <cstring>
 
 namespace VulkanHIP {
 
@@ -229,7 +230,15 @@ void Grid3D::createComputeResources() {
     VkCommandPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    poolInfo.queueFamilyIndex = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getComputeQueueFamilyIndex();
+    
+    // Fix: Use the correct way to get compute queue family index
+    auto queueFamilies = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getQueueFamilyIndices();
+    if (queueFamilies.hasCompute()) {
+        poolInfo.queueFamilyIndex = queueFamilies.computeFamily.value();
+    } else {
+        // Fallback to graphics queue family if no dedicated compute queue
+        poolInfo.queueFamilyIndex = queueFamilies.graphicsFamily.value();
+    }
     
     VkCommandPool computeCommandPool;
     VK_CHECK(vkCreateCommandPool(device, &poolInfo, nullptr, &computeCommandPool));
@@ -396,15 +405,15 @@ void Grid3D::setCell(uint32_t x, uint32_t y, uint32_t z, bool state) {
         
         VkBuffer stagingBuffer;
         VmaAllocation stagingMemory;
-        VK_CHECK(vmaCreateBuffer(memoryManager.getVmaAllocator(), &bufferInfo, &allocInfo,
+        VK_CHECK(vmaCreateBuffer(memoryManager.getAllocator(), &bufferInfo, &allocInfo,
             &stagingBuffer, &stagingMemory, nullptr));
         
         // Copy data to staging buffer
         void* data;
-        vmaMapMemory(memoryManager.getVmaAllocator(), stagingMemory, &data);
+        vmaMapMemory(memoryManager.getAllocator(), stagingMemory, &data);
         uint32_t value = state ? 1 : 0;
         memcpy(data, &value, sizeof(uint32_t));
-        vmaUnmapMemory(memoryManager.getVmaAllocator(), stagingMemory);
+        vmaUnmapMemory(memoryManager.getAllocator(), stagingMemory);
         
         // Copy to device buffer
         VkCommandBuffer commandBuffer = VulkanHIP::VulkanEngine::getInstance()->beginSingleTimeCommands();
@@ -419,7 +428,7 @@ void Grid3D::setCell(uint32_t x, uint32_t y, uint32_t z, bool state) {
         VulkanHIP::VulkanEngine::getInstance()->endSingleTimeCommands(commandBuffer);
         
         // Cleanup staging buffer
-        vmaDestroyBuffer(memoryManager.getVmaAllocator(), stagingBuffer, stagingMemory);
+        vmaDestroyBuffer(memoryManager.getAllocator(), stagingBuffer, stagingMemory);
     }
 }
 
@@ -628,8 +637,8 @@ bool Grid3D::savePattern(const std::string& filename) const {
         "Saved pattern from simulation",
         width, height, depth,
         currentState,
-        static_cast<uint32_t>(currentRuleSet),
-        boundaryType
+        0, // ruleSet index - will need to map GameRules::RuleSet to uint32_t
+        static_cast<uint32_t>(boundaryType)
     );
     
     return PatternManager::savePattern(filename, pattern);
@@ -641,19 +650,19 @@ PatternManager::Pattern Grid3D::getCurrentPattern() const {
         "Current simulation state",
         width, height, depth,
         currentState,
-        static_cast<uint32_t>(currentRuleSet),
-        boundaryType
+        0, // ruleSet index - will need to map GameRules::RuleSet to uint32_t
+        static_cast<uint32_t>(boundaryType)
     );
 }
 
-void Grid3D::randomize() {
+void Grid3D::randomize(float density) {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_real_distribution<float> dis(0.0f, 1.0f);
     
     population = 0;
     for (uint32_t i = 0; i < currentState.size(); i++) {
-        bool state = dis(gen) < 0.2f; // 20% chance of being alive
+        bool state = dis(gen) < density; // Use provided density
         currentState[i] = state;
         if (state) population++;
     }
@@ -661,8 +670,8 @@ void Grid3D::randomize() {
     syncStateToGPU();
 }
 
-void Grid3D::setRules(const GameRules& rules) {
-    currentRuleSet = rules;
+void Grid3D::setRules(const GameRules::RuleSet& rules) {
+    rules_ = rules;
 }
 
 void Grid3D::createLODResources() {
@@ -701,7 +710,7 @@ void Grid3D::createLODResources() {
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
         allocInfo.flags = 0; // Device-local, no host access needed for textures
         
-        VK_CHECK(vmaCreateImage(memoryManager.getVmaAllocator(), &imageInfo, &allocInfo,
+        VK_CHECK(vmaCreateImage(memoryManager.getAllocator(), &imageInfo, &allocInfo,
             &level.image, &level.memory, nullptr));
         
         // Create image view
@@ -740,7 +749,7 @@ void Grid3D::createLODResources() {
                       VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
                       VMA_ALLOCATION_CREATE_MAPPED_BIT;
     
-    VK_CHECK(vmaCreateBuffer(memoryManager.getVmaAllocator(), &bufferInfo, &allocInfo,
+    VK_CHECK(vmaCreateBuffer(memoryManager.getAllocator(), &bufferInfo, &allocInfo,
         &lodBuffer, &lodMemory, nullptr));
     
     updateLODTextures();
@@ -755,13 +764,13 @@ void Grid3D::destroyLODResources() {
             vkDestroyImageView(device, level.imageView, nullptr);
         }
         if (level.image != VK_NULL_HANDLE) {
-            vmaDestroyImage(memoryManager.getVmaAllocator(), level.image, level.memory);
+            vmaDestroyImage(memoryManager.getAllocator(), level.image, level.memory);
         }
     }
     lodLevels.clear();
     
     if (lodBuffer != VK_NULL_HANDLE) {
-        vmaDestroyBuffer(memoryManager.getVmaAllocator(), lodBuffer, lodMemory);
+        vmaDestroyBuffer(memoryManager.getAllocator(), lodBuffer, lodMemory);
         lodBuffer = VK_NULL_HANDLE;
         lodMemory = VK_NULL_HANDLE;
     }
@@ -943,7 +952,7 @@ void Grid3D::updateLOD(const glm::vec3& cameraPos) {
     auto& memoryManager = VulkanHIP::VulkanEngine::getInstance()->getMemoryManager();
     
     void* data;
-    vmaMapMemory(memoryManager.getVmaAllocator(), lodMemory, &data);
+    vmaMapMemory(memoryManager.getAllocator(), lodMemory, &data);
     
     std::vector<float> lodData(width * height * depth);
     
@@ -959,15 +968,14 @@ void Grid3D::updateLOD(const glm::vec3& cameraPos) {
     }
     
     memcpy(data, lodData.data(), lodData.size() * sizeof(float));
-    vmaUnmapMemory(memoryManager.getVmaAllocator(), lodMemory);
+    vmaUnmapMemory(memoryManager.getAllocator(), lodMemory);
 }
 
 void Grid3D::updateFrustumPlanes(const glm::mat4& viewProj) {
     // Extract frustum planes from view-projection matrix
-    glm::vec4 planes[6];
     
     // Left plane
-    planes[0] = glm::vec4(
+    frustumPlanes[0] = glm::vec4(
         viewProj[0][3] + viewProj[0][0],
         viewProj[1][3] + viewProj[1][0],
         viewProj[2][3] + viewProj[2][0],
@@ -975,7 +983,7 @@ void Grid3D::updateFrustumPlanes(const glm::mat4& viewProj) {
     );
     
     // Right plane
-    planes[1] = glm::vec4(
+    frustumPlanes[1] = glm::vec4(
         viewProj[0][3] - viewProj[0][0],
         viewProj[1][3] - viewProj[1][0],
         viewProj[2][3] - viewProj[2][0],
@@ -983,7 +991,7 @@ void Grid3D::updateFrustumPlanes(const glm::mat4& viewProj) {
     );
     
     // Bottom plane
-    planes[2] = glm::vec4(
+    frustumPlanes[2] = glm::vec4(
         viewProj[0][3] + viewProj[0][1],
         viewProj[1][3] + viewProj[1][1],
         viewProj[2][3] + viewProj[2][1],
@@ -991,7 +999,7 @@ void Grid3D::updateFrustumPlanes(const glm::mat4& viewProj) {
     );
     
     // Top plane
-    planes[3] = glm::vec4(
+    frustumPlanes[3] = glm::vec4(
         viewProj[0][3] - viewProj[0][1],
         viewProj[1][3] - viewProj[1][1],
         viewProj[2][3] - viewProj[2][1],
@@ -999,7 +1007,7 @@ void Grid3D::updateFrustumPlanes(const glm::mat4& viewProj) {
     );
     
     // Near plane
-    planes[4] = glm::vec4(
+    frustumPlanes[4] = glm::vec4(
         viewProj[0][3] + viewProj[0][2],
         viewProj[1][3] + viewProj[1][2],
         viewProj[2][3] + viewProj[2][2],
@@ -1007,7 +1015,7 @@ void Grid3D::updateFrustumPlanes(const glm::mat4& viewProj) {
     );
     
     // Far plane
-    planes[5] = glm::vec4(
+    frustumPlanes[5] = glm::vec4(
         viewProj[0][3] - viewProj[0][2],
         viewProj[1][3] - viewProj[1][2],
         viewProj[2][3] - viewProj[2][2],
@@ -1016,23 +1024,14 @@ void Grid3D::updateFrustumPlanes(const glm::mat4& viewProj) {
     
     // Normalize planes
     for (int i = 0; i < 6; i++) {
-        float length = glm::length(glm::vec3(planes[i]));
-        planes[i] /= length;
-    }
-    
-    // Update push constants
-    RenderPushConstants pushConstants;
-    pushConstants.viewProj = viewProj;
-    pushConstants.cameraPos = cameraPos;
-    pushConstants.voxelSize = voxelSize;
-    for (int i = 0; i < 6; i++) {
-        pushConstants.frustumPlanes[i] = planes[i];
+        float length = glm::length(glm::vec3(frustumPlanes[i]));
+        frustumPlanes[i] /= length;
     }
 }
 
 bool Grid3D::isVisible(const glm::vec3& position, float radius) const {
     for (int i = 0; i < 6; i++) {
-        if (glm::dot(glm::vec4(position, 1.0f), pushConstants.frustumPlanes[i]) + radius < 0.0f) {
+        if (glm::dot(glm::vec4(position, 1.0f), frustumPlanes[i]) + radius < 0.0f) {
             return false;
         }
     }
@@ -1055,7 +1054,7 @@ void Grid3D::recordComputeCommands() {
     pushConstants.height = height;
     pushConstants.depth = depth;
     pushConstants.time = 0.0f;  // Updated during update()
-    pushConstants.ruleSet = static_cast<uint32_t>(currentRuleSet);
+    pushConstants.ruleSet = 0; // Will map GameRules::RuleSet to uint32_t later
     
     vkCmdPushConstants(computeCommandBuffer, pipelineLayout,
         VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants), &pushConstants);
