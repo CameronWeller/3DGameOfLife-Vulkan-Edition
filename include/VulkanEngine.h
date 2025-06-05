@@ -39,6 +39,7 @@
 #include "vulkan/rendering/VoxelRenderer.h"
 #include "VulkanError.h"
 #include "VoxelData.h"
+#include "GameRules.h"
 
 namespace VulkanHIP {
 
@@ -222,35 +223,47 @@ private:
  */
 class VulkanEngine {
 public:
+    // Singleton pattern
     static VulkanEngine* getInstance() {
         static VulkanEngine instance;
         return &instance;
     }
 
+    // Main lifecycle
     void init();
     void run();
     void cleanup();
     void drawFrame();
 
-    // Rendering configuration setters
+    // Public getters for singleton access (needed by Grid3D and other components)
+    VulkanContext* getVulkanContext() const { return vulkanContext_.get(); }
+    VulkanMemoryManager& getMemoryManager() const { return *memoryManager_; }
+    WindowManager* getWindowManager() const { return windowManager_.get(); }
+    ShaderManager* getShaderManager() const { return shaderManager_.get(); }
+    
+    // Command buffer helpers (needed by Grid3D)
+    VkCommandBuffer beginSingleTimeCommands();
+    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
+    
+    // File reading utility (needed by shaders)
+    static std::vector<char> readFile(const std::string& filename);
+
+    // Rendering settings
     void setWireframeMode(bool enabled) { wireframeMode_ = enabled; }
     void setShowGrid(bool enabled) { showGrid_ = enabled; }
     void setTransparency(float transparency) { transparency_ = transparency; }
     void setRenderMode(int mode) { renderMode_ = mode; }
     void setCustomRules(int birthMin, int birthMax, int survivalMin, int survivalMax);
 
-    // Getters
+    // Vulkan accessors (for compatibility)
     VkInstance getVkInstance() const { return vulkanContext_->getVkInstance(); }
     VkDevice getDevice() const { return vulkanContext_->getDevice(); }
     VkPhysicalDevice getPhysicalDevice() const { return vulkanContext_->getPhysicalDevice(); }
     VkQueue getGraphicsQueue() const { return vulkanContext_->getGraphicsQueue(); }
     VkQueue getComputeQueue() const { return vulkanContext_->getComputeQueue(); }
     VkQueue getPresentQueue() const { return vulkanContext_->getPresentQueue(); }
-    
+
     // Component getters
-    VulkanContext* getVulkanContext() const { return vulkanContext_.get(); }
-    VulkanMemoryManager* getMemoryManager() const { return memoryManager_.get(); }
-    WindowManager* getWindowManager() const { return windowManager_.get(); }
     SaveManager* getSaveManager() const { return saveManager_.get(); }
     Camera* getCamera() const { return camera_.get(); }
     VulkanImageManager* getImageManager() const { return imageManager_.get(); }
@@ -260,23 +273,18 @@ public:
     VulkanFramebuffer* getFramebuffer() const { return framebuffer_.get(); }
     VulkanCompute* getCompute() const { return compute_.get(); }
     VulkanImGui* getImGui() const { return imGui_.get(); }
-    ShaderManager* getShaderManager() const { return shaderManager_.get(); }
     
     // Grid and simulation getters
     uint32_t getGridWidth() const { return grid_ ? grid_->getWidth() : 0; }
     uint32_t getGridHeight() const { return grid_ ? grid_->getHeight() : 0; }
     uint32_t getGridDepth() const { return grid_ ? grid_->getDepth() : 0; }
-    RuleSet getRuleSet() const { return grid_ ? grid_->getCurrentRuleSet() : RuleSet::CLASSIC; }
+    GameRules::RuleSet getRuleSet() const { return grid_ ? grid_->getCurrentRuleSet() : GameRules::RULE_2333; }
     
     // Simulation control methods
     void setGridSize(uint32_t size) { if (grid_) grid_->resize(size, size, size); }
     void setVoxelSize(float size) { voxelSize_ = size; }
-    void setRuleSet(RuleSet ruleSet) { if (grid_) grid_->setRuleSet(ruleSet); }
+    void setRuleSet(const GameRules::RuleSet& ruleSet) { if (grid_) grid_->setRuleSet(ruleSet); }
     void resetSimulation();
-
-    // Command buffer utilities
-    VkCommandBuffer beginSingleTimeCommands();
-    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
 
     // Memory management utilities
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);

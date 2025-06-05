@@ -181,6 +181,10 @@ private:
     VkBuffer lodBuffer;
     VmaAllocation lodMemory;
     
+    // Rendering state
+    float voxelSize = 1.0f;
+    glm::vec4 frustumPlanes[6];
+    
     // LOD methods
     void createLODResources();
     void destroyLODResources();

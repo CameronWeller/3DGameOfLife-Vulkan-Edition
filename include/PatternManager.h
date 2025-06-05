@@ -19,7 +19,9 @@ struct Pattern {
     std::string version;
     uint32_t ruleSet;
     glm::uvec3 dimensions;
+    uint32_t width, height, depth;  // Individual dimension fields for compatibility
     std::vector<bool> data;
+    std::vector<bool> cells;  // Alias for data for compatibility
     uint32_t boundaryType;
     
     // Metadata
@@ -35,7 +37,8 @@ struct Pattern {
             uint32_t rs, uint32_t bt,
             uint32_t pop = 0, uint32_t gen = 0)
         : name(n), description(desc), 
-          ruleSet(rs), dimensions(w, h, d), data(c), boundaryType(bt),
+          ruleSet(rs), dimensions(w, h, d), width(w), height(h), depth(d),
+          data(c), cells(c), boundaryType(bt),
           population(pop), generation(gen) {
         creationTime = std::time(nullptr);
         modificationTime = creationTime;
@@ -48,7 +51,9 @@ struct Pattern {
             const std::vector<bool>& c,
             uint32_t pop = 0, uint32_t gen = 0)
         : name(n), description(desc), author(author), version(version),
-          ruleSet(ruleSet), dimensions(dims), data(c), boundaryType(0),
+          ruleSet(ruleSet), dimensions(dims), 
+          width(dims.x), height(dims.y), depth(dims.z),
+          data(c), cells(c), boundaryType(0),
           population(pop), generation(gen) {
         creationTime = std::time(nullptr);
         modificationTime = creationTime;

@@ -153,8 +153,8 @@ std::vector<Pattern> getBuiltInPatterns() {
             "A simple 3D glider pattern that moves diagonally",
             5, 5, 5,
             cells,
-            static_cast<uint32_t>(GameRules::RuleSet::CLASSIC),
-            0  // boundary type
+            0,  // Use index 0 for RULE_5766
+            0   // boundary type
         );
     }
     
@@ -175,8 +175,8 @@ std::vector<Pattern> getBuiltInPatterns() {
             "A stable 2x2x2 block pattern",
             3, 3, 3,
             cells,
-            static_cast<uint32_t>(GameRules::RuleSet::CLASSIC),
-            0  // boundary type
+            0,  // Use index 0 for RULE_5766
+            0   // boundary type
         );
     }
 
@@ -199,8 +199,8 @@ std::vector<Pattern> getBuiltInPatterns() {
             "A 3D oscillating pattern that pulses between states",
             7, 7, 7,
             cells,
-            static_cast<uint32_t>(GameRules::RuleSet::HIGHLIFE),
-            0  // boundary type
+            6,  // Use index 6 for RULE_4556 (oscillator)
+            0   // boundary type
         );
     }
 
@@ -226,8 +226,8 @@ std::vector<Pattern> getBuiltInPatterns() {
             "A complex 3D spaceship pattern that moves through space",
             6, 6, 6,
             cells,
-            static_cast<uint32_t>(GameRules::RuleSet::DAY_NIGHT),
-            0  // boundary type
+            2,  // Use index 2 for RULE_2333 (growth)
+            0   // boundary type
         );
     }
 
@@ -255,8 +255,8 @@ std::vector<Pattern> getBuiltInPatterns() {
             "A growing crystal-like pattern that expands outward",
             8, 8, 8,
             cells,
-            static_cast<uint32_t>(GameRules::RuleSet::CUSTOM),
-            0  // boundary type
+            3,  // Use index 3 for RULE_3444 (stable growth)
+            0   // boundary type
         );
     }
 
@@ -277,8 +277,8 @@ std::vector<Pattern> getBuiltInPatterns() {
             "A random pattern that often leads to interesting emergent behavior",
             10, 10, 10,
             cells,
-            static_cast<uint32_t>(GameRules::RuleSet::CUSTOM),  // Using CUSTOM instead of RULE_5766
-            0  // boundary type
+            0,  // Use index 0 for RULE_5766 (classic)
+            0   // boundary type
         );
     }
     
