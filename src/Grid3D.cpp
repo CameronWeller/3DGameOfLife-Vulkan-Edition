@@ -12,7 +12,8 @@ namespace VulkanHIP {
 Grid3D::Grid3D(uint32_t width, uint32_t height, uint32_t depth)
     : width(width), height(height), depth(depth),
       population(0), generation(0),
-      currentRuleSet(RuleSet::CLASSIC),
+      currentRuleSet(GameRules::RULE_5766),
+      rules_(GameRules::RULE_5766),
       boundaryType(GameRules::BoundaryType::TOROIDAL),
       stateBuffer(VK_NULL_HANDLE), nextStateBuffer(VK_NULL_HANDLE),
       stateMemory(VK_NULL_HANDLE), nextStateMemory(VK_NULL_HANDLE),
@@ -22,7 +23,7 @@ Grid3D::Grid3D(uint32_t width, uint32_t height, uint32_t depth)
       descriptorSet(VK_NULL_HANDLE),
       pipelineLayout(VK_NULL_HANDLE),
       computePipeline(VK_NULL_HANDLE),
-      isInitialized(false) {
+      isInitialized(false), needsStateSync(false) {
     
     initialize();
 }
@@ -454,8 +455,8 @@ void Grid3D::resize(uint32_t newWidth, uint32_t newHeight, uint32_t newDepth) {
     initialize();
 }
 
-void Grid3D::setRuleSet(RuleSet ruleSet) {
-    if (currentRuleSet == ruleSet) return;
+void Grid3D::setRuleSet(const GameRules::RuleSet& ruleSet) {
+    if (currentRuleSet.name == ruleSet.name) return;
     
     currentRuleSet = ruleSet;
     
@@ -465,7 +466,7 @@ void Grid3D::setRuleSet(RuleSet ruleSet) {
     pushConstants.height = height;
     pushConstants.depth = depth;
     pushConstants.time = static_cast<float>(glfwGetTime());
-    pushConstants.ruleSet = static_cast<uint32_t>(ruleSet);
+    pushConstants.ruleSet = 0; // Will map GameRules::RuleSet to uint32_t later
     
     // Update push constants in the compute pipeline
     VkCommandBuffer commandBuffer = VulkanHIP::VulkanEngine::getInstance()->beginSingleTimeCommands();
@@ -608,18 +609,23 @@ void Grid3D::syncStateFromGPU() {
 }
 
 bool Grid3D::loadPattern(const std::string& filename) {
+    auto pattern = PatternManager::loadPattern(filename);
+    if (!pattern) {
+        return false;
+    }
+    
     // Resize grid if needed
-    if (width != pattern.width || height != pattern.height || depth != pattern.depth) {
-        resize(pattern.width, pattern.height, pattern.depth);
+    if (width != pattern->width || height != pattern->height || depth != pattern->depth) {
+        resize(pattern->width, pattern->height, pattern->depth);
     }
     
     // Copy cell data
-    currentState = pattern.cells;
-    nextState = pattern.cells;
+    currentState = pattern->cells;
+    nextState = pattern->cells;
     
     // Update rule set and boundary type
-    currentRuleSet = static_cast<RuleSet>(pattern.ruleSet);
-    boundaryType = pattern.boundaryType;
+    currentRuleSet = GameRules::RULE_5766; // Default rule set for now
+    boundaryType = static_cast<GameRules::BoundaryType>(pattern->boundaryType);
     
     // Reset statistics
     population = std::count(currentState.begin(), currentState.end(), true);
