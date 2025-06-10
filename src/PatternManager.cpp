@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <random>
+#include <iostream>
 
 namespace PatternManager {
 
@@ -87,15 +88,22 @@ std::unique_ptr<Pattern> loadPattern(const std::string& filename) {
     }
     
     // Read strings
-    std::string name(header.nameLength, '\0');
-    std::string description(header.descriptionLength, '\0');
+    std::string name;
+    name.resize(header.nameLength);
+    std::string description;
+    description.resize(header.descriptionLength);
     
-    file.read(&name[0], header.nameLength);
-    file.read(&description[0], header.descriptionLength);
+    file.read(name.data(), header.nameLength);
+    file.read(description.data(), header.descriptionLength);
     
     // Read cell data
     std::vector<bool> cells(header.dataSize);
-    file.read(reinterpret_cast<char*>(cells.data()), header.dataSize);
+    // Note: std::vector<bool> doesn't have data() method, need to read differently
+    std::vector<char> tempData(header.dataSize);
+    file.read(tempData.data(), header.dataSize);
+    for (size_t i = 0; i < header.dataSize; ++i) {
+        cells[i] = tempData[i] != 0;
+    }
     
     // Create pattern
     auto pattern = std::make_unique<Pattern>(
@@ -134,19 +142,19 @@ std::vector<Pattern> getBuiltInPatterns() {
     {
         std::vector<bool> cells(5 * 5 * 5, false);
         // Create a simple 3D glider pattern
-        cells[getIndex(2, 2, 2)] = true;
-        cells[getIndex(3, 2, 2)] = true;
-        cells[getIndex(4, 2, 2)] = true;
-        cells[getIndex(4, 3, 2)] = true;
-        cells[getIndex(3, 4, 2)] = true;
+        cells[getIndex(2, 2, 2, 5, 5)] = true;
+        cells[getIndex(3, 2, 2, 5, 5)] = true;
+        cells[getIndex(4, 2, 2, 5, 5)] = true;
+        cells[getIndex(4, 3, 2, 5, 5)] = true;
+        cells[getIndex(3, 4, 2, 5, 5)] = true;
         
         patterns.emplace_back(
             "3D Glider",
             "A simple 3D glider pattern that moves diagonally",
             5, 5, 5,
             cells,
-            static_cast<uint32_t>(RuleSet::CLASSIC),
-            GameRules::BoundaryType::TOROIDAL
+            0,  // Use index 0 for RULE_5766
+            0   // boundary type
         );
     }
     
@@ -157,7 +165,7 @@ std::vector<Pattern> getBuiltInPatterns() {
         for (int z = 0; z < 2; z++) {
             for (int y = 0; y < 2; y++) {
                 for (int x = 0; x < 2; x++) {
-                    cells[getIndex(x, y, z)] = true;
+                    cells[getIndex(x, y, z, 3, 3)] = true;
                 }
             }
         }
@@ -167,8 +175,8 @@ std::vector<Pattern> getBuiltInPatterns() {
             "A stable 2x2x2 block pattern",
             3, 3, 3,
             cells,
-            static_cast<uint32_t>(RuleSet::CLASSIC),
-            GameRules::BoundaryType::TOROIDAL
+            0,  // Use index 0 for RULE_5766
+            0   // boundary type
         );
     }
 
@@ -180,7 +188,7 @@ std::vector<Pattern> getBuiltInPatterns() {
             for (int y = 2; y < 5; y++) {
                 for (int x = 2; x < 5; x++) {
                     if ((x == 2 || x == 4) && (y == 2 || y == 4) && (z == 2 || z == 4)) {
-                        cells[getIndex(x, y, z)] = true;
+                        cells[getIndex(x, y, z, 7, 7)] = true;
                     }
                 }
             }
@@ -191,8 +199,8 @@ std::vector<Pattern> getBuiltInPatterns() {
             "A 3D oscillating pattern that pulses between states",
             7, 7, 7,
             cells,
-            static_cast<uint32_t>(RuleSet::HIGHLIFE),
-            GameRules::BoundaryType::TOROIDAL
+            6,  // Use index 6 for RULE_4556 (oscillator)
+            0   // boundary type
         );
     }
 
@@ -201,25 +209,25 @@ std::vector<Pattern> getBuiltInPatterns() {
         std::vector<bool> cells(6 * 6 * 6, false);
         // Create a 3D spaceship pattern
         // Core
-        cells[getIndex(2, 2, 2)] = true;
-        cells[getIndex(3, 2, 2)] = true;
-        cells[getIndex(2, 3, 2)] = true;
-        cells[getIndex(3, 3, 2)] = true;
+        cells[getIndex(2, 2, 2, 6, 6)] = true;
+        cells[getIndex(3, 2, 2, 6, 6)] = true;
+        cells[getIndex(2, 3, 2, 6, 6)] = true;
+        cells[getIndex(3, 3, 2, 6, 6)] = true;
         // Wings
-        cells[getIndex(1, 2, 3)] = true;
-        cells[getIndex(4, 2, 3)] = true;
-        cells[getIndex(2, 1, 3)] = true;
-        cells[getIndex(3, 1, 3)] = true;
-        cells[getIndex(2, 4, 3)] = true;
-        cells[getIndex(3, 4, 3)] = true;
+        cells[getIndex(1, 2, 3, 6, 6)] = true;
+        cells[getIndex(4, 2, 3, 6, 6)] = true;
+        cells[getIndex(2, 1, 3, 6, 6)] = true;
+        cells[getIndex(3, 1, 3, 6, 6)] = true;
+        cells[getIndex(2, 4, 3, 6, 6)] = true;
+        cells[getIndex(3, 4, 3, 6, 6)] = true;
         
         patterns.emplace_back(
             "3D Spaceship",
             "A complex 3D spaceship pattern that moves through space",
             6, 6, 6,
             cells,
-            static_cast<uint32_t>(RuleSet::DAY_NIGHT),
-            GameRules::BoundaryType::TOROIDAL
+            2,  // Use index 2 for RULE_2333 (growth)
+            0   // boundary type
         );
     }
 
@@ -230,25 +238,25 @@ std::vector<Pattern> getBuiltInPatterns() {
         for (int z = 3; z < 5; z++) {
             for (int y = 3; y < 5; y++) {
                 for (int x = 3; x < 5; x++) {
-                    cells[getIndex(x, y, z)] = true;
+                    cells[getIndex(x, y, z, 8, 8)] = true;
                 }
             }
         }
         // Add crystal branches
-        cells[getIndex(2, 3, 3)] = true;
-        cells[getIndex(5, 3, 3)] = true;
-        cells[getIndex(3, 2, 3)] = true;
-        cells[getIndex(3, 5, 3)] = true;
-        cells[getIndex(3, 3, 2)] = true;
-        cells[getIndex(3, 3, 5)] = true;
+        cells[getIndex(2, 3, 3, 8, 8)] = true;
+        cells[getIndex(5, 3, 3, 8, 8)] = true;
+        cells[getIndex(3, 2, 3, 8, 8)] = true;
+        cells[getIndex(3, 5, 3, 8, 8)] = true;
+        cells[getIndex(3, 3, 2, 8, 8)] = true;
+        cells[getIndex(3, 3, 5, 8, 8)] = true;
         
         patterns.emplace_back(
             "3D Crystal",
             "A growing crystal-like pattern that expands outward",
             8, 8, 8,
             cells,
-            static_cast<uint32_t>(RuleSet::CUSTOM),
-            GameRules::BoundaryType::TOROIDAL
+            3,  // Use index 3 for RULE_3444 (stable growth)
+            0   // boundary type
         );
     }
 
@@ -269,15 +277,15 @@ std::vector<Pattern> getBuiltInPatterns() {
             "A random pattern that often leads to interesting emergent behavior",
             10, 10, 10,
             cells,
-            GameRules::RULE_5766,
-            GameRules::BoundaryType::TOROIDAL
+            0,  // Use index 0 for RULE_5766 (classic)
+            0   // boundary type
         );
     }
     
     return patterns;
 }
 
-uint32_t getIndex(uint32_t x, uint32_t y, uint32_t z, uint32_t width, uint32_t height) const {
+uint32_t getIndex(uint32_t x, uint32_t y, uint32_t z, uint32_t width, uint32_t height) {
     return z * width * height + y * width + x;
 }
 

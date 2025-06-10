@@ -4,7 +4,7 @@
 # Find required packages
 find_package(Vulkan REQUIRED)
 find_package(HIP QUIET)  # Make HIP optional
-find_package(glfw3 REQUIRED)
+find_package(glfw3 CONFIG REQUIRED)
 find_package(glm REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
@@ -60,8 +60,6 @@ set(PROJECT_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${Vulkan_INCLUDE_DIRS}
-    ${GLFW_INCLUDE_DIRS}
-    ${GLM_INCLUDE_DIRS}
 )
 
 # Function to apply common settings to targets

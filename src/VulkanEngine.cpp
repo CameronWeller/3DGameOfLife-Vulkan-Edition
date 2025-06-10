@@ -4,6 +4,7 @@
 #include <thread>
 #include <chrono>
 #include <memory>
+#include <fstream>
 #include <GLFW/glfw3.h>
 
 // Fix the include paths
@@ -19,6 +20,7 @@
 #include "vulkan/rendering/VoxelRenderer.h"
 #include "vulkan/resources/VulkanFramebuffer.h"
 #include "vulkan/ui/VulkanImGui.h"
+#include "vulkan/resources/ShaderManager.h"
 
 namespace VulkanHIP {
 
@@ -299,6 +301,76 @@ void VulkanEngine::saveImageToFile(const std::string& filename) {
     } catch (const std::exception& e) {
         std::cerr << "Failed to save image to file: " << e.what() << std::endl;
     }
+}
+
+VkCommandBuffer VulkanEngine::beginSingleTimeCommands() {
+    if (!vulkanContext_ || !memoryManager_) {
+        throw std::runtime_error("Vulkan components not initialized");
+    }
+    
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = memoryManager_->getCommandPool();
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    if (vkAllocateCommandBuffers(vulkanContext_->getDevice(), &allocInfo, &commandBuffer) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate command buffer!");
+    }
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to begin command buffer!");
+    }
+
+    return commandBuffer;
+}
+
+void VulkanEngine::endSingleTimeCommands(VkCommandBuffer commandBuffer) {
+    if (!vulkanContext_ || !memoryManager_) {
+        throw std::runtime_error("Vulkan components not initialized");
+    }
+    
+    if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to end command buffer!");
+    }
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    VkQueue graphicsQueue = vulkanContext_->getGraphicsQueue();
+    if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to submit command buffer!");
+    }
+    
+    if (vkQueueWaitIdle(graphicsQueue) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to wait for queue idle!");
+    }
+
+    vkFreeCommandBuffers(vulkanContext_->getDevice(), memoryManager_->getCommandPool(), 1, &commandBuffer);
+}
+
+std::vector<char> VulkanEngine::readFile(const std::string& filename) {
+    std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+    if (!file.is_open()) {
+        throw std::runtime_error("Failed to open file: " + filename);
+    }
+
+    size_t fileSize = static_cast<size_t>(file.tellg());
+    std::vector<char> buffer(fileSize);
+
+    file.seekg(0);
+    file.read(buffer.data(), fileSize);
+    file.close();
+
+    return buffer;
 }
 
 } // namespace VulkanHIP
