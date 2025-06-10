@@ -95,29 +95,58 @@ VulkanMemoryManager::BufferAllocation VulkanMemoryManager::createBuffer(
     allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
     allocInfo.flags = 0;
     
-    // Determine allocation flags based on buffer usage
+    // Determine allocation flags based on buffer usage with advanced VMA 3.3.0 patterns
     if (usage & (VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT)) {
         if (usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT) {
             // Dynamic buffer that needs CPU->GPU transfers
             allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
             allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT;
+            
+            // Use MIN_TIME strategy for frequently updated buffers
+            allocInfo.flags |= VMA_ALLOCATION_CREATE_STRATEGY_MIN_TIME_BIT;
+        } else {
+            // Static buffer - prefer device local memory with MIN_MEMORY strategy
+            allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+            allocInfo.flags |= VMA_ALLOCATION_CREATE_STRATEGY_MIN_MEMORY_BIT;
         }
     } else if (usage & VK_BUFFER_USAGE_TRANSFER_SRC_BIT) {
-        // Staging buffer
+        // Staging buffer - optimize for sequential host writes
         allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
         allocInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_STRATEGY_MIN_TIME_BIT; // Fast allocation for temporary buffers
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
     } else if (usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT) {
-        // Readback buffer
+        // Readback buffer - optimize for random host access
         allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
         allocInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
-    }
-    
-    // Add priority for large allocations or render targets
-    if (size > 16 * 1024 * 1024) { // 16MB threshold
-        allocInfo.priority = 1.0f;
-        if (usage & (VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)) {
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_STRATEGY_MIN_TIME_BIT;
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+    } else if (usage & (VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)) {
+        // Compute storage buffers - prefer device local with dedicated memory for large buffers
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_STRATEGY_MIN_MEMORY_BIT;
+        
+        if (size > 64 * 1024 * 1024) { // 64MB threshold for dedicated memory
             allocInfo.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
         }
+    }
+    
+    // Add budget-aware allocation for large buffers (requires VK_EXT_memory_budget)
+    if (size > 32 * 1024 * 1024) { // 32MB threshold
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
+        allocInfo.priority = 1.0f; // High priority for large allocations
+    } else if (size > 4 * 1024 * 1024) { // 4MB threshold
+        allocInfo.priority = 0.75f; // Medium-high priority
+    } else if (usage & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT) {
+        allocInfo.priority = 0.9f; // High priority for uniform buffers (frequently accessed)
+    } else {
+        allocInfo.priority = 0.5f; // Default priority
+    }
+    
+    // For render target or frequently accessed buffers, prefer dedicated memory
+    if (usage & (VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)) {
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+        allocInfo.priority = 1.0f;
     }
 
     if (vmaCreateBuffer(allocator_, &bufferInfo, &allocInfo, 
@@ -1068,13 +1097,25 @@ VulkanMemoryManager::BufferAllocation VulkanMemoryManager::createHostVisibleBuff
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VmaAllocationCreateInfo allocInfo{};
-    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST; // Prefer host for host-visible buffers
     allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
     
     if (sequentialWrite) {
         allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_STRATEGY_MIN_TIME_BIT; // Fast allocation
     } else {
         allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_STRATEGY_MIN_TIME_BIT; // Fast allocation for random access
+    }
+    
+    // Set priority based on usage and size
+    if (usage & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT) {
+        allocInfo.priority = 0.9f; // High priority for uniform buffers
+    } else if (size > 4 * 1024 * 1024) { // 4MB threshold
+        allocInfo.priority = 0.75f; // Medium-high priority for large buffers
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
+    } else {
+        allocInfo.priority = 0.6f; // Medium priority for other host-visible buffers
     }
 
     BufferAllocation allocation{};
@@ -1102,10 +1143,26 @@ VulkanMemoryManager::BufferAllocation VulkanMemoryManager::createDeviceLocalBuff
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VmaAllocationCreateInfo allocInfo{};
-    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-    allocInfo.flags = 0;
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE; // Prefer device local memory
+    allocInfo.flags = VMA_ALLOCATION_CREATE_STRATEGY_MIN_MEMORY_BIT; // Optimize for memory efficiency
     
-    if (dedicatedMemory || size > 16 * 1024 * 1024) {
+    if (dedicatedMemory || size > 64 * 1024 * 1024) { // 64MB threshold
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+        allocInfo.priority = 1.0f; // Highest priority for dedicated memory
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT; // Budget-aware for large allocations
+    } else if (size > 16 * 1024 * 1024) { // 16MB threshold  
+        allocInfo.priority = 0.85f; // High priority for large buffers
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
+    } else if (usage & (VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)) {
+        allocInfo.priority = 0.8f; // High priority for compute storage
+    } else if (usage & (VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT)) {
+        allocInfo.priority = 0.75f; // High priority for vertex/index data
+    } else {
+        allocInfo.priority = 0.5f; // Default priority
+    }
+    
+    // Special handling for render targets
+    if (usage & (VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)) {
         allocInfo.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
         allocInfo.priority = 1.0f;
     }
@@ -1140,13 +1197,28 @@ VulkanMemoryManager::BufferAllocation VulkanMemoryManager::createUniformBuffer(
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VmaAllocationCreateInfo allocInfo{};
-    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO; // Let VMA decide host vs device based on usage
     allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    allocInfo.priority = 0.9f; // High priority for uniform buffers (frequently accessed)
     
     if (dynamic) {
-        // For dynamic uniform buffers, allow transfer fallback
+        // For dynamic uniform buffers, allow transfer fallback and optimize for frequent updates
         allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT;
         allocInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_STRATEGY_MIN_TIME_BIT; // Fast allocation for frequent updates
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST; // Prefer host for dynamic access
+    } else {
+        // Static uniform buffers can use device memory for better performance
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_STRATEGY_MIN_MEMORY_BIT; // Optimize for memory efficiency
+        // For small static uniform buffers, we still want host access for initial upload
+        if (size <= 64 * 1024) { // 64KB threshold
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        }
+    }
+    
+    // Budget awareness for larger uniform buffers
+    if (size > 1024 * 1024) { // 1MB threshold
+        allocInfo.flags |= VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
     }
 
     BufferAllocation allocation{};
