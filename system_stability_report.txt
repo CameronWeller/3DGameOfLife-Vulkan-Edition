@@ -1,0 +1,1866 @@
+UX-Mirror System Stability & Security Test Report
+================================================
+Generated: 2025-06-09 22:45:03
+
+SECURITY TESTS:
+  ✅ Invalid hours (-1) correctly rejected
+  ✅ Invalid hours (0) correctly rejected
+  ✅ Invalid hours (25) correctly rejected
+  ✅ Invalid hours (100) correctly rejected
+  ✅ Invalid hours (-999) correctly rejected
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ✅ Malicious filename sanitized: ../../../etc/passwd → ///etc/passwd
+  ✅ Malicious filename sanitized: C:\Windows\System32\config\system → C\Windows\System32\config\system
+  ⚠️  Filename unchanged: /dev/null
+  ⚠️  Filename unchanged: con.txt
+  ⚠️  Filename unchanged: aux.txt
+  ⚠️  Filename unchanged: A
+  ⚠️  Filename unchanged: .txt
+
+STABILITY TESTS:
+  ⚠️  Memory concern: SharedPtr custom deleter using no-op lambda
+  ⚠️  Memory concern: Circular references between optimization loops
+  ⚠️  Memory concern: Callback lifetime management issues
+  ⚠️  Memory concern: Unbounded history vector growth
+  ⚠️  Memory concern: Command queue without size limits
+  ✅ Step counter overflow protection adequate
+  ✅ Fixed: Added mutex protection for SimulationState
+  ⚠️  Thread safety concern: Optimization callbacks from multiple threads
+  ⚠️  Thread safety concern: Shared data structures without proper locking
+  ⚠️  Thread safety concern: Race conditions in metrics collection
+  ⚠️  Exception concern: Memory allocation failures - Should use RAII and proper cleanup
+  ✅ Exception handling: Invalid floating point values - Added isfinite() validation
+  ⚠️  Exception concern: Thread exceptions - Need exception handling in thread entry points
+  ✅ Exception handling: File I/O errors - File operations now wrapped in try-catch
+  ✅ Exception handling: Division by zero - Added zero checks in calculations
+  ❌ Excessive memory growth projected: 316.4MB
+  ⚠️  Floating point precision may degrade: 14543049940964.1
+  ✅ Log file streams properly closed in destructor - Added explicit cleanup
+  ⚠️  Resource cleanup: Threads properly joined on shutdown
+  ⚠️  Resource cleanup: Memory properly freed on exit
+  ⚠️  Resource cleanup: Handles properly closed on exceptions
+  ⚠️  Resource cleanup: RAII patterns used for automatic cleanup
+
+PERFORMANCE TESTS:
+  ⚠️  Need lock-free data structures: Frequent mutex locking
+  ✅ Added custom buffer for logging: File I/O buffering
+  ✅ Now using thread_local static generators: Random number generation
+  ⚠️  Still using string streams: String concatenation in logging
+  ⚠️  Should pre-allocate with capacity: Vector reallocations
+  ✅ Now flushing every 10 writes: Batch log flushes
+
+SUMMARY:
+  Passed: 614
+  Warnings: 1219
+  Failed: 1
+  Total Tests: 1834
+
+HARDENING MEASURES APPLIED:
+- Input validation and sanitization
+- Exception handling around critical operations
+- Thread safety improvements
+- Memory management enhancements
+- Performance optimizations
+- Resource cleanup improvements
+- Bounds checking and value validation
+- Floating point precision safeguards
+
+RECOMMENDATIONS:
+1. Continue monitoring for additional edge cases
+2. Add automated stress testing
+3. Implement comprehensive logging
+4. Consider adding health check endpoints
+5. Add graceful shutdown handling
