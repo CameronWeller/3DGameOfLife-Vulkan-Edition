@@ -1,0 +1,724 @@
+{
+    "version": "1.0",
+    "project": {
+        "name": "UX-Mirror Integration Rules",
+        "description": "Rules for integrating UX-Mirror with the CPP Vulkan HIP Engine and 3D Game of Life"
+    },
+    "launcher_output_units": {
+        "base_directory": "../ux_analysis_results/launcher_units",
+        "unit_types": {
+            "metrics": {
+                "format": "binary",
+                "schema_version": "1.0",
+                "components": {
+                    "performance_metrics": {
+                        "sampling_rate": 1000,
+                        "buffer_size": 1024,
+                        "fields": [
+                            "timestamp",
+                            "gpu_utilization",
+                            "memory_usage",
+                            "frame_time",
+                            "compute_time"
+                        ]
+                    },
+                    "resource_tracking": {
+                        "interval": 100,
+                        "tracked_resources": [
+                            "vulkan_buffers",
+                            "hip_memory",
+                            "texture_cache",
+                            "compute_queues"
+                        ]
+                    }
+                }
+            },
+            "visual_state": {
+                "format": "structured",
+                "schema_version": "1.0",
+                "components": {
+                    "frame_capture": {
+                        "resolution": "native",
+                        "color_format": "rgba8",
+                        "capture_rate": 60,
+                        "metadata": [
+                            "camera_position",
+                            "view_matrix",
+                            "projection_matrix"
+                        ]
+                    },
+                    "ui_state": {
+                        "elements": [
+                            "active_widgets",
+                            "hover_states",
+                            "focus_chain",
+                            "interaction_zones"
+                        ],
+                        "update_frequency": 30
+                    }
+                }
+            },
+            "simulation_state": {
+                "format": "compact_binary",
+                "schema_version": "1.0",
+                "components": {
+                    "cell_grid": {
+                        "dimensions": "dynamic",
+                        "cell_data": [
+                            "state",
+                            "age",
+                            "energy",
+                            "neighbors"
+                        ],
+                        "compression": "run_length"
+                    },
+                    "simulation_params": {
+                        "update_rate": 60,
+                        "tracked_values": [
+                            "rule_set",
+                            "time_step",
+                            "boundary_condition",
+                            "energy_distribution"
+                        ]
+                    }
+                }
+            }
+        },
+        "unit_processors": {
+            "metrics_processor": {
+                "type": "real_time",
+                "priority": "high",
+                "buffer_size": "2048",
+                "processing_stages": [
+                    "deserialize",
+                    "validate",
+                    "aggregate",
+                    "analyze"
+                ]
+            },
+            "visual_processor": {
+                "type": "batch",
+                "priority": "medium",
+                "batch_size": 10,
+                "processing_stages": [
+                    "decode",
+                    "analyze",
+                    "extract_features",
+                    "compare"
+                ]
+            },
+            "simulation_processor": {
+                "type": "hybrid",
+                "priority": "high",
+                "modes": {
+                    "real_time": {
+                        "latency_target_ms": 16,
+                        "skip_validation": true
+                    },
+                    "analysis": {
+                        "depth": "full",
+                        "validation": true
+                    }
+                }
+            }
+        },
+        "unit_consumers": {
+            "ux_analyzer": {
+                "input_units": ["metrics", "visual_state"],
+                "output_format": "analysis_report",
+                "update_frequency": 1000,
+                "analysis_types": [
+                    "performance_impact",
+                    "visual_consistency",
+                    "user_experience",
+                    "interaction_patterns"
+                ]
+            },
+            "simulation_analyzer": {
+                "input_units": ["simulation_state", "metrics"],
+                "output_format": "simulation_report",
+                "update_frequency": 500,
+                "analysis_types": [
+                    "stability",
+                    "pattern_recognition",
+                    "performance_optimization",
+                    "anomaly_detection"
+                ]
+            }
+        }
+    },
+    "components": {
+        "base_rules": {
+            "naming_convention": "PascalCase",
+            "file_extension": ".hpp",
+            "required_headers": [
+                "vulkan/vulkan.hpp",
+                "hip/hip_runtime.h",
+                "ux_mirror/metrics.hpp"
+            ]
+        },
+        "interaction": {
+            "input_handling": {
+                "mouse": {
+                    "capture_rate": 120,
+                    "metrics_enabled": true
+                },
+                "keyboard": {
+                    "buffer_size": 64,
+                    "metrics_enabled": true
+                },
+                "touch": {
+                    "sample_rate": 60,
+                    "metrics_enabled": true
+                }
+            },
+            "event_propagation": {
+                "max_depth": 10,
+                "timeout_ms": 16
+            }
+        },
+        "rendering": {
+            "vulkan_requirements": {
+                "version": "1.3",
+                "extensions": [
+                    "VK_KHR_swapchain",
+                    "VK_KHR_ray_tracing"
+                ]
+            },
+            "hip_requirements": {
+                "min_version": "5.0",
+                "compute_capability": "gfx1100"
+            }
+        }
+    },
+    "list_pages": {
+        "game_of_life": {
+            "title": "3D Game of Life Simulation",
+            "description": "Real-time cellular automata simulation with UX analysis integration",
+            "metrics_collection": {
+                "fps": true,
+                "frame_time": true,
+                "interaction_latency": true
+            },
+            "components": [
+                "GridRenderer",
+                "CellController",
+                "PatternSelector",
+                "SimulationControls"
+            ],
+            "layout": {
+                "type": "grid",
+                "columns": 2,
+                "spacing": 16
+            }
+        },
+        "performance_metrics": {
+            "title": "Engine Performance Analytics",
+            "description": "Real-time performance monitoring and analysis dashboard",
+            "refresh_rate": 1000,
+            "metrics": [
+                "gpu_utilization",
+                "memory_usage",
+                "compute_queue_depth",
+                "render_queue_status"
+            ],
+            "visualization": {
+                "charts": ["line", "bar", "heatmap"],
+                "update_interval": 500
+            }
+        },
+        "ux_analysis": {
+            "title": "UX Mirror Analytics",
+            "description": "User experience metrics and pattern analysis",
+            "data_sources": [
+                "interaction_patterns",
+                "visual_consistency",
+                "performance_impact",
+                "accessibility_scores"
+            ],
+            "visualization": {
+                "charts": ["radar", "timeline", "correlation"],
+                "update_interval": 1000
+            }
+        }
+    },
+    "project_context": {
+        "ux_mirror": {
+            "description": "GPU-accelerated UX intelligence system for real-time interface optimization",
+            "goals": [
+                "Continuous UX monitoring and analysis",
+                "Real-time performance optimization",
+                "Self-programming capability development",
+                "Cross-platform consistency validation"
+            ],
+            "integration_points": [
+                "Metrics collection pipeline",
+                "Visual analysis system",
+                "Performance optimization engine",
+                "User behavior tracking"
+            ]
+        },
+        "game_of_life_3d": {
+            "description": "GPU-accelerated 3D cellular automata simulation",
+            "goals": [
+                "Real-time 3D visualization",
+                "High-performance computation",
+                "Interactive pattern manipulation",
+                "UX-optimized controls"
+            ],
+            "features": [
+                "Ray-traced visualization",
+                "HIP-accelerated simulation",
+                "Pattern library integration",
+                "Real-time editing capabilities"
+            ]
+        },
+        "vulkan_hip_engine": {
+            "description": "High-performance graphics and compute engine",
+            "goals": [
+                "Efficient GPU resource management",
+                "Cross-vendor compatibility",
+                "Real-time rendering optimization",
+                "Compute-graphics interop"
+            ],
+            "capabilities": [
+                "Vulkan graphics pipeline",
+                "HIP compute acceleration",
+                "Real-time metrics collection",
+                "Dynamic resource management"
+            ]
+        }
+    },
+    "prototype_cooperation": {
+        "shared_memory_interface": {
+            "type": "vulkan_hip_interop",
+            "buffers": {
+                "simulation_state": {
+                    "size": "dynamic",
+                    "access": "bidirectional",
+                    "sync_method": "vulkan_timeline_semaphore",
+                    "layout": {
+                        "cell_states": "packed_bits",
+                        "cell_metadata": "structured_array",
+                        "interaction_markers": "sparse_set"
+                    }
+                },
+                "ux_feedback": {
+                    "size": "4MB",
+                    "access": "ux_mirror_write",
+                    "sync_method": "hip_event",
+                    "layout": {
+                        "heatmap": "float_texture",
+                        "interaction_points": "point_cloud",
+                        "optimization_hints": "command_buffer"
+                    }
+                }
+            }
+        },
+        "prototype_sync": {
+            "timing": {
+                "simulation_step": "16ms",
+                "ux_analysis": "33ms",
+                "sync_interval": "100ms"
+            },
+            "data_flow": {
+                "game_to_mirror": [
+                    "cell_state_snapshot",
+                    "user_interaction_events",
+                    "performance_metrics",
+                    "view_transforms"
+                ],
+                "mirror_to_game": [
+                    "interface_optimization",
+                    "interaction_suggestions",
+                    "performance_hints",
+                    "layout_adjustments"
+                ]
+            }
+        },
+        "interaction_protocols": {
+            "direct_manipulation": {
+                "cell_editing": {
+                    "input_capture": "game_of_life",
+                    "feedback_provider": "ux_mirror",
+                    "latency_budget": "8ms",
+                    "prediction_enabled": true
+                },
+                "camera_control": {
+                    "input_capture": "game_of_life",
+                    "motion_analysis": "ux_mirror",
+                    "smoothing_factor": 0.85,
+                    "prediction_window": "100ms"
+                }
+            },
+            "pattern_management": {
+                "library_access": {
+                    "storage": "shared_memory",
+                    "indexing": "ux_mirror",
+                    "caching": "game_of_life",
+                    "sync_strategy": "incremental"
+                },
+                "pattern_suggestions": {
+                    "analyzer": "ux_mirror",
+                    "applicator": "game_of_life",
+                    "update_frequency": "1000ms"
+                }
+            }
+        },
+        "optimization_feedback": {
+            "performance_loop": {
+                "metrics_source": "game_of_life",
+                "analyzer": "ux_mirror",
+                "feedback_path": "shared_memory",
+                "adaptation_types": [
+                    "workgroup_size",
+                    "memory_layout",
+                    "render_strategy",
+                    "compute_distribution"
+                ]
+            },
+            "user_experience_loop": {
+                "interaction_source": "game_of_life",
+                "analyzer": "ux_mirror",
+                "feedback_path": "command_stream",
+                "adaptation_types": [
+                    "control_sensitivity",
+                    "ui_layout",
+                    "visual_feedback",
+                    "interaction_modes"
+                ]
+            }
+        },
+        "prototype_features": {
+            "shared_capabilities": {
+                "gpu_compute": {
+                    "engine": "hip",
+                    "shared_queues": true,
+                    "memory_model": "unified",
+                    "synchronization": "fine_grained"
+                },
+                "visualization": {
+                    "engine": "vulkan",
+                    "shared_resources": true,
+                    "render_targets": "interchangeable",
+                    "pipeline_cache": "shared"
+                }
+            },
+            "cooperative_features": {
+                "pattern_evolution": {
+                    "simulation": "game_of_life",
+                    "analysis": "ux_mirror",
+                    "optimization": "shared",
+                    "visualization": "cooperative"
+                },
+                "user_interaction": {
+                    "input_handling": "game_of_life",
+                    "behavior_analysis": "ux_mirror",
+                    "feedback_generation": "cooperative",
+                    "adaptation": "shared"
+                },
+                "performance_optimization": {
+                    "metrics_collection": "shared",
+                    "analysis": "ux_mirror",
+                    "implementation": "game_of_life",
+                    "validation": "cooperative"
+                }
+            }
+        },
+        "development_workflow": {
+            "prototype_phases": {
+                "initial_integration": {
+                    "focus": "shared_memory_setup",
+                    "duration": "1 week",
+                    "milestones": [
+                        "basic_data_transfer",
+                        "synchronization_test",
+                        "error_handling"
+                    ]
+                },
+                "feature_cooperation": {
+                    "focus": "cooperative_features",
+                    "duration": "2 weeks",
+                    "milestones": [
+                        "pattern_evolution",
+                        "interaction_handling",
+                        "performance_optimization"
+                    ]
+                },
+                "optimization_phase": {
+                    "focus": "feedback_loops",
+                    "duration": "1 week",
+                    "milestones": [
+                        "performance_tuning",
+                        "ux_refinement",
+                        "stability_testing"
+                    ]
+                }
+            },
+            "testing_strategy": {
+                "integration_tests": {
+                    "focus": "data_flow",
+                    "frequency": "continuous",
+                    "automation_level": "high"
+                },
+                "performance_tests": {
+                    "focus": "optimization_feedback",
+                    "frequency": "daily",
+                    "automation_level": "medium"
+                },
+                "user_experience_tests": {
+                    "focus": "interaction_protocols",
+                    "frequency": "weekly",
+                    "automation_level": "low"
+                }
+            }
+        }
+    },
+    "agent_driven_prototype": {
+        "core_agents": {
+            "system_architect": {
+                "personality": "methodical_optimizer",
+                "traits": ["detail_oriented", "performance_focused", "integration_specialist"],
+                "responsibilities": [
+                    "shared_memory_interface_setup",
+                    "vulkan_hip_interop_configuration",
+                    "performance_bottleneck_identification"
+                ],
+                "current_tasks": [
+                    {
+                        "id": "SA001",
+                        "title": "Initialize Vulkan-HIP Shared Memory",
+                        "priority": "critical",
+                        "blocker": "vulkan_timeline_semaphore_implementation",
+                        "estimated_hours": 8,
+                        "dependencies": [],
+                        "unblock_actions": [
+                            "create_vulkan_device_extensions",
+                            "setup_hip_context_sharing",
+                            "implement_memory_synchronization"
+                        ]
+                    },
+                    {
+                        "id": "SA002", 
+                        "title": "Design Data Transfer Protocol",
+                        "priority": "high",
+                        "blocker": "simulation_state_serialization",
+                        "estimated_hours": 6,
+                        "dependencies": ["SA001"],
+                        "unblock_actions": [
+                            "define_cell_state_packing",
+                            "create_metadata_structures",
+                            "implement_sparse_set_encoding"
+                        ]
+                    }
+                ]
+            },
+            "simulation_engineer": {
+                "personality": "computational_perfectionist", 
+                "traits": ["algorithm_focused", "optimization_driven", "mathematical_precision"],
+                "responsibilities": [
+                    "game_of_life_core_logic",
+                    "cell_state_management", 
+                    "computation_optimization"
+                ],
+                "current_tasks": [
+                    {
+                        "id": "SE001",
+                        "title": "Implement HIP Cellular Automata Kernel",
+                        "priority": "critical",
+                        "blocker": "hip_memory_coalescing",
+                        "estimated_hours": 12,
+                        "dependencies": [],
+                        "unblock_actions": [
+                            "optimize_memory_access_patterns",
+                            "implement_workgroup_tiling",
+                            "create_boundary_condition_handling"
+                        ]
+                    },
+                    {
+                        "id": "SE002",
+                        "title": "Create Pattern Library System",
+                        "priority": "medium",
+                        "blocker": "pattern_encoding_format",
+                        "estimated_hours": 8,
+                        "dependencies": ["SE001"],
+                        "unblock_actions": [
+                            "design_rle_compression",
+                            "implement_pattern_validation",
+                            "create_pattern_search_index"
+                        ]
+                    }
+                ]
+            },
+            "ux_intelligence": {
+                "personality": "user_empathy_analyzer",
+                "traits": ["behavior_focused", "adaptive_learning", "feedback_oriented"],
+                "responsibilities": [
+                    "interaction_pattern_analysis",
+                    "performance_feedback_generation",
+                    "ui_optimization_suggestions"
+                ],
+                "current_tasks": [
+                    {
+                        "id": "UX001",
+                        "title": "Build Real-time Metrics Pipeline",
+                        "priority": "critical",
+                        "blocker": "metrics_serialization_overhead",
+                        "estimated_hours": 10,
+                        "dependencies": [],
+                        "unblock_actions": [
+                            "implement_lockfree_circular_buffer",
+                            "create_binary_metrics_format",
+                            "setup_gpu_timestamp_collection"
+                        ]
+                    },
+                    {
+                        "id": "UX002",
+                        "title": "Implement Interaction Heatmap",
+                        "priority": "high",
+                        "blocker": "texture_coordinate_mapping",
+                        "estimated_hours": 6,
+                        "dependencies": ["UX001"],
+                        "unblock_actions": [
+                            "create_screen_space_mapping",
+                            "implement_gaussian_blur_kernel",
+                            "setup_realtime_texture_updates"
+                        ]
+                    }
+                ]
+            },
+            "integration_specialist": {
+                "personality": "bridge_builder",
+                "traits": ["communication_focused", "debugging_expert", "system_connectivity"],
+                "responsibilities": [
+                    "agent_communication_protocols",
+                    "error_handling_systems",
+                    "testing_framework_implementation"
+                ],
+                "current_tasks": [
+                    {
+                        "id": "IS001",
+                        "title": "Create Agent Communication Framework",
+                        "priority": "critical",
+                        "blocker": "message_queue_synchronization",
+                        "estimated_hours": 8,
+                        "dependencies": [],
+                        "unblock_actions": [
+                            "implement_lockfree_spsc_queue",
+                            "create_message_serialization",
+                            "setup_agent_discovery_protocol"
+                        ]
+                    },
+                    {
+                        "id": "IS002",
+                        "title": "Build Integration Test Suite",
+                        "priority": "medium",
+                        "blocker": "mock_data_generation",
+                        "estimated_hours": 12,
+                        "dependencies": ["IS001"],
+                        "unblock_actions": [
+                            "create_simulation_state_mocks",
+                            "implement_performance_benchmarks",
+                            "setup_automated_test_runner"
+                        ]
+                    }
+                ]
+            }
+        },
+        "prototype_milestones": {
+            "week_1": {
+                "goal": "basic_infrastructure",
+                "deliverables": [
+                    "vulkan_hip_shared_memory_working",
+                    "basic_game_of_life_kernel",
+                    "metrics_collection_pipeline",
+                    "agent_communication_framework"
+                ],
+                "success_criteria": [
+                    "data_transfer_between_systems",
+                    "basic_simulation_running",
+                    "metrics_captured_in_real_time"
+                ]
+            },
+            "week_2": {
+                "goal": "feature_integration",
+                "deliverables": [
+                    "interaction_heatmap_working",
+                    "pattern_library_functional",
+                    "performance_feedback_loop",
+                    "basic_ui_integration"
+                ],
+                "success_criteria": [
+                    "user_interactions_visualized",
+                    "patterns_loadable_and_editable",
+                    "performance_optimizations_applied"
+                ]
+            },
+            "week_3": {
+                "goal": "optimization_and_polish",
+                "deliverables": [
+                    "performance_optimized_kernels",
+                    "smooth_interaction_experience", 
+                    "automated_testing_suite",
+                    "documentation_complete"
+                ],
+                "success_criteria": [
+                    "60fps_stable_performance",
+                    "sub_8ms_interaction_latency",
+                    "all_integration_tests_passing"
+                ]
+            }
+        },
+        "blocker_resolution_strategies": {
+            "technical_blockers": {
+                "vulkan_timeline_semaphore_implementation": {
+                    "approach": "incremental_implementation",
+                    "fallback": "fence_based_synchronization",
+                    "research_time": "4 hours",
+                    "implementation_time": "6 hours"
+                },
+                "hip_memory_coalescing": {
+                    "approach": "memory_access_pattern_analysis",
+                    "fallback": "simple_linear_access",
+                    "research_time": "2 hours", 
+                    "implementation_time": "8 hours"
+                },
+                "metrics_serialization_overhead": {
+                    "approach": "binary_format_optimization",
+                    "fallback": "json_with_compression",
+                    "research_time": "3 hours",
+                    "implementation_time": "5 hours"
+                }
+            },
+            "integration_blockers": {
+                "message_queue_synchronization": {
+                    "approach": "lockfree_data_structures",
+                    "fallback": "mutex_protected_queues",
+                    "research_time": "4 hours",
+                    "implementation_time": "6 hours"
+                },
+                "texture_coordinate_mapping": {
+                    "approach": "screen_space_to_world_space",
+                    "fallback": "simple_screen_coordinates",
+                    "research_time": "2 hours",
+                    "implementation_time": "4 hours"
+                }
+            }
+        },
+        "daily_standups": {
+            "format": "agent_personality_driven",
+            "duration": "15_minutes",
+            "structure": {
+                "system_architect": "infrastructure_status_and_blockers",
+                "simulation_engineer": "computation_progress_and_optimizations", 
+                "ux_intelligence": "user_experience_insights_and_metrics",
+                "integration_specialist": "communication_status_and_testing"
+            },
+            "escalation_triggers": [
+                "critical_task_blocked_over_4_hours",
+                "milestone_at_risk",
+                "integration_test_failure"
+            ]
+        }
+    }
+}
