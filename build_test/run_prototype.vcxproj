@@ -22,11 +22,11 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{B3C2ED32-5B5C-3EC8-870B-FEBF13C9042E}</ProjectGuid>
+    <ProjectGuid>{DCF5C80A-B974-36C0-B9A5-BFA18BBD6E18}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
     <Platform>x64</Platform>
-    <ProjectName>run_minimal_overnight</ProjectName>
+    <ProjectName>run_prototype</ProjectName>
     <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -105,14 +105,14 @@
     </Midl>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <CustomBuild Include="C:\cpp-vulkan-hip-engine\build_test\CMakeFiles\0bbde6eecaab98d537d035edaae4154e\run_minimal_overnight.rule">
-      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Running minimal overnight optimization...</Message>
+    <CustomBuild Include="C:\cpp-vulkan-hip-engine\build_test\CMakeFiles\0bbde6eecaab98d537d035edaae4154e\run_prototype.rule">
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Running UX-Mirror prototype...</Message>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
 cd C:\cpp-vulkan-hip-engine\build_test
 if %errorlevel% neq 0 goto :cmEnd
 C:
 if %errorlevel% neq 0 goto :cmEnd
-C:\cpp-vulkan-hip-engine\build_test\minimal_overnight_optimizer
+C:\cpp-vulkan-hip-engine\build_test\ux_mirror_prototype
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -120,17 +120,17 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\cpp-vulkan-hip-engine\build_test\Debug\minimal_overnight_optimizer.exe;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\cpp-vulkan-hip-engine\build_test\CMakeFiles\run_minimal_overnight</Outputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\cpp-vulkan-hip-engine\build_test\Debug\ux_mirror_prototype.exe;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\cpp-vulkan-hip-engine\build_test\CMakeFiles\run_prototype</Outputs>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
       <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
-      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Running minimal overnight optimization...</Message>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Running UX-Mirror prototype...</Message>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
 cd C:\cpp-vulkan-hip-engine\build_test
 if %errorlevel% neq 0 goto :cmEnd
 C:
 if %errorlevel% neq 0 goto :cmEnd
-C:\cpp-vulkan-hip-engine\build_test\minimal_overnight_optimizer
+C:\cpp-vulkan-hip-engine\build_test\ux_mirror_prototype
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -138,17 +138,17 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\cpp-vulkan-hip-engine\build_test\Release\minimal_overnight_optimizer.exe;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\cpp-vulkan-hip-engine\build_test\CMakeFiles\run_minimal_overnight</Outputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\cpp-vulkan-hip-engine\build_test\Release\ux_mirror_prototype.exe;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\cpp-vulkan-hip-engine\build_test\CMakeFiles\run_prototype</Outputs>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
       <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
-      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Running minimal overnight optimization...</Message>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Running UX-Mirror prototype...</Message>
       <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
 cd C:\cpp-vulkan-hip-engine\build_test
 if %errorlevel% neq 0 goto :cmEnd
 C:
 if %errorlevel% neq 0 goto :cmEnd
-C:\cpp-vulkan-hip-engine\build_test\minimal_overnight_optimizer
+C:\cpp-vulkan-hip-engine\build_test\ux_mirror_prototype
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -156,17 +156,17 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\cpp-vulkan-hip-engine\build_test\MinSizeRel\minimal_overnight_optimizer.exe;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\cpp-vulkan-hip-engine\build_test\CMakeFiles\run_minimal_overnight</Outputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\cpp-vulkan-hip-engine\build_test\MinSizeRel\ux_mirror_prototype.exe;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\cpp-vulkan-hip-engine\build_test\CMakeFiles\run_prototype</Outputs>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
       <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</VerifyInputsAndOutputsExist>
-      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Running minimal overnight optimization...</Message>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Running UX-Mirror prototype...</Message>
       <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
 cd C:\cpp-vulkan-hip-engine\build_test
 if %errorlevel% neq 0 goto :cmEnd
 C:
 if %errorlevel% neq 0 goto :cmEnd
-C:\cpp-vulkan-hip-engine\build_test\minimal_overnight_optimizer
+C:\cpp-vulkan-hip-engine\build_test\ux_mirror_prototype
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -174,8 +174,8 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\cpp-vulkan-hip-engine\build_test\RelWithDebInfo\minimal_overnight_optimizer.exe;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\cpp-vulkan-hip-engine\build_test\CMakeFiles\run_minimal_overnight</Outputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\cpp-vulkan-hip-engine\build_test\RelWithDebInfo\ux_mirror_prototype.exe;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\cpp-vulkan-hip-engine\build_test\CMakeFiles\run_prototype</Outputs>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
       <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</VerifyInputsAndOutputsExist>
     </CustomBuild>
@@ -238,7 +238,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
-    <None Include="C:\cpp-vulkan-hip-engine\build_test\CMakeFiles\run_minimal_overnight">
+    <None Include="C:\cpp-vulkan-hip-engine\build_test\CMakeFiles\run_prototype">
     </None>
   </ItemGroup>
   <ItemGroup />
@@ -249,9 +249,9 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </ProjectReference>
-    <ProjectReference Include="C:\cpp-vulkan-hip-engine\build_test\minimal_overnight_optimizer.vcxproj">
-      <Project>{165711CE-38D0-3195-9BC8-FC394DFDD67A}</Project>
-      <Name>minimal_overnight_optimizer</Name>
+    <ProjectReference Include="C:\cpp-vulkan-hip-engine\build_test\ux_mirror_prototype.vcxproj">
+      <Project>{8C20248D-BAD3-39C0-8668-67C6832A5F35}</Project>
+      <Name>ux_mirror_prototype</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

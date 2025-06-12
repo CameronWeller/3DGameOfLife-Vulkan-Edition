@@ -16,6 +16,7 @@ typedef int hipError_t;
 #include <functional>
 #include <atomic>
 #include <mutex>
+#include <cstdint>
 
 namespace UXMirror {
 

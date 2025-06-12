@@ -15,6 +15,7 @@ typedef int hipError_t;
 #include <memory>
 #include <atomic>
 #include <functional>
+#include <string>
 
 namespace GameOfLife3D {
 
@@ -76,6 +77,9 @@ namespace GameOfLife3D {
 
         HIPCellularAutomata();
         ~HIPCellularAutomata();
+        
+        // Forward declaration for PIMPL
+        class Impl;
 
         // SE001: Core initialization and management
         bool initialize(const glm::ivec3& gridSize);
@@ -106,10 +110,9 @@ namespace GameOfLife3D {
         bool validateMemoryCoalescing();
         float getMememoryEfficiency() const;
         
-        // Data access for UX-Mirror integration
-        const CellState* getGridData() const { return d_currentGrid; }
+        // Data access for UX-Mirror integration  
+        const CellState* getGridData() const { return nullptr; } // Implemented in stub
         size_t getGridSizeBytes() const { return gridSizeBytes; }
-        hipDeviceptr_t getDevicePointer() const { return reinterpret_cast<hipDeviceptr_t>(d_currentGrid); }
         
         // Metrics and profiling
         const KernelMetrics& getMetrics() const { return metrics; }
@@ -130,22 +133,13 @@ namespace GameOfLife3D {
         size_t gridSizeBytes;
         size_t totalCells;
         
-        // Device memory (double buffered)
-        CellState* d_currentGrid = nullptr;
-        CellState* d_nextGrid = nullptr;
-        CellState* h_gridBuffer = nullptr; // Host buffer for transfers
+        // Legacy device memory placeholders (not used in CPU implementation)
+        void* d_currentGrid = nullptr;
+        void* d_nextGrid = nullptr; 
+        void* h_gridBuffer = nullptr;
         
         // Simulation parameters
         SimulationParams simParams;
-        SimulationParams* d_simParams = nullptr;
-        
-        // HIP streams for overlapped execution
-        hipStream_t computeStream;
-        hipStream_t transferStream;
-        
-        // Events for synchronization
-        hipEvent_t kernelStart;
-        hipEvent_t kernelEnd;
         
         // Performance tracking
         KernelMetrics metrics;
@@ -153,6 +147,9 @@ namespace GameOfLife3D {
         // Callbacks
         CellUpdateCallback cellUpdateCallback;
         PerformanceCallback perfCallback;
+        
+        // PIMPL for CPU backend
+        std::unique_ptr<Impl> pImpl;
         
         // Internal methods
         bool allocateDeviceMemory();
@@ -165,52 +162,11 @@ namespace GameOfLife3D {
         glm::ivec3 calculateOptimalWorkgroupSize();
         bool setupMemoryCoalescing();
         
-        // Kernel parameter calculation
-        dim3 calculateGridDim() const;
-        dim3 calculateBlockDim() const;
-        
         // Error handling
-        void checkHIPError(hipError_t error, const std::string& operation);
         void logPerformanceMetrics();
     };
 
-    /**
-     * @brief Kernel function declarations (implemented in .cu file)
-     * These implement the core cellular automata rules with optimization
-     */
-    extern "C" {
-        // Main simulation kernel with memory coalescing optimization
-        __global__ void gameOfLifeKernel(
-            const CellState* __restrict__ currentGrid,
-            CellState* __restrict__ nextGrid,
-            const SimulationParams* __restrict__ params,
-            uint64_t* __restrict__ metrics_coalescedAccesses,
-            uint64_t* __restrict__ metrics_uncoalescedAccesses
-        );
-        
-        // Neighbor counting kernel with shared memory optimization
-        __global__ void countNeighborsKernel(
-            const CellState* __restrict__ grid,
-            uint32_t* __restrict__ neighborCounts,
-            const SimulationParams* __restrict__ params
-        );
-        
-        // Pattern loading kernel
-        __global__ void loadPatternKernel(
-            CellState* __restrict__ grid,
-            const glm::ivec3* __restrict__ pattern,
-            uint32_t patternSize,
-            const glm::ivec3 offset,
-            const SimulationParams* __restrict__ params
-        );
-        
-        // Memory access pattern analysis kernel
-        __global__ void analyzeMemoryAccessKernel(
-            const CellState* __restrict__ grid,
-            uint64_t* __restrict__ accessMetrics,
-            const SimulationParams* __restrict__ params
-        );
-    }
+    // Legacy kernel declarations removed for CPU implementation
 
     /**
      * @brief Utility functions for pattern management and optimization
