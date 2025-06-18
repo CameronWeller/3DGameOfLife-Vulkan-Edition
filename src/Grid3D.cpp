@@ -230,12 +230,9 @@ void Grid3D::createComputeResources() {
     VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout));
     
     // Create compute pipeline
-    // TODO: Load shader properly - for now create a placeholder stage
-    VkPipelineShaderStageCreateInfo computeStage{};
-    computeStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    computeStage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    // computeStage.module = loadedShaderModule; // Will need to implement shader loading
-    computeStage.pName = "main";
+    // Load the compute shader using ShaderManager
+    auto shaderManager = VulkanHIP::VulkanEngine::getInstance()->getShaderManager();
+    VkPipelineShaderStageCreateInfo computeStage = shaderManager->createComputeStage("shaders/game_of_life_3d.comp.spv");
     
     VkComputePipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
