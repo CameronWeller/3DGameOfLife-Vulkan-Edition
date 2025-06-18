@@ -1,4 +1,5 @@
 #include "VoxelRenderer.h"
+#include "VulkanEngine.h"
 #include "VulkanContext.h"
 #include "VulkanMemoryManager.h"
 #include <stdexcept>
