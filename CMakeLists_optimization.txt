@@ -1,0 +1,114 @@
+cmake_minimum_required(VERSION 3.20)
+project(UXMirrorOptimizationPrototype LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Optimization-specific build flags
+if(MSVC)
+    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /DNDEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG "/Od /Zi /DDEBUG")
+else()
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -march=native -mtune=native")
+    set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -DDEBUG")
+endif()
+
+# Find required packages
+find_package(Vulkan REQUIRED)
+find_package(glfw3 REQUIRED)
+find_package(glm REQUIRED)
+
+# Try to find HIP (AMD GPU support)
+find_package(hip QUIET)
+if(NOT hip_FOUND)
+    message(WARNING "HIP not found, using CUDA fallback")
+    find_package(CUDA QUIET)
+endif()
+
+# Include directories
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/third_party)
+include_directories(${Vulkan_INCLUDE_DIRS})
+
+# Source files for optimization prototype
+set(OPTIMIZATION_SOURCES
+    src/PrototypeIntegrationTest.cpp
+    # We'll need stub implementations for the headers
+    src/SharedMemoryInterface_stub.cpp
+    src/HIPCellularAutomata_stub.cpp
+    src/MetricsPipeline_stub.cpp
+    src/AgentCommunication_stub.cpp
+    src/OptimizationLoop_stub.cpp
+)
+
+# Create the optimization prototype executable
+add_executable(optimization_prototype ${OPTIMIZATION_SOURCES})
+
+# Link libraries
+target_link_libraries(optimization_prototype 
+    ${Vulkan_LIBRARIES}
+    glfw
+)
+
+# Unix-specific libraries
+if(UNIX)
+    target_link_libraries(optimization_prototype pthread dl)
+endif()
+
+# HIP/CUDA linking
+if(hip_FOUND)
+    target_link_libraries(optimization_prototype hip::host)
+    target_compile_definitions(optimization_prototype PRIVATE USE_HIP)
+elseif(CUDA_FOUND)
+    target_link_libraries(optimization_prototype ${CUDA_LIBRARIES})
+    target_compile_definitions(optimization_prototype PRIVATE USE_CUDA)
+endif()
+
+# Compiler-specific optimizations
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(optimization_prototype PRIVATE
+        -Wall -Wextra -Wpedantic
+        -ffast-math
+        -funroll-loops
+        -fomit-frame-pointer
+    )
+endif()
+
+# Create overnight optimization runner
+add_executable(overnight_optimizer
+    src/OvernightOptimizer.cpp
+    src/SharedMemoryInterface_stub.cpp
+    src/HIPCellularAutomata_stub.cpp
+    src/MetricsPipeline_stub.cpp
+    src/AgentCommunication_stub.cpp
+    src/OptimizationLoop_stub.cpp
+)
+
+target_link_libraries(overnight_optimizer 
+    ${Vulkan_LIBRARIES}
+    glfw
+)
+
+# Unix-specific libraries
+if(UNIX)
+    target_link_libraries(overnight_optimizer pthread dl)
+endif()
+
+if(hip_FOUND)
+    target_link_libraries(overnight_optimizer hip::host)
+elseif(CUDA_FOUND)
+    target_link_libraries(overnight_optimizer ${CUDA_LIBRARIES})
+endif()
+
+# Install targets
+install(TARGETS optimization_prototype overnight_optimizer
+    RUNTIME DESTINATION bin
+)
+
+# Custom target for running overnight optimization
+add_custom_target(run_overnight
+    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/overnight_optimizer
+    DEPENDS overnight_optimizer
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    COMMENT "Running overnight optimization..."
+) 

@@ -1,0 +1,34 @@
+cmake_minimum_required(VERSION 3.20)
+project(UXMirrorMinimalOptimizer LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Build flags
+if(MSVC)
+    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /DNDEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG "/Od /Zi /DDEBUG")
+else()
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -DDEBUG")
+endif()
+
+# Create the minimal overnight optimizer
+add_executable(minimal_overnight_optimizer
+    src/OvernightOptimizer_minimal.cpp
+)
+
+# No external dependencies needed - just standard library
+
+# Install target
+install(TARGETS minimal_overnight_optimizer
+    RUNTIME DESTINATION bin
+)
+
+# Custom target for running overnight optimization
+add_custom_target(run_minimal_overnight
+    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/minimal_overnight_optimizer
+    DEPENDS minimal_overnight_optimizer
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    COMMENT "Running minimal overnight optimization..."
+) 
