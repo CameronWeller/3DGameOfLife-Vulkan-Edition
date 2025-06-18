@@ -39,6 +39,7 @@ struct LODLevel {
 
 // Forward declarations
 class VulkanEngine;
+class VoxelRenderer;
 
 class Grid3D {
 public:
@@ -92,6 +93,9 @@ public:
     void destroyRenderResources();
     void render(VkCommandBuffer commandBuffer, const RenderPushConstants& pushConstants);
     void updateLOD(const glm::vec3& cameraPos);
+    
+    // VoxelRenderer integration
+    void updateVoxelRenderer(class VoxelRenderer& renderer) const;
 
 private:
     // Grid dimensions
