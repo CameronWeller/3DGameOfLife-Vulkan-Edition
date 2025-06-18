@@ -1,15 +1,15 @@
-# 3D Game of Life - Vulkan Edition
-# Modular CMake Configuration
-
 cmake_minimum_required(VERSION 3.20)
+project(UXMirrorMinimalOptimizer LANGUAGES CXX)
 
-# Project definition
-project(3DGameOfLife-Vulkan-Edition
-    VERSION 1.0.0
-    DESCRIPTION "3D Conway's Game of Life implemented with Vulkan compute shaders"
-    LANGUAGES CXX
-)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+<<<<<<< HEAD
+# Build flags
+if(MSVC)
+    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /DNDEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG "/Od /Zi /DDEBUG")
+=======
 # Add module path
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
@@ -152,51 +152,28 @@ message(STATUS "Sanitizers: ${ENABLE_SANITIZERS}")
 message(STATUS "Coverage: ${ENABLE_COVERAGE}")
 if(GLSLC_EXECUTABLE)
     message(STATUS "Shader Compiler: ${GLSLC_EXECUTABLE}")
+>>>>>>> 741179b1238ce7a6caba735329b32bdfd4d7e660
 else()
-    message(WARNING "Shader Compiler: NOT FOUND")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -DDEBUG")
 endif()
-message(STATUS "")
 
-# Component summary
-message(STATUS "=== Component Libraries ===")
-message(STATUS "Core Engine: core_engine")
-message(STATUS "Rendering: rendering")
-message(STATUS "Compute: compute")
-message(STATUS "Game Logic: game_logic")
-message(STATUS "Camera: camera")
-message(STATUS "UI: ui")
-message(STATUS "Utilities: utilities")
-message(STATUS "Unified Library: ${PROJECT_NAME}_lib")
-message(STATUS "")
-
-# Available targets summary
-message(STATUS "=== Available Targets ===")
-message(STATUS "Main executable: ${PROJECT_NAME}")
-message(STATUS "Development: dev_build, rebuild, distclean")
-if(BUILD_TESTING)
-    message(STATUS "Testing: test_all, test_unit, test_integration, quick_test")
-    message(STATUS "Benchmarks: run_benchmarks, run_benchmarks_detailed")
-endif()
-if(ENABLE_STATIC_ANALYSIS)
-    message(STATUS "Static Analysis: clang-tidy, cppcheck, iwyu")
-endif()
-message(STATUS "Shaders: compile_shaders, copy_shaders, validate_shaders, clean_shaders")
-message(STATUS "")
-
-# Add new vulkan module sources
-file(GLOB_RECURSE VULKAN_SOURCES 
-    "src/vulkan/*.cpp"
-    "src/vulkan/resources/*.cpp"
-    "src/vulkan/compute/*.cpp"
-    "src/vulkan/rendering/*.cpp"
+# Create the minimal overnight optimizer
+add_executable(minimal_overnight_optimizer
+    src/OvernightOptimizer_minimal.cpp
 )
-target_sources(${PROJECT_NAME} PRIVATE ${VULKAN_SOURCES})
 
-# Add new include directories
-target_include_directories(${PROJECT_NAME} PRIVATE 
-    include
-    include/vulkan
-    include/vulkan/resources
-    include/vulkan/compute
-    include/vulkan/rendering
+# No external dependencies needed - just standard library
+
+# Install target
+install(TARGETS minimal_overnight_optimizer
+    RUNTIME DESTINATION bin
 )
+
+# Custom target for running overnight optimization
+add_custom_target(run_minimal_overnight
+    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/minimal_overnight_optimizer
+    DEPENDS minimal_overnight_optimizer
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    COMMENT "Running minimal overnight optimization..."
+) 

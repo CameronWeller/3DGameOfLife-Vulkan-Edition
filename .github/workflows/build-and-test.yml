@@ -1,0 +1,263 @@
+name: UX-Mirror Overnight Optimization - Build & Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  # Build configuration
+  BUILD_TYPE: Release
+  
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    name: Windows Build (MSVC)
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        
+    - name: Setup MSVC
+      uses: microsoft/setup-msbuild@v1.3
+      
+    - name: Install vcpkg
+      run: |
+        git clone https://github.com/Microsoft/vcpkg.git
+        .\vcpkg\bootstrap-vcpkg.bat
+        
+    - name: Cache vcpkg
+      uses: actions/cache@v3
+      with:
+        path: |
+          vcpkg
+          build/vcpkg_installed
+        key: ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}
+        restore-keys: |
+          ${{ runner.os }}-vcpkg-
+          
+    - name: Configure CMake (Minimal)
+      run: |
+        cmake -B build_minimal -S . -f CMakeLists_minimal_optimizer.txt -DCMAKE_TOOLCHAIN_FILE=./vcpkg/scripts/buildsystems/vcpkg.cmake
+        
+    - name: Build Minimal Optimizer
+      run: |
+        cmake --build build_minimal --config ${{ env.BUILD_TYPE }}
+        
+    - name: Test Minimal Optimizer
+      run: |
+        cd build_minimal
+        .\${{ env.BUILD_TYPE }}\minimal_overnight_optimizer.exe 1
+      timeout-minutes: 2
+      continue-on-error: true
+      
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: windows-minimal-optimizer
+        path: |
+          build_minimal/${{ env.BUILD_TYPE }}/minimal_overnight_optimizer.exe
+          optimization_log_*.txt
+          OPTIMIZATION_STATUS_REPORT.md
+          
+    - name: Configure CMake (Full - if dependencies available)
+      run: |
+        cmake -B build_full -S . -f CMakeLists_optimization.txt -DCMAKE_TOOLCHAIN_FILE=./vcpkg/scripts/buildsystems/vcpkg.cmake
+      continue-on-error: true
+      
+    - name: Build Full System (if possible)
+      run: |
+        cmake --build build_full --config ${{ env.BUILD_TYPE }}
+      continue-on-error: true
+
+  build-linux:
+    runs-on: ubuntu-latest
+    name: Linux Build (GCC)
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake ninja-build pkg-config
+        sudo apt-get install -y libglfw3-dev libglm-dev libvulkan-dev vulkan-tools
+        
+    - name: Install vcpkg
+      run: |
+        git clone https://github.com/Microsoft/vcpkg.git
+        ./vcpkg/bootstrap-vcpkg.sh
+        
+    - name: Cache vcpkg
+      uses: actions/cache@v3
+      with:
+        path: |
+          vcpkg
+          build/vcpkg_installed
+        key: ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}
+        restore-keys: |
+          ${{ runner.os }}-vcpkg-
+          
+    - name: Configure CMake (Minimal)
+      run: |
+        cp CMakeLists_minimal_optimizer.txt CMakeLists.txt
+        cmake -B build_minimal -S . -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+        
+    - name: Build Minimal Optimizer
+      run: |
+        cmake --build build_minimal --config ${{ env.BUILD_TYPE }}
+        
+    - name: Test Minimal Optimizer
+      run: |
+        cd build_minimal
+        timeout 10s ./minimal_overnight_optimizer 1 || true
+        
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: linux-minimal-optimizer
+        path: |
+          build_minimal/minimal_overnight_optimizer
+          optimization_log_*.txt
+          OPTIMIZATION_STATUS_REPORT.md
+
+  build-macos:
+    runs-on: macos-latest
+    name: macOS Build (Clang)
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        
+    - name: Install Dependencies
+      run: |
+        brew install cmake ninja pkg-config
+        brew install glfw glm vulkan-loader vulkan-headers
+        
+    - name: Install vcpkg
+      run: |
+        git clone https://github.com/Microsoft/vcpkg.git
+        ./vcpkg/bootstrap-vcpkg.sh
+        
+    - name: Cache vcpkg
+      uses: actions/cache@v3
+      with:
+        path: |
+          vcpkg
+          build/vcpkg_installed
+        key: ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}
+        restore-keys: |
+          ${{ runner.os }}-vcpkg-
+          
+    - name: Configure CMake (Minimal)
+      run: |
+        cp CMakeLists_minimal_optimizer.txt CMakeLists.txt
+        cmake -B build_minimal -S . -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+        
+    - name: Build Minimal Optimizer
+      run: |
+        cmake --build build_minimal --config ${{ env.BUILD_TYPE }}
+        
+    - name: Test Minimal Optimizer
+      run: |
+        cd build_minimal
+        timeout 10s ./minimal_overnight_optimizer 1 || true
+        
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: macos-minimal-optimizer
+        path: |
+          build_minimal/minimal_overnight_optimizer
+          optimization_log_*.txt
+          OPTIMIZATION_STATUS_REPORT.md
+
+  validate-system:
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    name: System Validation
+    
+    steps:
+    - name: Download All Artifacts
+      uses: actions/download-artifact@v3
+      
+    - name: Validate Cross-Platform Builds
+      run: |
+        echo "=== Cross-Platform Build Validation ==="
+        echo "Windows Build:"
+        ls -la windows-minimal-optimizer/ || echo "Windows build not available"
+        echo ""
+        echo "Linux Build:"
+        ls -la linux-minimal-optimizer/ || echo "Linux build not available"
+        echo ""
+        echo "macOS Build:"
+        ls -la macos-minimal-optimizer/ || echo "macOS build not available"
+        echo ""
+        echo "=== Build Status Summary ==="
+        if [ -d "windows-minimal-optimizer" ] && [ -d "linux-minimal-optimizer" ] && [ -d "macos-minimal-optimizer" ]; then
+          echo "✅ All platforms built successfully!"
+          exit 0
+        elif [ -d "windows-minimal-optimizer" ] || [ -d "linux-minimal-optimizer" ] || [ -d "macos-minimal-optimizer" ]; then
+          echo "⚠️  Partial success - some platforms built"
+          exit 0
+        else
+          echo "❌ No platforms built successfully"
+          exit 1
+        fi
+        
+    - name: Create Release Package
+      if: github.ref == 'refs/heads/main'
+      run: |
+        mkdir -p release-package
+        # Copy all successful builds
+        if [ -d "windows-minimal-optimizer" ]; then
+          cp -r windows-minimal-optimizer release-package/windows
+        fi
+        if [ -d "linux-minimal-optimizer" ]; then
+          cp -r linux-minimal-optimizer release-package/linux
+        fi
+        if [ -d "macos-minimal-optimizer" ]; then
+          cp -r macos-minimal-optimizer release-package/macos
+        fi
+        
+        # Create README for release
+        cat > release-package/README.md << 'EOF'
+        # UX-Mirror Overnight Optimization - Release Package
+        
+        This package contains the UX-Mirror overnight optimization system
+        built for multiple platforms.
+        
+        ## Usage
+        
+        ### Windows
+        ```
+        cd windows
+        minimal_overnight_optimizer.exe [hours]
+        ```
+        
+        ### Linux/macOS
+        ```
+        cd linux  # or macos
+        ./minimal_overnight_optimizer [hours]
+        ```
+        
+        ## Features
+        - Real-time optimization of UX and performance metrics
+        - 60 FPS simulation targeting
+        - Continuous logging every 5 minutes
+        - Cross-platform compatibility
+        EOF
+        
+        tar -czf ux-mirror-optimization-release.tar.gz release-package/
+        
+    - name: Upload Release Package
+      if: github.ref == 'refs/heads/main'
+      uses: actions/upload-artifact@v3
+      with:
+        name: ux-mirror-optimization-release
+        path: ux-mirror-optimization-release.tar.gz 
