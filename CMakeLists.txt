@@ -1,28 +1,20 @@
+# 3D Game of Life - Vulkan Edition
+# Modular CMake Configuration
+
 cmake_minimum_required(VERSION 3.20)
-project(UXMirrorMinimalOptimizer LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Configure vcpkg
+set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
 
-<<<<<<< HEAD
-# Build flags
-if(MSVC)
-    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /DNDEBUG")
-    set(CMAKE_CXX_FLAGS_DEBUG "/Od /Zi /DDEBUG")
-=======
+# Project definition
+project(3DGameOfLife-Vulkan-Edition
+    VERSION 1.0.0
+    DESCRIPTION "3D Conway's Game of Life implemented with Vulkan compute shaders"
+    LANGUAGES CXX
+)
+
 # Add module path
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
-
-# vcpkg integration
-if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
-    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
-endif()
-
-# Ensure vcpkg packages are found - explicit path for local vcpkg installation
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed")
-    list(APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows")
-    message(STATUS "Added vcpkg packages to CMAKE_PREFIX_PATH: ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows")
-endif()
 
 # Include modular configuration
 include(Options)           # Build options and compiler settings
@@ -48,54 +40,11 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${PROJECT_NAME}_lib
 )
 
-# Minimal executable using only working components
-add_executable(${PROJECT_NAME}_minimal
-    src/main_minimal.cpp
-)
-
-# Link minimal executable with only working components
-target_link_libraries(${PROJECT_NAME}_minimal PRIVATE
-    core_engine
-    utilities
-    vulkan_resources
-    # memory_management  # Temporarily disabled due to VMA linking issues
-    rendering
-    camera  # Add camera for 3D functionality
-    # GPUOpen::VulkanMemoryAllocator  # Not needed without memory_management
-    # Temporarily skip: game_logic, ui, vulkan_ui, vulkan_rendering (broken)
-)
-
-# Self-contained minimal target that doesn't depend on main project libraries
-add_executable(minimal_3d_vulkan
-    src/main_minimal.cpp
-    src/VulkanContext.cpp
-    src/DeviceManager.cpp
-    src/WindowManager.cpp
-    src/Logger.cpp
-    src/Camera.cpp
-    src/vulkan/resources/ShaderManager.cpp
-)
-
-# Link only essential libraries for the self-contained target
-target_link_libraries(minimal_3d_vulkan PRIVATE
-    Vulkan::Vulkan
-    glfw
-    glm::glm
-)
-
-target_include_directories(minimal_3d_vulkan PRIVATE
-    include
-    include/vulkan
-    include/vulkan/resources
-)
-
-# Apply common settings to executables
+# Apply common settings to main executable
 apply_common_settings(${PROJECT_NAME})
-apply_common_settings(${PROJECT_NAME}_minimal)
 
-# Apply static analysis to executables
+# Apply static analysis to main executable
 apply_static_analysis(${PROJECT_NAME})
-apply_static_analysis(${PROJECT_NAME}_minimal)
 
 # Enable sanitizers for main executable
 enable_sanitizers(${PROJECT_NAME})
@@ -152,28 +101,33 @@ message(STATUS "Sanitizers: ${ENABLE_SANITIZERS}")
 message(STATUS "Coverage: ${ENABLE_COVERAGE}")
 if(GLSLC_EXECUTABLE)
     message(STATUS "Shader Compiler: ${GLSLC_EXECUTABLE}")
->>>>>>> 741179b1238ce7a6caba735329b32bdfd4d7e660
 else()
-    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
-    set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -DDEBUG")
+    message(WARNING "Shader Compiler: NOT FOUND")
 endif()
+message(STATUS "")
 
-# Create the minimal overnight optimizer
-add_executable(minimal_overnight_optimizer
-    src/OvernightOptimizer_minimal.cpp
-)
+# Component summary
+message(STATUS "=== Component Libraries ===")
+message(STATUS "Core Engine: core_engine")
+message(STATUS "Rendering: rendering")
+message(STATUS "Compute: compute")
+message(STATUS "Game Logic: game_logic")
+message(STATUS "Camera: camera")
+message(STATUS "UI: ui")
+message(STATUS "Utilities: utilities")
+message(STATUS "Unified Library: ${PROJECT_NAME}_lib")
+message(STATUS "")
 
-# No external dependencies needed - just standard library
-
-# Install target
-install(TARGETS minimal_overnight_optimizer
-    RUNTIME DESTINATION bin
-)
-
-# Custom target for running overnight optimization
-add_custom_target(run_minimal_overnight
-    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/minimal_overnight_optimizer
-    DEPENDS minimal_overnight_optimizer
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-    COMMENT "Running minimal overnight optimization..."
-) 
+# Available targets summary
+message(STATUS "=== Available Targets ===")
+message(STATUS "Main executable: ${PROJECT_NAME}")
+message(STATUS "Development: dev_build, rebuild, distclean")
+if(BUILD_TESTING)
+    message(STATUS "Testing: test_all, test_unit, test_integration, quick_test")
+    message(STATUS "Benchmarks: run_benchmarks, run_benchmarks_detailed")
+endif()
+if(ENABLE_STATIC_ANALYSIS)
+    message(STATUS "Static Analysis: clang-tidy, cppcheck, iwyu")
+endif()
+message(STATUS "Shaders: compile_shaders, copy_shaders, validate_shaders, clean_shaders")
+message(STATUS "")
