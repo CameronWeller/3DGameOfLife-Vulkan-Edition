@@ -41,6 +41,14 @@
 #include "VoxelData.h"
 #include "GameRules.h"
 #include "SwapChainSupportDetails.h"
+#include "Logger.h"
+#include "vulkan/resources/VulkanImageManager.h"
+#include "vulkan/rendering/VulkanSwapChain.h"
+#include "vulkan/rendering/VulkanRenderer.h"
+#include "vulkan/rendering/VulkanFramebuffer.h"
+#include "vulkan/compute/VulkanCompute.h"
+#include "vulkan/ui/VulkanImGui.h"
+#include "vulkan/resources/ShaderManager.h"
 
 namespace VulkanHIP {
 
