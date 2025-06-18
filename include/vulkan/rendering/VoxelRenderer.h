@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include "VoxelData.h"
 #include "VulkanMemoryManager.h"
+#include "VulkanBufferManager.h"
 #include "VulkanError.h"
 
 namespace VulkanHIP {
@@ -18,12 +19,6 @@ struct VoxelInstance {
     glm::vec3 position;
     glm::vec4 color;
     float scale;
-};
-
-struct UniformBufferObject {
-    alignas(16) glm::mat4 model;
-    alignas(16) glm::mat4 view;
-    alignas(16) glm::mat4 proj;
 };
 
 class VoxelRenderer {
