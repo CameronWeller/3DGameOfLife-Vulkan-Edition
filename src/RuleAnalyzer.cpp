@@ -7,6 +7,8 @@
 #include <iomanip>
 #include <glm/glm.hpp>
 
+namespace VulkanHIP {
+
 RuleAnalyzer::RuleAnalyzer() = default;
 RuleAnalyzer::~RuleAnalyzer() = default;
 
@@ -20,7 +22,7 @@ RuleAnalyzer::AnalysisResult RuleAnalyzer::analyzeRule(
     result.ruleName = rule.name;
     
     // Initialize test grid
-    testGrid_ = std::make_unique<VulkanHIP::Grid3D>(width, height, depth);
+    testGrid_ = std::make_unique<Grid3D>(width, height, depth);
     testGrid_->initialize();
     testGrid_->randomize();
     
@@ -51,7 +53,7 @@ RuleAnalyzer::AnalysisResult RuleAnalyzer::analyzeRule(
     return result;
 }
 
-std::vector<RuleAnalyzer::PatternType> RuleAnalyzer::identifyPatterns(const VulkanHIP::Grid3D& grid) {
+std::vector<RuleAnalyzer::PatternType> RuleAnalyzer::identifyPatterns(const Grid3D& grid) {
     std::vector<PatternType> patterns;
     
     // Check for stability
@@ -116,12 +118,12 @@ std::vector<RuleAnalyzer::PatternType> RuleAnalyzer::identifyPatterns(const Vulk
     return patterns;
 }
 
-float RuleAnalyzer::calculateStability(const VulkanHIP::Grid3D& grid, int generations) {
+float RuleAnalyzer::calculateStability(const Grid3D& grid, int generations) {
     std::vector<uint32_t> populations;
     populations.reserve(generations);
     
     // Create a copy of the grid for testing
-    auto testGrid = std::make_unique<VulkanHIP::Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
+    auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
     testGrid->initialize();
     testGrid->setRuleSet(grid.getCurrentRuleSet());
     
@@ -159,12 +161,12 @@ float RuleAnalyzer::calculateStability(const VulkanHIP::Grid3D& grid, int genera
     return 1.0f - std::min(variance / maxVariance, 1.0f);
 }
 
-float RuleAnalyzer::calculateGrowthRate(const VulkanHIP::Grid3D& grid, int generations) {
+float RuleAnalyzer::calculateGrowthRate(const Grid3D& grid, int generations) {
     std::vector<uint32_t> populations;
     populations.reserve(generations);
     
     // Create a copy of the grid for testing
-    auto testGrid = std::make_unique<VulkanHIP::Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
+    auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
     testGrid->initialize();
     testGrid->setRuleSet(grid.getCurrentRuleSet());
     
@@ -198,7 +200,7 @@ float RuleAnalyzer::calculateGrowthRate(const VulkanHIP::Grid3D& grid, int gener
     return (finalPop - initialPop) / (initialPop * static_cast<float>(generations));
 }
 
-float RuleAnalyzer::calculateComplexity(const VulkanHIP::Grid3D& grid) {
+float RuleAnalyzer::calculateComplexity(const Grid3D& grid) {
     // Calculate complexity based on entropy and pattern diversity
     float entropy = calculateEntropy(grid);
     float patternDiversity = 0.0f;
@@ -330,8 +332,8 @@ void RuleAnalyzer::generateRuleReport(const AnalysisResult& result, const std::s
 )";
 }
 
-bool RuleAnalyzer::isStable(const VulkanHIP::Grid3D& grid, int generations) {
-    auto testGrid = std::make_unique<VulkanHIP::Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
+bool RuleAnalyzer::isStable(const Grid3D& grid, int generations) {
+    auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
     testGrid->initialize();
     testGrid->setRuleSet(grid.getCurrentRuleSet());
     
@@ -361,12 +363,12 @@ bool RuleAnalyzer::isStable(const VulkanHIP::Grid3D& grid, int generations) {
     return true;
 }
 
-bool RuleAnalyzer::isOscillator(const VulkanHIP::Grid3D& grid, int maxPeriod) {
+bool RuleAnalyzer::isOscillator(const Grid3D& grid, int maxPeriod) {
     std::vector<uint64_t> populationHistory;
     populationHistory.reserve(maxPeriod + 1);
     
     // Create a copy of the grid for testing
-    auto testGrid = std::make_unique<VulkanHIP::Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
+    auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
     testGrid->initialize();
     testGrid->setRuleSet(grid.getCurrentRuleSet());
     
@@ -399,9 +401,9 @@ bool RuleAnalyzer::isOscillator(const VulkanHIP::Grid3D& grid, int maxPeriod) {
     return false;
 }
 
-bool RuleAnalyzer::isSpaceship(const VulkanHIP::Grid3D& grid) {
+bool RuleAnalyzer::isSpaceship(const Grid3D& grid) {
     // Create a copy of the grid for testing
-    auto testGrid = std::make_unique<VulkanHIP::Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
+    auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
     testGrid->initialize();
     testGrid->setRuleSet(grid.getCurrentRuleSet());
     
@@ -475,7 +477,7 @@ bool RuleAnalyzer::isSpaceship(const VulkanHIP::Grid3D& grid) {
     return true;
 }
 
-float RuleAnalyzer::calculateEntropy(const VulkanHIP::Grid3D& grid) {
+float RuleAnalyzer::calculateEntropy(const Grid3D& grid) {
     // Calculate Shannon entropy of the grid
     std::map<std::string, int> patternCounts;
     int totalPatterns = 0;
@@ -721,12 +723,12 @@ void RuleAnalyzer::generateComparisonReport(const std::vector<AnalysisResult>& r
 )";
 }
 
-std::vector<std::pair<std::string, float>> RuleAnalyzer::analyzePatternInteractions(const VulkanHIP::Grid3D& grid) {
+std::vector<std::pair<std::string, float>> RuleAnalyzer::analyzePatternInteractions(const Grid3D& grid) {
     std::vector<std::pair<std::string, float>> interactions;
     std::map<std::string, int> patternCounts;
     
     // Create a copy of the grid for testing
-    auto testGrid = std::make_unique<VulkanHIP::Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
+    auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
     testGrid->setRules(grid.getRules());
     
     // Copy initial state
@@ -765,12 +767,12 @@ std::vector<std::pair<std::string, float>> RuleAnalyzer::analyzePatternInteracti
     return interactions;
 }
 
-std::vector<std::pair<std::string, float>> RuleAnalyzer::predictPatternEvolution(const VulkanHIP::Grid3D& grid, int generations) {
+std::vector<std::pair<std::string, float>> RuleAnalyzer::predictPatternEvolution(const Grid3D& grid, int generations) {
     std::vector<std::pair<std::string, float>> predictions;
     std::map<std::string, int> patternCounts;
     
     // Create a copy of the grid for testing
-    auto testGrid = std::make_unique<VulkanHIP::Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
+    auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
     testGrid->setRules(grid.getRules());
     
     // Copy initial state
@@ -810,12 +812,12 @@ std::vector<std::pair<std::string, float>> RuleAnalyzer::predictPatternEvolution
     return predictions;
 }
 
-std::vector<std::string> RuleAnalyzer::classifyPatternStability(const VulkanHIP::Grid3D& grid) {
+std::vector<std::string> RuleAnalyzer::classifyPatternStability(const Grid3D& grid) {
     std::vector<std::string> classifications;
     std::map<std::string, float> stabilityScores;
     
     // Create a copy of the grid for testing
-    auto testGrid = std::make_unique<VulkanHIP::Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
+    auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
     testGrid->setRules(grid.getRules());
     
     // Copy initial state
@@ -860,11 +862,11 @@ std::vector<std::string> RuleAnalyzer::classifyPatternStability(const VulkanHIP:
     return classifications;
 }
 
-std::map<std::string, std::vector<std::string>> RuleAnalyzer::generatePatternDependencyGraph(const VulkanHIP::Grid3D& grid) {
+std::map<std::string, std::vector<std::string>> RuleAnalyzer::generatePatternDependencyGraph(const Grid3D& grid) {
     std::map<std::string, std::vector<std::string>> dependencies;
     
     // Create a copy of the grid for testing
-    auto testGrid = std::make_unique<VulkanHIP::Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
+    auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
     testGrid->setRules(grid.getRules());
     
     // Copy initial state
@@ -894,12 +896,12 @@ std::map<std::string, std::vector<std::string>> RuleAnalyzer::generatePatternDep
     return dependencies;
 }
 
-float RuleAnalyzer::calculatePatternInteractionScore(const VulkanHIP::Grid3D& grid, const std::string& pattern) {
+float RuleAnalyzer::calculatePatternInteractionScore(const Grid3D& grid, const std::string& pattern) {
     float score = 0.0f;
     int interactionCount = 0;
     
     // Create a copy of the grid for testing
-    auto testGrid = std::make_unique<VulkanHIP::Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
+    auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
     testGrid->setRules(grid.getRules());
     
     // Copy initial state
@@ -953,11 +955,11 @@ float RuleAnalyzer::calculatePatternInteractionScore(const VulkanHIP::Grid3D& gr
     return score;
 }
 
-std::vector<std::string> RuleAnalyzer::predictNextPatterns(const VulkanHIP::Grid3D& grid) {
+std::vector<std::string> RuleAnalyzer::predictNextPatterns(const Grid3D& grid) {
     std::vector<std::string> predictions;
     
     // Create a copy of the grid for testing
-    auto testGrid = std::make_unique<VulkanHIP::Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
+    auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
     testGrid->setRules(grid.getRules());
     
     // Copy initial state
@@ -980,13 +982,13 @@ std::vector<std::string> RuleAnalyzer::predictNextPatterns(const VulkanHIP::Grid
     return predictions;
 }
 
-float RuleAnalyzer::calculatePatternStabilityScore(const VulkanHIP::Grid3D& grid, const std::string& pattern) {
+float RuleAnalyzer::calculatePatternStabilityScore(const Grid3D& grid, const std::string& pattern) {
     float score = 0.0f;
     int patternCount = 0;
     int stableCount = 0;
     
     // Create a copy of the grid for testing
-    auto testGrid = std::make_unique<VulkanHIP::Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
+    auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
     testGrid->setRules(grid.getRules());
     
     // Copy initial state
@@ -1021,12 +1023,12 @@ float RuleAnalyzer::calculatePatternStabilityScore(const VulkanHIP::Grid3D& grid
     return score;
 }
 
-std::vector<std::string> RuleAnalyzer::findDependentPatterns(const VulkanHIP::Grid3D& grid, const std::string& pattern) {
+std::vector<std::string> RuleAnalyzer::findDependentPatterns(const Grid3D& grid, const std::string& pattern) {
     std::vector<std::string> dependencies;
     std::map<std::string, int> patternCounts;
     
     // Create a copy of the grid for testing
-    auto testGrid = std::make_unique<VulkanHIP::Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
+    auto testGrid = std::make_unique<Grid3D>(grid.getWidth(), grid.getHeight(), grid.getDepth());
     testGrid->setRules(grid.getRules());
     
     // Copy initial state
@@ -1192,4 +1194,7 @@ void RuleAnalyzer::generateRuleSpaceMap(const std::vector<AnalysisResult>& resul
     </script>
 </body>
 </html>
-)"; 
+)";
+}
+
+} // namespace VulkanHIP 
