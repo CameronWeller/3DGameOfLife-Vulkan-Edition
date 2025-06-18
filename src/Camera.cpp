@@ -17,14 +17,14 @@ Camera::Camera(GLFWwindow* window, float fov, float near, float far)
       minZoom(1.0f),
       maxZoom(45.0f),
       orbitDistance(100.0f),
-      mode(CameraMode::Fly),
+      mode(VulkanHIP::CameraMode::Fly),
       grid_(nullptr) {
     updateCameraVectors();
 }
 
 void Camera::update(float deltaTime) {
     switch (mode) {
-        case CameraMode::Fly:
+        case VulkanHIP::CameraMode::Fly:
             // Keyboard input for flying
             if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
                 moveForward(movementSpeed * deltaTime);
@@ -40,7 +40,7 @@ void Camera::update(float deltaTime) {
                 moveUp(-movementSpeed * deltaTime);
             break;
             
-        case CameraMode::Orbit:
+        case VulkanHIP::CameraMode::Orbit:
             // Mouse right button for orbiting
             if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) {
                 double xpos, ypos;
@@ -57,7 +57,7 @@ void Camera::update(float deltaTime) {
             }
             break;
             
-        case CameraMode::Pan:
+        case VulkanHIP::CameraMode::Pan:
             // Mouse middle button for panning
             if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS) {
                 double xpos, ypos;
@@ -74,7 +74,7 @@ void Camera::update(float deltaTime) {
             }
             break;
             
-        case CameraMode::FirstPerson:
+        case VulkanHIP::CameraMode::FirstPerson:
             // Similar to Fly but with collision detection
             if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
                 glm::vec3 newPos = position + front * movementSpeed * deltaTime;
@@ -114,7 +114,7 @@ void Camera::update(float deltaTime) {
 
 glm::mat4 Camera::getViewMatrix() const {
     switch (mode) {
-        case CameraMode::Orbit:
+        case VulkanHIP::CameraMode::Orbit:
             return glm::lookAt(position, target, up);
         default:
             return glm::lookAt(position, position + front, up);
@@ -174,7 +174,7 @@ void Camera::pan(float x, float y) {
 }
 
 void Camera::processMouseMovement(float xoffset, float yoffset, bool constrainPitch) {
-    if (mode == CameraMode::Orbit) {
+    if (mode == VulkanHIP::CameraMode::Orbit) {
         orbit(xoffset, yoffset);
     } else {
         xoffset *= mouseSensitivity;
@@ -201,7 +201,7 @@ void Camera::processMouseScroll(float yoffset) {
     if (zoom > maxZoom)
         zoom = maxZoom;
         
-    if (mode == CameraMode::Orbit) {
+    if (mode == VulkanHIP::CameraMode::Orbit) {
         orbitDistance -= yoffset * 5.0f;
         if (orbitDistance < 1.0f)
             orbitDistance = 1.0f;
@@ -209,9 +209,9 @@ void Camera::processMouseScroll(float yoffset) {
     }
 }
 
-void Camera::setMode(CameraMode newMode) {
+void Camera::setMode(VulkanHIP::CameraMode newMode) {
     mode = newMode;
-    if (mode == CameraMode::Orbit) {
+    if (mode == VulkanHIP::CameraMode::Orbit) {
         updateOrbitPosition();
     }
 }
