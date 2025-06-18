@@ -40,6 +40,7 @@
 #include "VulkanError.h"
 #include "VoxelData.h"
 #include "GameRules.h"
+#include "SwapChainSupportDetails.h"
 
 namespace VulkanHIP {
 
@@ -99,15 +100,6 @@ private:
 using Pipeline = VulkanResource<VkPipeline, struct PipelineDeleter>;
 using PipelineLayout = VulkanResource<VkPipelineLayout, struct PipelineLayoutDeleter>;
 using ShaderModule = VulkanResource<VkShaderModule, struct ShaderModuleDeleter>;
-
-/**
- * @brief Details about swap chain capabilities
- */
-struct SwapChainSupportDetails {
-    VkSurfaceCapabilitiesKHR capabilities;
-    std::vector<VkSurfaceFormatKHR> formats;
-    std::vector<VkPresentModeKHR> presentModes;
-};
 
 /**
  * @brief Game of Life push constants for compute shader
