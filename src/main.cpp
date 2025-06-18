@@ -1,6 +1,7 @@
 #include "VulkanEngine.h"
 #include "WindowManager.h"
 #include "Logger.h"
+#include "Grid3D.h"
 #include <iostream>
 #include <stdexcept>
 #include <chrono>
