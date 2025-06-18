@@ -282,11 +282,11 @@ private:
                     std::cout << "Camera reset to default position" << std::endl;
                     break;
                 case GLFW_KEY_1:
-                    camera->setMode(CameraMode::Fly);
+                    camera->setMode(VulkanHIP::CameraMode::Fly);
                     std::cout << "Camera mode: Fly" << std::endl;
                     break;
                 case GLFW_KEY_2:
-                    camera->setMode(CameraMode::Orbit);
+                    camera->setMode(VulkanHIP::CameraMode::Orbit);
                     std::cout << "Camera mode: Orbit" << std::endl;
                     break;
             }
@@ -330,7 +330,7 @@ private:
         // Initialize camera FIRST
         camera = std::make_unique<Camera>(windowManager->getWindow(), 45.0f, 0.1f, 100.0f);
         camera->setPosition(glm::vec3(0.0f, 0.0f, 3.0f));   // Simple: 3 units back along Z-axis
-        camera->setMode(CameraMode::Fly);
+        camera->setMode(VulkanHIP::CameraMode::Fly);
         
         std::cout << "Camera initialized" << std::endl;
         

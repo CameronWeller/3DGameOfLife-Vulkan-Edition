@@ -184,54 +184,77 @@ void UI::render() {
         ImGui::SetNextWindowBgAlpha(0.35f);
         
         if (ImGui::Begin("Camera Mode", nullptr, window_flags)) {
-            CameraMode mode = engine_->getCamera()->getMode();
+            VulkanHIP::CameraMode mode = engine_->getCamera()->getMode();
             const char* modeText = "";
             ImVec4 modeColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
             
             switch (mode) {
-                case CameraMode::Fly:
+                case VulkanHIP::CameraMode::Fly:
                     modeText = "Fly Mode";
                     modeColor = ImVec4(0.0f, 0.8f, 0.0f, 1.0f);
                     break;
-                case CameraMode::Orbit:
+                case VulkanHIP::CameraMode::Orbit:
                     modeText = "Orbit Mode";
                     modeColor = ImVec4(0.0f, 0.6f, 1.0f, 1.0f);
                     break;
-                case CameraMode::Pan:
+                case VulkanHIP::CameraMode::Pan:
                     modeText = "Pan Mode";
                     modeColor = ImVec4(1.0f, 0.6f, 0.0f, 1.0f);
                     break;
-                case CameraMode::FirstPerson:
-                    modeText = "First Person Mode";
-                    modeColor = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
+                case VulkanHIP::CameraMode::FirstPerson:
+                    modeText = "First Person";
+                    modeColor = ImVec4(0.8f, 0.0f, 0.8f, 1.0f);
                     break;
             }
             
-            ImGui::PushStyleColor(ImGuiCol_Text, modeColor);
-            ImGui::Text("%s", modeText);
-            ImGui::PopStyleColor();
+            ImGui::TextColored(modeColor, "%s", modeText);
+        }
+        ImGui::End();
+    }
+    
+    // Camera mode controls overlay
+    {
+        ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration | 
+                                      ImGuiWindowFlags_AlwaysAutoResize | 
+                                      ImGuiWindowFlags_NoSavedSettings |
+                                      ImGuiWindowFlags_NoFocusOnAppearing |
+                                      ImGuiWindowFlags_NoNav |
+                                      ImGuiWindowFlags_NoMove;
+        
+        const float PAD = 10.0f;
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImVec2 work_pos = viewport->WorkPos;
+        ImVec2 work_size = viewport->WorkSize;
+        ImVec2 window_pos = ImVec2(work_pos.x + PAD, work_pos.y + work_size.y - PAD);
+        ImVec2 window_pos_pivot = ImVec2(0.0f, 1.0f);
+        ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
+        ImGui::SetNextWindowBgAlpha(0.35f);
+        
+        if (ImGui::Begin("Camera Controls", nullptr, window_flags)) {
+            VulkanHIP::CameraMode mode = engine_->getCamera()->getMode();
+            const char* modeText = "";
+            ImVec4 modeColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
             
-            // Add mode-specific controls
             switch (mode) {
-                case CameraMode::Fly:
-                    ImGui::Text("WASD: Move");
-                    ImGui::Text("Space/Ctrl: Up/Down");
-                    ImGui::Text("Mouse: Look");
+                case VulkanHIP::CameraMode::Fly:
+                    modeText = "Fly Mode";
+                    modeColor = ImVec4(0.0f, 0.8f, 0.0f, 1.0f);
                     break;
-                case CameraMode::Orbit:
-                    ImGui::Text("Right Mouse: Orbit");
-                    ImGui::Text("Scroll: Distance");
+                case VulkanHIP::CameraMode::Orbit:
+                    modeText = "Orbit Mode";
+                    modeColor = ImVec4(0.0f, 0.6f, 1.0f, 1.0f);
                     break;
-                case CameraMode::Pan:
-                    ImGui::Text("Middle Mouse: Pan");
-                    ImGui::Text("Scroll: Zoom");
+                case VulkanHIP::CameraMode::Pan:
+                    modeText = "Pan Mode";
+                    modeColor = ImVec4(1.0f, 0.6f, 0.0f, 1.0f);
                     break;
-                case CameraMode::FirstPerson:
-                    ImGui::Text("WASD: Move");
-                    ImGui::Text("Space/Ctrl: Up/Down");
-                    ImGui::Text("Mouse: Look");
+                case VulkanHIP::CameraMode::FirstPerson:
+                    modeText = "First Person";
+                    modeColor = ImVec4(0.8f, 0.0f, 0.8f, 1.0f);
                     break;
             }
+            
+            ImGui::TextColored(modeColor, "%s", modeText);
         }
         ImGui::End();
     }
@@ -265,19 +288,19 @@ void UI::handleInput() {
     static bool keyPressed = false;
     if (!keyPressed) {
         if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) {
-            engine_->getCamera()->setMode(CameraMode::Fly);
+            engine_->getCamera()->setMode(VulkanHIP::CameraMode::Fly);
             keyPressed = true;
         }
         else if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) {
-            engine_->getCamera()->setMode(CameraMode::Orbit);
+            engine_->getCamera()->setMode(VulkanHIP::CameraMode::Orbit);
             keyPressed = true;
         }
         else if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) {
-            engine_->getCamera()->setMode(CameraMode::Pan);
+            engine_->getCamera()->setMode(VulkanHIP::CameraMode::Pan);
             keyPressed = true;
         }
         else if (glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS) {
-            engine_->getCamera()->setMode(CameraMode::FirstPerson);
+            engine_->getCamera()->setMode(VulkanHIP::CameraMode::FirstPerson);
             keyPressed = true;
         }
     }
@@ -407,7 +430,7 @@ void UI::renderControls() {
             if (i > 0) ImGui::SameLine();
             if (ImGui::Button(modes[i], ImVec2(100, 0))) {
                 cameraMode = i;
-                engine_->getCamera()->setMode(static_cast<CameraMode>(cameraMode));
+                engine_->getCamera()->setMode(static_cast<VulkanHIP::CameraMode>(cameraMode));
             }
             if (cameraMode == i) {
                 ImGui::GetWindowDrawList()->AddRect(
@@ -434,7 +457,7 @@ void UI::renderControls() {
         }
         
         // Orbit mode settings
-        if (cameraMode == static_cast<int>(CameraMode::Orbit)) {
+        if (cameraMode == static_cast<int>(VulkanHIP::CameraMode::Orbit)) {
             static float orbitDistance = engine_->getCamera()->getOrbitDistance();
             if (ImGui::SliderFloat("Orbit Distance", &orbitDistance, 1.0f, 500.0f)) {
                 engine_->getCamera()->setOrbitDistance(orbitDistance);
