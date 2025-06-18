@@ -276,7 +276,7 @@ void RuleAnalyzer::generateRuleReport(const AnalysisResult& result, const std::s
     
     for (const auto& pattern : result.observedPatterns) {
         file << "            <li>" << pattern << " (Frequency: " 
-             << result.patternFrequencies[pattern] << ")</li>\n";
+             << result.patternFrequencies.at(pattern) << ")</li>\n";
     }
     
     file << R"(

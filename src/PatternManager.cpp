@@ -67,8 +67,12 @@ bool savePattern(const std::string& filename, const Pattern& pattern) {
     file.write(pattern.name.c_str(), header.nameLength);
     file.write(pattern.description.c_str(), header.descriptionLength);
     
-    // Write cell data
-    file.write(reinterpret_cast<const char*>(pattern.cells.data()), pattern.cells.size());
+    // Write cell data - convert bool vector to char array for file writing
+    std::vector<char> tempData(pattern.cells.size());
+    for (size_t i = 0; i < pattern.cells.size(); ++i) {
+        tempData[i] = pattern.cells[i] ? 1 : 0;
+    }
+    file.write(tempData.data(), tempData.size());
     
     return file.good();
 }
