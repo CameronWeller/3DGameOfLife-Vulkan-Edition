@@ -84,18 +84,15 @@ void VoxelRenderer::createVoxelGeometry() {
     VkDeviceSize vertexBufferSize = sizeof(vertices);
     
     // Create staging buffer for vertex data
-    auto vertexStagingBuffer = memoryManager_->createBuffer(
+    auto vertexStagingBuffer = memoryManager_->createHostVisibleBuffer(
         vertexBufferSize,
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
-        VMA_ALLOCATION_CREATE_MAPPED_BIT
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT
     );
     
     // Copy vertex data to staging buffer
-    void* vertexData = memoryManager_->mapBuffer(vertexStagingBuffer);
+    void* vertexData = memoryManager_->mapMemory(vertexStagingBuffer);
     memcpy(vertexData, vertices.data(), vertexBufferSize);
-    memoryManager_->unmapBuffer(vertexStagingBuffer);
+    memoryManager_->unmapMemory(vertexStagingBuffer);
     
     // Create device-local vertex buffer
     voxelVertexBufferAllocation_ = memoryManager_->createBuffer(
@@ -109,18 +106,15 @@ void VoxelRenderer::createVoxelGeometry() {
     VkDeviceSize indexBufferSize = sizeof(indices);
     
     // Create staging buffer for index data
-    auto indexStagingBuffer = memoryManager_->createBuffer(
+    auto indexStagingBuffer = memoryManager_->createHostVisibleBuffer(
         indexBufferSize,
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
-        VMA_ALLOCATION_CREATE_MAPPED_BIT
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT
     );
     
     // Copy index data to staging buffer
-    void* indexData = memoryManager_->mapBuffer(indexStagingBuffer);
+    void* indexData = memoryManager_->mapMemory(indexStagingBuffer);
     memcpy(indexData, indices.data(), indexBufferSize);
-    memoryManager_->unmapBuffer(indexStagingBuffer);
+    memoryManager_->unmapMemory(indexStagingBuffer);
     
     // Create device-local index buffer
     voxelIndexBufferAllocation_ = memoryManager_->createBuffer(
@@ -171,12 +165,9 @@ void VoxelRenderer::createDescriptorResources() {
 
     // Create uniform buffer for matrices
     VkDeviceSize uniformBufferSize = sizeof(UniformBufferObject);
-    uniformBufferAllocation_ = memoryManager_->createBuffer(
+    uniformBufferAllocation_ = memoryManager_->createHostVisibleBuffer(
         uniformBufferSize,
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
-        VMA_ALLOCATION_CREATE_MAPPED_BIT
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
     );
     uniformBuffer_ = uniformBufferAllocation_.buffer;
 }
@@ -203,19 +194,16 @@ void VoxelRenderer::updateVoxelInstances(const VoxelData& voxelData) {
         }
 
         // Create new instance buffer - use host-visible for frequent updates
-        voxelInstanceBufferAllocation_ = memoryManager_->createBuffer(
+        voxelInstanceBufferAllocation_ = memoryManager_->createHostVisibleBuffer(
             bufferSize,
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
-            VMA_ALLOCATION_CREATE_MAPPED_BIT
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
         );
         voxelInstanceBuffer_ = voxelInstanceBufferAllocation_.buffer;
 
         // Copy instance data directly to host-visible buffer
-        void* instanceData = memoryManager_->mapBuffer(voxelInstanceBufferAllocation_);
+        void* instanceData = memoryManager_->mapMemory(voxelInstanceBufferAllocation_);
         memcpy(instanceData, voxelInstances_.data(), bufferSize);
-        memoryManager_->unmapBuffer(voxelInstanceBufferAllocation_);
+        memoryManager_->unmapMemory(voxelInstanceBufferAllocation_);
     }
 }
 
@@ -254,19 +242,16 @@ void VoxelRenderer::updateFromGrid3D(const class Grid3D& grid) {
         }
 
         // Create new instance buffer optimized for frequent updates
-        voxelInstanceBufferAllocation_ = memoryManager_->createBuffer(
+        voxelInstanceBufferAllocation_ = memoryManager_->createHostVisibleBuffer(
             bufferSize,
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
-            VMA_ALLOCATION_CREATE_MAPPED_BIT
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
         );
         voxelInstanceBuffer_ = voxelInstanceBufferAllocation_.buffer;
 
         // Copy instance data
-        void* instanceData = memoryManager_->mapBuffer(voxelInstanceBufferAllocation_);
+        void* instanceData = memoryManager_->mapMemory(voxelInstanceBufferAllocation_);
         memcpy(instanceData, voxelInstances_.data(), bufferSize);
-        memoryManager_->unmapBuffer(voxelInstanceBufferAllocation_);
+        memoryManager_->unmapMemory(voxelInstanceBufferAllocation_);
     }
 }
 
@@ -277,9 +262,9 @@ void VoxelRenderer::updateUniformBuffer(const glm::mat4& viewMatrix, const glm::
     ubo.model = glm::mat4(1.0f); // Identity for now, can be used for global transformations
     
     // Copy to uniform buffer
-    void* uniformData = memoryManager_->mapBuffer(uniformBufferAllocation_);
+    void* uniformData = memoryManager_->mapMemory(uniformBufferAllocation_);
     memcpy(uniformData, &ubo, sizeof(ubo));
-    memoryManager_->unmapBuffer(uniformBufferAllocation_);
+    memoryManager_->unmapMemory(uniformBufferAllocation_);
 }
 
 void VoxelRenderer::renderVoxels(VkCommandBuffer commandBuffer) {
