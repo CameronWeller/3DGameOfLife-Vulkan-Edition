@@ -1,4 +1,5 @@
 #include "RuleAnalyzer.h"
+#include "Grid3D.h"
 #include <fstream>
 #include <algorithm>
 #include <cmath>

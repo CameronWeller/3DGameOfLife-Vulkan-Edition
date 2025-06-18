@@ -7,7 +7,6 @@
 #include <fstream>
 #include <ctime>
 #include <glm/glm.hpp>
-#include "Grid3D.h"
 #include "GameRules.h"
 
 namespace PatternManager {
