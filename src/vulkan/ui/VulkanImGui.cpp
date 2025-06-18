@@ -60,12 +60,12 @@ void VulkanImGui::initialize() {
         throw std::runtime_error("Failed to initialize ImGui Vulkan backend!");
     }
 
-    // Upload fonts - use memory manager for command buffer operations
-    VkCommandBuffer commandBuffer = vulkanContext_->getMemoryManager().beginSingleTimeCommands();
+    // Upload fonts - use VulkanContext's command buffer methods
+    VkCommandBuffer commandBuffer = vulkanContext_->beginSingleTimeCommands();
     if (!ImGui_ImplVulkan_CreateFontsTexture()) {
         throw std::runtime_error("Failed to create ImGui fonts texture!");
     }
-    vulkanContext_->getMemoryManager().endSingleTimeCommands(commandBuffer);
+    vulkanContext_->endSingleTimeCommands(commandBuffer);
     
     // Note: Font upload cleanup is handled automatically in newer ImGui versions
     
