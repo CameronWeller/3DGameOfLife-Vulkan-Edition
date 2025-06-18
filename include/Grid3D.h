@@ -118,8 +118,8 @@ private:
     // Vulkan resources
     VkBuffer stateBuffer;
     VkBuffer nextStateBuffer;
-    VkDeviceMemory stateMemory;
-    VkDeviceMemory nextStateMemory;
+    VmaAllocation stateAllocation;  // VMA allocation for state buffer
+    VmaAllocation nextStateAllocation;  // VMA allocation for next state buffer
     VkDescriptorSet descriptorSet;
     VkPipeline computePipeline;
     VkPipelineLayout pipelineLayout;
