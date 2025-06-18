@@ -5,13 +5,17 @@
 #include <array>
 #include <memory>
 #include "GameRules.h"
-#include "PatternManager.h"
 #include "VulkanError.h"
 #include <vk_mem_alloc.h>
 #include <glm/glm.hpp>
 #include <string>
 
 namespace VulkanHIP {
+
+// Forward declaration to avoid circular dependency
+namespace PatternManager {
+    struct Pattern;
+}
 
 struct ComputePushConstants {
     uint32_t width;
