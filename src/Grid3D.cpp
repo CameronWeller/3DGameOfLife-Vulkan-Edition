@@ -10,6 +10,19 @@
 
 namespace VulkanHIP {
 
+// Helper function to map rule set to uint32_t index for GPU
+static uint32_t getRuleSetIndex(const GameRules::RuleSet& ruleSet) {
+    if (ruleSet.name == "5766") return 0;
+    else if (ruleSet.name == "4555") return 1;
+    else if (ruleSet.name == "2333") return 2;
+    else if (ruleSet.name == "3444") return 3;
+    else if (ruleSet.name == "6777") return 4;
+    else if (ruleSet.name == "7888") return 5;
+    else if (ruleSet.name == "4556") return 6;
+    else if (ruleSet.name == "5667") return 7;
+    else return 0; // Default to 5766
+}
+
 Grid3D::Grid3D(uint32_t width, uint32_t height, uint32_t depth)
     : width(width), height(height), depth(depth),
       population(0), generation(0),
@@ -302,6 +315,7 @@ void Grid3D::update() {
     pushConstants.height = height;
     pushConstants.depth = depth;
     pushConstants.time = static_cast<float>(glfwGetTime());
+    pushConstants.ruleSet = getRuleSetIndex(currentRuleSet);
     
     vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pushConstants);
     
@@ -451,7 +465,7 @@ void Grid3D::setRuleSet(const GameRules::RuleSet& ruleSet) {
     pushConstants.height = height;
     pushConstants.depth = depth;
     pushConstants.time = static_cast<float>(glfwGetTime());
-    pushConstants.ruleSet = 0; // Will map GameRules::RuleSet to uint32_t later
+    pushConstants.ruleSet = getRuleSetIndex(currentRuleSet);
     
     // Update push constants in the compute pipeline
     VkCommandBuffer commandBuffer = VulkanHIP::VulkanEngine::getInstance()->beginSingleTimeCommands();
@@ -611,7 +625,7 @@ bool Grid3D::savePattern(const std::string& filename) const {
         "Saved pattern from simulation",
         width, height, depth,
         currentState,
-        0, // ruleSet index - will need to map GameRules::RuleSet to uint32_t
+        getRuleSetIndex(currentRuleSet),
         static_cast<uint32_t>(boundaryType)
     );
     
@@ -624,7 +638,7 @@ PatternManager::Pattern Grid3D::getCurrentPattern() const {
         "Current simulation state",
         width, height, depth,
         currentState,
-        0, // ruleSet index - will need to map GameRules::RuleSet to uint32_t
+        getRuleSetIndex(currentRuleSet),
         static_cast<uint32_t>(boundaryType)
     );
 }
@@ -1033,7 +1047,7 @@ void Grid3D::recordComputeCommands() {
     pushConstants.height = height;
     pushConstants.depth = depth;
     pushConstants.time = 0.0f;  // Updated during update()
-    pushConstants.ruleSet = 0; // Will map GameRules::RuleSet to uint32_t later
+    pushConstants.ruleSet = getRuleSetIndex(currentRuleSet);
     
     vkCmdPushConstants(computeCommandBuffer, pipelineLayout,
         VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants), &pushConstants);
