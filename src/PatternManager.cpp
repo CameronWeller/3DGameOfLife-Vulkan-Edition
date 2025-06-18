@@ -115,7 +115,7 @@ std::unique_ptr<Pattern> loadPattern(const std::string& filename) {
         header.width, header.height, header.depth,
         cells,
         header.ruleSet,
-        static_cast<GameRules::BoundaryType>(header.boundaryType)
+        static_cast<uint32_t>(header.boundaryType)
     );
     
     if (!validatePattern(*pattern)) {

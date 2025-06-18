@@ -45,7 +45,6 @@
 #include "vulkan/resources/VulkanImageManager.h"
 #include "vulkan/rendering/VulkanSwapChain.h"
 #include "vulkan/rendering/VulkanRenderer.h"
-#include "vulkan/rendering/VulkanFramebuffer.h"
 #include "vulkan/compute/VulkanCompute.h"
 #include "vulkan/ui/VulkanImGui.h"
 #include "vulkan/resources/ShaderManager.h"
@@ -61,7 +60,6 @@ class VulkanImageManager;
 class VulkanSwapChain;
 class VulkanRenderer;
 class VoxelRenderer;
-class VulkanFramebuffer;
 class VulkanCompute;
 class VulkanImGui;
 class ShaderManager;
@@ -270,7 +268,6 @@ public:
     VulkanSwapChain* getSwapChain() const { return swapChain_.get(); }
     VulkanRenderer* getRenderer() const { return renderer_.get(); }
     VoxelRenderer* getVoxelRenderer() const { return voxelRenderer_.get(); }
-    VulkanFramebuffer* getFramebuffer() const { return framebuffer_.get(); }
     VulkanCompute* getCompute() const { return compute_.get(); }
     VulkanImGui* getImGui() const { return imGui_.get(); }
     
@@ -386,7 +383,6 @@ private:
     std::unique_ptr<VulkanSwapChain> swapChain_;
     std::unique_ptr<VulkanRenderer> renderer_;
     std::unique_ptr<VoxelRenderer> voxelRenderer_;
-    std::unique_ptr<VulkanFramebuffer> framebuffer_;
     std::unique_ptr<VulkanCompute> compute_;
     std::unique_ptr<VulkanImGui> imGui_;
     std::unique_ptr<ShaderManager> shaderManager_;
