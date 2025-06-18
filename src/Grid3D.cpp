@@ -17,7 +17,7 @@ Grid3D::Grid3D(uint32_t width, uint32_t height, uint32_t depth)
       rules_(GameRules::RULE_5766),
       boundaryType(GameRules::BoundaryType::TOROIDAL),
       stateBuffer(VK_NULL_HANDLE), nextStateBuffer(VK_NULL_HANDLE),
-      stateMemory(VK_NULL_HANDLE), nextStateMemory(VK_NULL_HANDLE),
+      stateAllocation(VK_NULL_HANDLE), nextStateAllocation(VK_NULL_HANDLE),
       computeCommandBuffer(VK_NULL_HANDLE),
       descriptorSetLayout(VK_NULL_HANDLE),
       descriptorPool(VK_NULL_HANDLE),
@@ -77,16 +77,12 @@ void Grid3D::createBuffers() {
     allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
     allocInfo.flags = 0; // Device-local, no host access needed
     
-    VmaAllocation stateAllocation;
     VK_CHECK(vmaCreateBuffer(memoryManager.getAllocator(), &bufferInfo, &allocInfo,
         &stateBuffer, &stateAllocation, nullptr));
-    stateMemory = VK_NULL_HANDLE; // VMA handles memory internally
     
     // Create next state buffer
-    VmaAllocation nextStateAllocation;
     VK_CHECK(vmaCreateBuffer(memoryManager.getAllocator(), &bufferInfo, &allocInfo,
         &nextStateBuffer, &nextStateAllocation, nullptr));
-    nextStateMemory = VK_NULL_HANDLE; // VMA handles memory internally
     
     // Create staging buffer for initial data
     auto stagingBuffer = memoryManager.createStagingBuffer(bufferSize);
@@ -113,24 +109,18 @@ void Grid3D::createBuffers() {
 }
 
 void Grid3D::destroyBuffers() {
-    if (stateBuffer != VK_NULL_HANDLE) {
-        // Note: In real implementation, stateAllocation should be stored as member variable
-        // For now, we'll use vkDestroyBuffer since VMA allocation is not stored
-        vkDestroyBuffer(VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getDevice(), stateBuffer, nullptr);
-        if (stateMemory != VK_NULL_HANDLE) {
-            vkFreeMemory(VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getDevice(), stateMemory, nullptr);
-        }
+    auto& memoryManager = VulkanHIP::VulkanEngine::getInstance()->getMemoryManager();
+    
+    if (stateBuffer != VK_NULL_HANDLE && stateAllocation != VK_NULL_HANDLE) {
+        vmaDestroyBuffer(memoryManager.getAllocator(), stateBuffer, stateAllocation);
         stateBuffer = VK_NULL_HANDLE;
-        stateMemory = VK_NULL_HANDLE;
+        stateAllocation = VK_NULL_HANDLE;
     }
     
-    if (nextStateBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getDevice(), nextStateBuffer, nullptr);
-        if (nextStateMemory != VK_NULL_HANDLE) {
-            vkFreeMemory(VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getDevice(), nextStateMemory, nullptr);
-        }
+    if (nextStateBuffer != VK_NULL_HANDLE && nextStateAllocation != VK_NULL_HANDLE) {
+        vmaDestroyBuffer(memoryManager.getAllocator(), nextStateBuffer, nextStateAllocation);
         nextStateBuffer = VK_NULL_HANDLE;
-        nextStateMemory = VK_NULL_HANDLE;
+        nextStateAllocation = VK_NULL_HANDLE;
     }
 }
 
@@ -347,7 +337,7 @@ void Grid3D::update() {
     
     // Swap buffers
     std::swap(stateBuffer, nextStateBuffer);
-    std::swap(stateMemory, nextStateMemory);
+    std::swap(stateAllocation, nextStateAllocation);
     
     // Update descriptor set with new buffer bindings
     VkDescriptorBufferInfo stateBufferInfo{};
