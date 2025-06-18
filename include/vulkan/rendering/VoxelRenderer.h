@@ -6,7 +6,6 @@
 #include <glm/glm.hpp>
 #include "VoxelData.h"
 #include "VulkanMemoryManager.h"
-#include "VulkanBufferManager.h"
 #include "VulkanError.h"
 
 namespace VulkanHIP {
