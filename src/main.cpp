@@ -35,18 +35,40 @@ int main() {
         
         logger.log(LogLevel::Info, "Controls:\n  ESC - Exit");
         
+        // Create and initialize 3D Game of Life grid
+        auto grid = std::make_unique<VulkanHIP::Grid3D>(32, 32, 32);
+        grid->randomize(0.3f); // 30% density for initial pattern
+        
+        logger.log(LogLevel::Info, "3D Game of Life grid initialized (32x32x32, 30% density)");
+        
         // Main render loop
         auto lastFrameTime = std::chrono::high_resolution_clock::now();
+        auto lastUpdateTime = lastFrameTime;
         
         while (!g_shouldClose && !engine.getWindowManager()->shouldClose()) {
+            auto currentTime = std::chrono::high_resolution_clock::now();
+            
             // Handle input and window events
             engine.getWindowManager()->pollEvents();
+            
+            // Update 3D Game of Life simulation every 100ms
+            auto updateDuration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                currentTime - lastUpdateTime).count();
+            if (updateDuration >= 100) { // Update at 10 FPS
+                grid->update();
+                
+                // Update voxel renderer with new grid state
+                if (engine.getVoxelRenderer()) {
+                    grid->updateVoxelRenderer(*engine.getVoxelRenderer());
+                }
+                
+                lastUpdateTime = currentTime;
+            }
             
             // Render frame
             engine.drawFrame();
             
             // Cap framerate to ~60fps when idle
-            auto currentTime = std::chrono::high_resolution_clock::now();
             auto frameDuration = std::chrono::duration_cast<std::chrono::milliseconds>(
                 currentTime - lastFrameTime).count();
             
@@ -54,7 +76,7 @@ int main() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(16 - frameDuration));
             }
             
-            lastFrameTime = std::chrono::high_resolution_clock::now();
+            lastFrameTime = currentTime;
         }
         
         // Wait for device idle before cleanup
