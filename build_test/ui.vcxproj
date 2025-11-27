@@ -1,0 +1,325 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="MinSizeRel|x64">
+      <Configuration>MinSizeRel</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RelWithDebInfo|x64">
+      <Configuration>RelWithDebInfo</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{A99F3FF9-7609-3722-B8F6-B9C61AE6B7A0}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <VcpkgEnabled>false</VcpkgEnabled>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <Platform>x64</Platform>
+    <ProjectName>ui</ProjectName>
+    <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="do_not_import_user.props" Condition="exists('do_not_import_user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\Debug\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ui.dir\Debug\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ui</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\Release\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ui.dir\Release\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ui</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\MinSizeRel\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">ui.dir\MinSizeRel\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">ui</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\RelWithDebInfo\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">ui.dir\RelWithDebInfo\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">ui</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">.lib</TargetExt>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Dev\3DGameOfLife-Vulkan-Edition\src;C:\Dev\3DGameOfLife-Vulkan-Edition\include;C:\Dev\3DGameOfLife-Vulkan-Edition\third_party\VulkanMemoryAllocator\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /external:I "C:/Dev/3DGameOfLife-Vulkan-Edition/build_test/vcpkg_installed/x64-windows/include" /external:I "C:/Dev/3DGameOfLife-Vulkan-Edition/build_test/vcpkg_installed/x64-windows/include/vma" /utf-8</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4100;4189;4251;4275</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>Disabled</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level4</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;DEBUG;_DEBUG;GLFW_DLL;SPDLOG_SHARED_LIB;SPDLOG_COMPILED_LIB;SPDLOG_FMT_EXTERNAL;FMT_SHARED;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;DEBUG;GLFW_DLL;SPDLOG_SHARED_LIB;SPDLOG_COMPILED_LIB;SPDLOG_FMT_EXTERNAL;FMT_SHARED;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Dev\3DGameOfLife-Vulkan-Edition\src;C:\Dev\3DGameOfLife-Vulkan-Edition\include;C:\Dev\3DGameOfLife-Vulkan-Edition\third_party\VulkanMemoryAllocator\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include\vma;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Dev\3DGameOfLife-Vulkan-Edition\src;C:\Dev\3DGameOfLife-Vulkan-Edition\include;C:\Dev\3DGameOfLife-Vulkan-Edition\third_party\VulkanMemoryAllocator\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include\vma;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Dev\3DGameOfLife-Vulkan-Edition\src;C:\Dev\3DGameOfLife-Vulkan-Edition\include;C:\Dev\3DGameOfLife-Vulkan-Edition\third_party\VulkanMemoryAllocator\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /external:I "C:/Dev/3DGameOfLife-Vulkan-Edition/build_test/vcpkg_installed/x64-windows/include" /external:I "C:/Dev/3DGameOfLife-Vulkan-Edition/build_test/vcpkg_installed/x64-windows/include/vma" /utf-8</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <DisableSpecificWarnings>4100;4189;4251;4275</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level4</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_NDEBUG;GLFW_DLL;SPDLOG_SHARED_LIB;SPDLOG_COMPILED_LIB;SPDLOG_FMT_EXTERNAL;FMT_SHARED;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_NDEBUG;GLFW_DLL;SPDLOG_SHARED_LIB;SPDLOG_COMPILED_LIB;SPDLOG_FMT_EXTERNAL;FMT_SHARED;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Dev\3DGameOfLife-Vulkan-Edition\src;C:\Dev\3DGameOfLife-Vulkan-Edition\include;C:\Dev\3DGameOfLife-Vulkan-Edition\third_party\VulkanMemoryAllocator\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include\vma;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Dev\3DGameOfLife-Vulkan-Edition\src;C:\Dev\3DGameOfLife-Vulkan-Edition\include;C:\Dev\3DGameOfLife-Vulkan-Edition\third_party\VulkanMemoryAllocator\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include\vma;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Dev\3DGameOfLife-Vulkan-Edition\src;C:\Dev\3DGameOfLife-Vulkan-Edition\include;C:\Dev\3DGameOfLife-Vulkan-Edition\third_party\VulkanMemoryAllocator\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /external:I "C:/Dev/3DGameOfLife-Vulkan-Edition/build_test/vcpkg_installed/x64-windows/include" /external:I "C:/Dev/3DGameOfLife-Vulkan-Edition/build_test/vcpkg_installed/x64-windows/include/vma" /utf-8</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <DisableSpecificWarnings>4100;4189;4251;4275</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>MinSpace</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level4</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;GLFW_DLL;SPDLOG_SHARED_LIB;SPDLOG_COMPILED_LIB;SPDLOG_FMT_EXTERNAL;FMT_SHARED;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;GLFW_DLL;SPDLOG_SHARED_LIB;SPDLOG_COMPILED_LIB;SPDLOG_FMT_EXTERNAL;FMT_SHARED;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Dev\3DGameOfLife-Vulkan-Edition\src;C:\Dev\3DGameOfLife-Vulkan-Edition\include;C:\Dev\3DGameOfLife-Vulkan-Edition\third_party\VulkanMemoryAllocator\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include\vma;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Dev\3DGameOfLife-Vulkan-Edition\src;C:\Dev\3DGameOfLife-Vulkan-Edition\include;C:\Dev\3DGameOfLife-Vulkan-Edition\third_party\VulkanMemoryAllocator\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include\vma;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Dev\3DGameOfLife-Vulkan-Edition\src;C:\Dev\3DGameOfLife-Vulkan-Edition\include;C:\Dev\3DGameOfLife-Vulkan-Edition\third_party\VulkanMemoryAllocator\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /external:I "C:/Dev/3DGameOfLife-Vulkan-Edition/build_test/vcpkg_installed/x64-windows/include" /external:I "C:/Dev/3DGameOfLife-Vulkan-Edition/build_test/vcpkg_installed/x64-windows/include/vma" /utf-8</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4100;4189;4251;4275</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level4</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;GLFW_DLL;SPDLOG_SHARED_LIB;SPDLOG_COMPILED_LIB;SPDLOG_FMT_EXTERNAL;FMT_SHARED;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;GLFW_DLL;SPDLOG_SHARED_LIB;SPDLOG_COMPILED_LIB;SPDLOG_FMT_EXTERNAL;FMT_SHARED;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Dev\3DGameOfLife-Vulkan-Edition\src;C:\Dev\3DGameOfLife-Vulkan-Edition\include;C:\Dev\3DGameOfLife-Vulkan-Edition\third_party\VulkanMemoryAllocator\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include\vma;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Dev\3DGameOfLife-Vulkan-Edition\src;C:\Dev\3DGameOfLife-Vulkan-Edition\include;C:\Dev\3DGameOfLife-Vulkan-Edition\third_party\VulkanMemoryAllocator\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\include\vma;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Dev\3DGameOfLife-Vulkan-Edition\CMakeLists.txt">
+      <UseUtf8Encoding>Always</UseUtf8Encoding>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building Custom Rule C:/Dev/3DGameOfLife-Vulkan-Edition/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Dev/3DGameOfLife-Vulkan-Edition -BC:/Dev/3DGameOfLife-Vulkan-Edition/build_test --check-stamp-file C:/Dev/3DGameOfLife-Vulkan-Edition/build_test/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\4.0.2\CMakeCXXCompiler.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\4.0.2\CMakeRCCompiler.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\4.0.2\CMakeSystem.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-config-version.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-config.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-targets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-targets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-targets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Config.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3ConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfig-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfig-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestTargets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestTargets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-config.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-targets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-targets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-targets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Components.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Dependencies.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Options.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Shaders.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\StaticAnalysis.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Testing.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\vcpkg.json;C:\Dev\3DGameOfLife-Vulkan-Edition\vcpkg\scripts\buildsystems\vcpkg.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeDependentOption.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeFindDependencyMacro.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestTargets.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestUseLaunchers.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckCXXSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckIncludeFileCXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\DartConfiguration.tcl.in;C:\Program Files\CMake\share\cmake-4.0\Modules\FindGTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindVulkan.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\GoogleTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\WindowsPaths.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building Custom Rule C:/Dev/3DGameOfLife-Vulkan-Edition/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Dev/3DGameOfLife-Vulkan-Edition -BC:/Dev/3DGameOfLife-Vulkan-Edition/build_test --check-stamp-file C:/Dev/3DGameOfLife-Vulkan-Edition/build_test/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\4.0.2\CMakeCXXCompiler.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\4.0.2\CMakeRCCompiler.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\4.0.2\CMakeSystem.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-config-version.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-config.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-targets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-targets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-targets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Config.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3ConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfig-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfig-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestTargets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestTargets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-config.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-targets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-targets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-targets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Components.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Dependencies.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Options.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Shaders.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\StaticAnalysis.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Testing.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\vcpkg.json;C:\Dev\3DGameOfLife-Vulkan-Edition\vcpkg\scripts\buildsystems\vcpkg.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeDependentOption.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeFindDependencyMacro.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestTargets.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestUseLaunchers.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckCXXSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckIncludeFileCXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\DartConfiguration.tcl.in;C:\Program Files\CMake\share\cmake-4.0\Modules\FindGTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindVulkan.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\GoogleTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\WindowsPaths.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Building Custom Rule C:/Dev/3DGameOfLife-Vulkan-Edition/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Dev/3DGameOfLife-Vulkan-Edition -BC:/Dev/3DGameOfLife-Vulkan-Edition/build_test --check-stamp-file C:/Dev/3DGameOfLife-Vulkan-Edition/build_test/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\4.0.2\CMakeCXXCompiler.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\4.0.2\CMakeRCCompiler.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\4.0.2\CMakeSystem.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-config-version.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-config.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-targets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-targets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-targets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Config.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3ConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfig-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfig-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestTargets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestTargets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-config.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-targets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-targets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-targets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Components.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Dependencies.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Options.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Shaders.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\StaticAnalysis.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Testing.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\vcpkg.json;C:\Dev\3DGameOfLife-Vulkan-Edition\vcpkg\scripts\buildsystems\vcpkg.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeDependentOption.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeFindDependencyMacro.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestTargets.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestUseLaunchers.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckCXXSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckIncludeFileCXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\DartConfiguration.tcl.in;C:\Program Files\CMake\share\cmake-4.0\Modules\FindGTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindVulkan.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\GoogleTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\WindowsPaths.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Building Custom Rule C:/Dev/3DGameOfLife-Vulkan-Edition/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Dev/3DGameOfLife-Vulkan-Edition -BC:/Dev/3DGameOfLife-Vulkan-Edition/build_test --check-stamp-file C:/Dev/3DGameOfLife-Vulkan-Edition/build_test/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\4.0.2\CMakeCXXCompiler.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\4.0.2\CMakeRCCompiler.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\4.0.2\CMakeSystem.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\VulkanMemoryAllocator\VulkanMemoryAllocatorConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\benchmark\benchmarkTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-config-version.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-config.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-targets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-targets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\fmt\fmt-targets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Config.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3ConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glfw3\glfw3Targets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfig-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfig-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\glm\glmConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestTargets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestTargets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\gtest\GTestTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-config.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-targets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-targets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\imgui\imgui-targets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_jsonTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfig.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-debug.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets-release.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigTargets.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\spdlog\spdlogConfigVersion.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Components.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Dependencies.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Options.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Shaders.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\StaticAnalysis.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\cmake\modules\Testing.cmake;C:\Dev\3DGameOfLife-Vulkan-Edition\vcpkg.json;C:\Dev\3DGameOfLife-Vulkan-Edition\vcpkg\scripts\buildsystems\vcpkg.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeDependentOption.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeFindDependencyMacro.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestTargets.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CTestUseLaunchers.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckCXXSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckIncludeFileCXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\DartConfiguration.tcl.in;C:\Program Files\CMake\share\cmake-4.0\Modules\FindGTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindVulkan.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\GoogleTest.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\Platform\WindowsPaths.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="C:\Dev\3DGameOfLife-Vulkan-Edition\src\UI.cpp" />
+    <ClCompile Include="C:\Dev\3DGameOfLife-Vulkan-Edition\src\imgui_impl_glfw.cpp" />
+    <ClCompile Include="C:\Dev\3DGameOfLife-Vulkan-Edition\src\imgui_impl_vulkan.cpp" />
+    <ClInclude Include="C:\Dev\3DGameOfLife-Vulkan-Edition\include\UI.h" />
+    <ClInclude Include="C:\Dev\3DGameOfLife-Vulkan-Edition\include\imgui_impl_glfw.h" />
+    <ClInclude Include="C:\Dev\3DGameOfLife-Vulkan-Edition\include\imgui_impl_vulkan.h" />
+    <Natvis Include="C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\vcpkg_installed\x64-windows\share\nlohmann_json\nlohmann_json.natvis">
+    </Natvis>
+  </ItemGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <ProjectReference Include="C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\ZERO_CHECK.vcxproj">
+      <Project>{AEF9C3E6-DE00-31A1-98CE-7536C40E52F8}</Project>
+      <Name>ZERO_CHECK</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\core_engine.vcxproj">
+      <Project>{B547B3D7-894A-3532-8E52-69D8BFA927FE}</Project>
+      <Name>core_engine</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Dev\3DGameOfLife-Vulkan-Edition\build_test\rendering.vcxproj">
+      <Project>{E669302E-901D-396B-BD7B-B538D8FDDA2C}</Project>
+      <Name>rendering</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

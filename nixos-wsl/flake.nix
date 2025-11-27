@@ -203,16 +203,23 @@
               export DOXYGEN="${pkgs.doxygen}/bin/doxygen"
               export GRAPHVIZ_DOT="${pkgs.graphviz}/bin/dot"
               
-              # Create development aliases
-              alias build="cmake -B build -S . && cmake --build build"
-              alias clean="rm -rf build"
-              alias test="ctest --test-dir build"
-              alias debug="gdb build/3DGameOfLife-Vulkan-Edition"
-              alias profile="valgrind --tool=callgrind build/3DGameOfLife-Vulkan-Edition"
-              alias vulkan-info="vulkaninfo"
-              alias shader-compile="glslangValidator"
+              # Create development functions
+              build() { cmake -B build -S . && cmake --build build; }
+              export -f build
+              clean() { rm -rf build; }
+              export -f clean
+              test() { ctest --test-dir build; }
+              export -f test
+              debug() { gdb build/3DGameOfLife-Vulkan-Edition; }
+              export -f debug
+              profile() { valgrind --tool=callgrind build/3DGameOfLife-Vulkan-Edition; }
+              export -f profile
+              vulkan-info() { vulkaninfo; }
+              export -f vulkan-info
+              shader-compile() { glslangValidator; }
+              export -f shader-compile
               
-              echo "Development aliases available:"
+              echo "Development functions available:"
               echo "  build    - Build the project"
               echo "  clean    - Clean build directory"
               echo "  test     - Run tests"
@@ -259,7 +266,7 @@
           # Default app
           default = {
             type = "app";
-            program = "${pkgs.callPackage ./packages/3d-game-of-life-vulkan.nix { }}/bin/3DGameOfLife-Vulkan-Edition";
+            program = "${self.packages.${system}.default}/bin/3DGameOfLife-Vulkan-Edition";
           };
           
           # Build app
