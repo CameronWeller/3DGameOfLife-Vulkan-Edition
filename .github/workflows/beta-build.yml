@@ -1,0 +1,41 @@
+name: Beta Build and Test
+
+on:
+  push:
+    branches: [ main, beta ]
+  pull_request:
+    branches: [ main, beta ]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup vcpkg
+      uses: microsoft/setup-vcpkg@v1
+      with:
+        vcpkg-root: ${{ github.workspace }}/vcpkg
+    
+    - name: Install dependencies
+      run: |
+        vcpkg install vulkan glfw3 glm --triplet x64-windows
+    
+    - name: Configure CMake
+      run: |
+        cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake -DBUILD_TESTING=ON
+    
+    - name: Build
+      run: |
+        cmake --build build --config Release --target 3DGameOfLife-Vulkan-Edition_beta
+    
+    - name: Compile Shaders
+      run: |
+        cmake --build build --config Release --target compile_shaders
+    
+    - name: Run Smoke Test
+      run: |
+        cd build
+        ctest --test-dir . -L smoke --output-on-failure
+
