@@ -20,7 +20,7 @@ jobs:
     
     - name: Install dependencies
       run: |
-        vcpkg install vulkan glfw3 glm --triplet x64-windows
+        vcpkg install --triplet x64-windows
     
     - name: Configure CMake
       run: |
