@@ -36,15 +36,31 @@ target_precompile_headers(${PROJECT_NAME}_lib PUBLIC
 )
 
 # Main executable
+# Note: Source files are already compiled in component libraries linked via ${PROJECT_NAME}_lib
+# Only include the main entry point to avoid ODR violations
 add_executable(${PROJECT_NAME}
     src/main.cpp
-    src/VulkanContext.cpp
-    src/DeviceManager.cpp
-    src/WindowManager.cpp
-    src/Logger.cpp
-    src/Camera.cpp
-    src/engine/vulkan/resources/ShaderManager.cpp
 )
+
+# Beta build target (minimal path)
+# Note: Source files are already compiled in component libraries linked via ${PROJECT_NAME}_lib
+# Only include the main entry point and SimplePatternLoader (not in unified lib)
+add_executable(${PROJECT_NAME}_beta
+    src/main_minimal.cpp
+    src/SimplePatternLoader.cpp
+)
+
+target_precompile_headers(${PROJECT_NAME}_beta PRIVATE
+    "pch.h"
+)
+
+# Link beta executable
+target_link_libraries(${PROJECT_NAME}_beta PRIVATE
+    ${PROJECT_NAME}_lib
+)
+
+# Apply common settings to beta executable
+apply_common_settings(${PROJECT_NAME}_beta)
 
 target_precompile_headers(${PROJECT_NAME} PRIVATE
     "pch.h"
@@ -73,6 +89,30 @@ add_shader_clean_target()
 # Setup testing
 setup_testing()
 organize_tests()
+
+# Add smoke test for beta
+if(BUILD_TESTING)
+    add_executable(smoke_test_beta
+        tests/smoke_test_beta.cpp
+    )
+    target_link_libraries(smoke_test_beta PRIVATE
+        ${PROJECT_NAME}_lib
+    )
+    apply_common_settings(smoke_test_beta)
+    add_test(NAME SmokeTestBeta COMMAND smoke_test_beta)
+    set_tests_properties(SmokeTestBeta PROPERTIES LABELS "smoke;beta")
+    
+    # Add E2E play test
+    add_executable(playtest_beta
+        tests/e2e/playtest_beta.cpp
+    )
+    target_link_libraries(playtest_beta PRIVATE
+        ${PROJECT_NAME}_lib
+    )
+    apply_common_settings(playtest_beta)
+    add_test(NAME PlayTestBeta COMMAND playtest_beta)
+    set_tests_properties(PlayTestBeta PROPERTIES LABELS "e2e;playtest;beta")
+endif()
 
 # Add static analysis targets
 add_static_analysis_targets()
