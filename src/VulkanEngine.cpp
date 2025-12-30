@@ -373,18 +373,4 @@ std::vector<char> VulkanEngine::readFile(const std::string& filename) {
     return buffer;
 }
 
-void VulkanEngine::setVoxelData(const VoxelData& data) {
-    loadedVoxelData_ = data;
-    if (voxelRenderer_) {
-        updateVoxelBuffers();
-    }
-}
-
-void VulkanEngine::resetSimulation() {
-    if (grid_) {
-        grid_->clear();
-    }
-    // Reset any other simulation state as needed
-}
-
 } // namespace VulkanHIP

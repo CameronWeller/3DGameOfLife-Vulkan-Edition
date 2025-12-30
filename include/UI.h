@@ -11,7 +11,7 @@
 #include "Camera.h"
 #include "RayCaster.h"
 #include "VoxelData.h"
-// PatternMetadata is defined in SaveManager.h - don't include PatternMetadata.h here
+#include "PatternMetadata.h"
 #include "RuleAnalyzer.h"
 
 // Note: We use forward declaration here to avoid circular dependency
@@ -75,17 +75,12 @@ public:
     void generateAnalysisReports();
 
 private:
-    IEngine* engine_;
+    VulkanEngine* engine_;
     GLFWwindow* window;
     
-    // Cached values to avoid calling methods on incomplete type
+    // Cached Vulkan handles to avoid incomplete type issues
     VkDevice cachedDevice_ = VK_NULL_HANDLE;
     VkDescriptorPool cachedDescriptorPool_ = VK_NULL_HANDLE;
-    Camera* cachedCamera_ = nullptr;
-    VulkanHIP::SaveManager* cachedSaveManager_ = nullptr;
-    uint32_t cachedGridWidth_ = 32;
-    uint32_t cachedGridHeight_ = 32;
-    uint32_t cachedGridDepth_ = 32;
     bool isPaused_;
     
     // Window visibility flags
