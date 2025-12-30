@@ -30,11 +30,6 @@ create_all_components()
 # Create unified library
 create_unified_library()
 
-# Add precompiled headers
-target_precompile_headers(${PROJECT_NAME}_lib PUBLIC
-    "pch.h"
-)
-
 # Main executable
 # Note: Source files are already compiled in component libraries linked via ${PROJECT_NAME}_lib
 # Only include the main entry point to avoid ODR violations
@@ -50,8 +45,9 @@ add_executable(${PROJECT_NAME}_beta
     src/SimplePatternLoader.cpp
 )
 
-target_precompile_headers(${PROJECT_NAME}_beta PRIVATE
-    "pch.h"
+# Link main executable
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    ${PROJECT_NAME}_lib
 )
 
 # Link beta executable
@@ -59,20 +55,21 @@ target_link_libraries(${PROJECT_NAME}_beta PRIVATE
     ${PROJECT_NAME}_lib
 )
 
-# Apply common settings to beta executable
+# Apply common settings to main executable (must be before precompiled headers)
+apply_common_settings(${PROJECT_NAME})
+
+# Apply common settings to beta executable (must be before precompiled headers)
 apply_common_settings(${PROJECT_NAME}_beta)
 
+# Add precompiled headers AFTER common settings to ensure include directories are configured
+# Note: ${PROJECT_NAME}_lib gets its precompiled headers in create_unified_library() after apply_common_settings
 target_precompile_headers(${PROJECT_NAME} PRIVATE
     "pch.h"
 )
 
-# Link main executable
-target_link_libraries(${PROJECT_NAME} PRIVATE
-    ${PROJECT_NAME}_lib
+target_precompile_headers(${PROJECT_NAME}_beta PRIVATE
+    "pch.h"
 )
-
-# Apply common settings to main executable
-apply_common_settings(${PROJECT_NAME})
 
 # Apply static analysis to main executable
 apply_static_analysis(${PROJECT_NAME})

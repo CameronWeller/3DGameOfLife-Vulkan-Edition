@@ -333,5 +333,11 @@ function(create_unified_library)
     )
     
     apply_common_settings(${PROJECT_NAME}_lib)
+    
+    # Add precompiled headers AFTER common settings to ensure include directories are configured
+    target_precompile_headers(${PROJECT_NAME}_lib PUBLIC
+        "pch.h"
+    )
+    
     set_target_properties(${PROJECT_NAME}_lib PROPERTIES EXPORT_NAME UnifiedLib)
 endfunction()
