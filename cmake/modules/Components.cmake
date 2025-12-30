@@ -128,6 +128,12 @@ function(create_ui_component)
     apply_common_settings(ui)
     target_link_libraries(ui PUBLIC rendering project_dependencies)
     
+    # Exclude UI.cpp from precompiled headers to avoid incomplete type issues
+    # UI.cpp needs full VulkanEngine definition which conflicts with PCH
+    set_source_files_properties(src/UI.cpp PROPERTIES
+        SKIP_PRECOMPILE_HEADERS ON
+    )
+    
     set_target_properties(ui PROPERTIES EXPORT_NAME UI)
 endfunction()
 

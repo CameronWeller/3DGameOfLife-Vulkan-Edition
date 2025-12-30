@@ -14,8 +14,8 @@
 #include "PatternMetadata.h"
 #include "RuleAnalyzer.h"
 
-// Forward declaration to avoid circular dependency
-// Full definition needed in UI.cpp
+// Note: We use forward declaration here to avoid circular dependency
+// UI.cpp includes VulkanEngine.h before UI.h to get the full definition
 class VulkanEngine;
 
 class UI {
@@ -77,6 +77,10 @@ public:
 private:
     VulkanEngine* engine_;
     GLFWwindow* window;
+    
+    // Cached Vulkan handles to avoid incomplete type issues
+    VkDevice cachedDevice_ = VK_NULL_HANDLE;
+    VkDescriptorPool cachedDescriptorPool_ = VK_NULL_HANDLE;
     bool isPaused_;
     
     // Window visibility flags
