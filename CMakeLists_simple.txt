@@ -29,7 +29,7 @@ add_executable(minimal_vulkan_app
     src/WindowManager.cpp
     src/Logger.cpp
     src/Camera.cpp
-    src/vulkan/resources/ShaderManager.cpp
+    src/engine/vulkan/resources/ShaderManager.cpp
 )
 
 # Link libraries
