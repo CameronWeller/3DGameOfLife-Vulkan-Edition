@@ -14,6 +14,8 @@
 #include "PatternMetadata.h"
 #include "RuleAnalyzer.h"
 
+// Forward declaration to avoid circular dependency
+// Full definition needed in UI.cpp
 class VulkanEngine;
 
 class UI {

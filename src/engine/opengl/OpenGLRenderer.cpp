@@ -1,23 +1,21 @@
 #include "engine/opengl/OpenGLRenderer.h"
 #include <iostream>
 
-OpenGLRenderer::OpenGLRenderer() {
-    // TODO: Constructor implementation
-}
+namespace ogl {
 
-OpenGLRenderer::~OpenGLRenderer() {
-    // TODO: Destructor implementation
-}
+OpenGLRenderer::OpenGLRenderer(OpenGLContext& context) : context_(context) {}
+
+OpenGLRenderer::~OpenGLRenderer() = default;
 
 void OpenGLRenderer::init() {
     std::cout << "OpenGLRenderer::init() called" << std::endl;
     // TODO: Initialization logic (shaders, buffers, etc.)
 }
 
-void OpenGLRenderer::render() {
+void OpenGLRenderer::render(const glm::mat4& view, const glm::mat4& projection) {
+    (void)view;
+    (void)projection;
     // TODO: Rendering logic
 }
 
-void OpenGLRenderer::cleanup() {
-    // TODO: Cleanup logic
-} 
+} // namespace ogl

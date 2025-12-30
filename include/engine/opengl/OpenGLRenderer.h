@@ -3,6 +3,7 @@
 #include "engine/opengl/OpenGLContext.h"
 #include <glm/glm.hpp>
 #include <vector>
+#include <GL/glew.h>
 
 namespace ogl {
 

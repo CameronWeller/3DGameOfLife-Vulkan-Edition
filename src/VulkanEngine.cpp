@@ -75,7 +75,7 @@ void VulkanEngine::init() {
         framebuffer_ = std::make_unique<VulkanFramebuffer>(vulkanContext_.get(), swapChain_.get());
 
         // Initialize compute
-        compute_ = std::make_unique<VulkanCompute>(vulkanContext_.get(), memoryManager_.get());
+        compute_ = std::make_unique<VulkanCompute>(vulkanContext_.get());
 
         // Initialize ImGui
         imGui_ = std::make_unique<VulkanImGui>(vulkanContext_.get(), swapChain_.get());

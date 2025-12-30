@@ -45,8 +45,8 @@
 #include "engine/vulkan/resources/VulkanImageManager.h"
 #include "engine/vulkan/rendering/VulkanSwapChain.h"
 #include "engine/vulkan/rendering/VulkanRenderer.h"
-#include "vulkan/compute/VulkanCompute.h"
-#include "vulkan/ui/VulkanImGui.h"
+#include "engine/vulkan/compute/VulkanCompute.h"
+#include "engine/vulkan/ui/VulkanImGui.h"
 #include "engine/vulkan/resources/ShaderManager.h"
 
 namespace VulkanHIP {
@@ -260,6 +260,7 @@ public:
     VkQueue getGraphicsQueue() const { return vulkanContext_->getGraphicsQueue(); }
     VkQueue getComputeQueue() const { return vulkanContext_->getComputeQueue(); }
     VkQueue getPresentQueue() const { return vulkanContext_->getPresentQueue(); }
+    VkDescriptorPool getDescriptorPool() const { return descriptorPool; }
 
     // Component getters
     SaveManager* getSaveManager() const { return saveManager_.get(); }

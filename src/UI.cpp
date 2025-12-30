@@ -1,4 +1,7 @@
 #include "pch.h"
+// Include VulkanEngine.h before UI.h to ensure complete type definition
+// This must come after pch.h to work with precompiled headers
+#include "VulkanEngine.h"
 #include "UI.h"
 #include "SaveManager.h"
 #include "AppState.h"
@@ -10,9 +13,6 @@
 #include <thread>
 #include <filesystem>
 #include <iostream>
-
-// Include VulkanEngine.h after other headers to resolve forward declaration
-#include "VulkanEngine.h"
 
 UI::UI(VulkanEngine* engine)
     : engine_(engine), isPaused_(true), tickRate(1.0f),
@@ -907,13 +907,20 @@ void UI::startRuleAnalysis() {
     float progressStep = 1.0f / static_cast<float>(ruleSets.size());
 
     // Start analysis in a separate thread
-    std::thread([this, ruleSets, progressStep]() {
+    // Extract grid dimensions before lambda to avoid incomplete type issues
+    // Cast to ensure compiler sees complete type
+    VulkanEngine* engine = static_cast<VulkanEngine*>(engine_);
+    uint32_t gridWidth = engine ? engine->getGridWidth() : 32;
+    uint32_t gridHeight = engine ? engine->getGridHeight() : 32;
+    uint32_t gridDepth = engine ? engine->getGridDepth() : 32;
+    
+    std::thread([this, ruleSets, progressStep, gridWidth, gridHeight, gridDepth]() {
         for (const auto& rule : ruleSets) {
             auto result = ruleAnalyzer_->analyzeRule(
                 rule,
-                engine_->getGridWidth(),
-                engine_->getGridHeight(),
-                engine_->getGridDepth()
+                gridWidth,
+                gridHeight,
+                gridDepth
             );
             analysisResults_.push_back(result);
             analysisProgress_ += progressStep;
@@ -948,22 +955,33 @@ void UI::generateAnalysisReports() {
 }
 
 void UI::cleanupPreviewTextures() {
+    if (!engine_) {
+        return;
+    }
+    
+    // Extract device and pool before using them to ensure complete type
+    VkDevice device = static_cast<VulkanEngine*>(engine_)->getDevice();
+    VkDescriptorPool descriptorPool = static_cast<VulkanEngine*>(engine_)->getDescriptorPool();
+    
     for (const auto& [path, descriptorSet] : previewTextures_) {
         // Free descriptor set
-        vkFreeDescriptorSets(engine_->getDevice(), engine_->getDescriptorPool(), 1, &descriptorSet);
+        if (descriptorSet != VK_NULL_HANDLE && descriptorPool != VK_NULL_HANDLE) {
+            VkDescriptorSet ds = descriptorSet;
+            vkFreeDescriptorSets(device, descriptorPool, 1, &ds);
+        }
         
         // Clean up associated resources
         if (previewImages_.find(path) != previewImages_.end()) {
-            vkDestroyImage(engine_->getDevice(), previewImages_[path], nullptr);
+            vkDestroyImage(device, previewImages_[path], nullptr);
         }
         if (previewImageMemory_.find(path) != previewImageMemory_.end()) {
-            vkFreeMemory(engine_->getDevice(), previewImageMemory_[path], nullptr);
+            vkFreeMemory(device, previewImageMemory_[path], nullptr);
         }
         if (previewImageViews_.find(path) != previewImageViews_.end()) {
-            vkDestroyImageView(engine_->getDevice(), previewImageViews_[path], nullptr);
+            vkDestroyImageView(device, previewImageViews_[path], nullptr);
         }
         if (previewSamplers_.find(path) != previewSamplers_.end()) {
-            vkDestroySampler(engine_->getDevice(), previewSamplers_[path], nullptr);
+            vkDestroySampler(device, previewSamplers_[path], nullptr);
         }
     }
     
