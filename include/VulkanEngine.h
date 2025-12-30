@@ -48,6 +48,7 @@
 #include "engine/vulkan/compute/VulkanCompute.h"
 #include "engine/vulkan/ui/VulkanImGui.h"
 #include "engine/vulkan/resources/ShaderManager.h"
+#include "IEngine.h"
 
 namespace VulkanHIP {
 
@@ -218,8 +219,9 @@ private:
 
 /**
  * @brief Main Vulkan engine class
+ * Implements IEngine interface to break monolithic dependency with UI
  */
-class VulkanEngine {
+class VulkanEngine : public IEngine {
 public:
     // Singleton pattern
     static VulkanEngine* getInstance() {
@@ -246,25 +248,26 @@ public:
     // File reading utility (needed by shaders)
     static std::vector<char> readFile(const std::string& filename);
 
-    // Rendering settings
-    void setWireframeMode(bool enabled) { wireframeMode_ = enabled; }
-    void setShowGrid(bool enabled) { showGrid_ = enabled; }
-    void setTransparency(float transparency) { transparency_ = transparency; }
-    void setRenderMode(int mode) { renderMode_ = mode; }
-    void setCustomRules(int birthMin, int birthMax, int survivalMin, int survivalMax);
+    // Rendering settings (IEngine interface)
+    void setWireframeMode(bool enabled) override { wireframeMode_ = enabled; }
+    void setShowGrid(bool enabled) override { showGrid_ = enabled; }
+    void setTransparency(float transparency) override { transparency_ = transparency; }
+    void setRenderMode(int mode) override { renderMode_ = mode; }
+    void setCustomRules(int birthMin, int birthMax, int survivalMin, int survivalMax) override;
 
-    // Vulkan accessors (for compatibility)
+    // Vulkan accessors (IEngine interface)
     VkInstance getVkInstance() const { return vulkanContext_->getVkInstance(); }
-    VkDevice getDevice() const { return vulkanContext_->getDevice(); }
+    VkDevice getDevice() const override { return vulkanContext_->getDevice(); }
     VkPhysicalDevice getPhysicalDevice() const { return vulkanContext_->getPhysicalDevice(); }
     VkQueue getGraphicsQueue() const { return vulkanContext_->getGraphicsQueue(); }
     VkQueue getComputeQueue() const { return vulkanContext_->getComputeQueue(); }
     VkQueue getPresentQueue() const { return vulkanContext_->getPresentQueue(); }
-    VkDescriptorPool getDescriptorPool() const { return descriptorPool; }
+    VkDescriptorPool getDescriptorPool() const override { return descriptorPool; }
 
-    // Component getters
-    SaveManager* getSaveManager() const { return saveManager_.get(); }
-    Camera* getCamera() const { return camera_.get(); }
+    // Component getters (IEngine interface)
+    SaveManager* getSaveManager() const override { return saveManager_.get(); }
+    Camera* getCamera() const override { return camera_.get(); }
+    WindowManager* getWindowManager() const override { return windowManager_.get(); }
     VulkanImageManager* getImageManager() const { return imageManager_.get(); }
     VulkanSwapChain* getSwapChain() const { return swapChain_.get(); }
     VulkanRenderer* getRenderer() const { return renderer_.get(); }
@@ -272,17 +275,18 @@ public:
     VulkanCompute* getCompute() const { return compute_.get(); }
     VulkanImGui* getImGui() const { return imGui_.get(); }
     
-    // Grid and simulation getters
-    uint32_t getGridWidth() const { return grid_ ? grid_->getWidth() : 0; }
-    uint32_t getGridHeight() const { return grid_ ? grid_->getHeight() : 0; }
-    uint32_t getGridDepth() const { return grid_ ? grid_->getDepth() : 0; }
-    GameRules::RuleSet getRuleSet() const { return grid_ ? grid_->getCurrentRuleSet() : GameRules::RULE_2333; }
+    // Grid and simulation getters (IEngine interface)
+    uint32_t getGridWidth() const override { return grid_ ? grid_->getWidth() : 0; }
+    uint32_t getGridHeight() const override { return grid_ ? grid_->getHeight() : 0; }
+    uint32_t getGridDepth() const override { return grid_ ? grid_->getDepth() : 0; }
+    GameRules::RuleSet getRuleSet() const override { return grid_ ? grid_->getCurrentRuleSet() : GameRules::RULE_2333; }
     
-    // Simulation control methods
-    void setGridSize(uint32_t size) { if (grid_) grid_->resize(size, size, size); }
-    void setVoxelSize(float size) { voxelSize_ = size; }
-    void setRuleSet(const GameRules::RuleSet& ruleSet) { if (grid_) grid_->setRuleSet(ruleSet); }
-    void resetSimulation();
+    // Simulation control methods (IEngine interface)
+    void setGridSize(uint32_t size) override { if (grid_) grid_->resize(size, size, size); }
+    void setVoxelSize(float size) override { voxelSize_ = size; }
+    void setRuleSet(const GameRules::RuleSet& ruleSet) override { if (grid_) grid_->setRuleSet(ruleSet); }
+    void setVoxelData(const VoxelData& data) override;
+    void resetSimulation() override;
 
     // Memory management utilities
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
@@ -291,12 +295,12 @@ public:
     void renderPatternPreview(const std::string& patternPath);
     void saveImageToFile(const std::string& filename);
 
-    // Performance metrics getters
-    float getCurrentFPS() const { return currentFPS_; }
-    float getFrameTime() const { return frameTime_; }
-    float getUpdateTime() const { return updateTime_; }
-    size_t getTotalMemory() const { return totalMemory_; }
-    size_t getUsedMemory() const { return usedMemory_; }
+    // Performance metrics getters (IEngine interface)
+    float getCurrentFPS() const override { return currentFPS_; }
+    float getFrameTime() const override { return frameTime_; }
+    float getUpdateTime() const override { return updateTime_; }
+    size_t getTotalMemory() const override { return totalMemory_; }
+    size_t getUsedMemory() const override { return usedMemory_; }
 
 private:
     VulkanEngine() = default;
