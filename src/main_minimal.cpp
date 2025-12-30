@@ -23,7 +23,7 @@
 
 // Add Vulkan rendering components
 // #include "vulkan/resources/VulkanSwapChain.h"  // Disabled - incomplete implementation
-#include "vulkan/resources/ShaderManager.h"
+#include "engine/vulkan/resources/ShaderManager.h"
 #include "SimplePatternLoader.h"
 
 using namespace VulkanHIP;
@@ -115,12 +115,21 @@ private:
     std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
     float rotationSpeed = 45.0f; // degrees per second
     
+    // Performance tracking
+    std::chrono::steady_clock::time_point lastFrameTime = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point lastStepTime = std::chrono::steady_clock::now();
+    float frameTime = 0.0f;
+    float stepTime = 0.0f;
+    uint32_t frameCount = 0;
+    float fpsUpdateInterval = 1.0f; // Update FPS display every second
+    float fpsTimer = 0.0f;
+    
     // Mouse control
     bool firstMouse = true;
     float lastX = 640.0f, lastY = 360.0f;
     bool mouseControlEnabled = false;
     
-    // Game of Life simulation state
+    // Game of Life simulation state - Conservative defaults for 60 FPS on midrange GPU
     static constexpr uint32_t GRID_WIDTH = 32;
     static constexpr uint32_t GRID_HEIGHT = 32;
     static constexpr uint32_t GRID_DEPTH = 32;
@@ -128,6 +137,16 @@ private:
     float simulationSpeed = 1.0f; // steps per second
     float timeSinceLastStep = 0.0f;
     uint64_t generation = 0;
+    
+    // Canonical rule structure
+    struct GameRule {
+        uint32_t ruleSet;      // 0: Classic, 1: HighLife, 2: Day & Night, 3: Custom, 4: 5766, 5: 4555
+        uint32_t surviveMin;    // Minimum neighbors for survival
+        uint32_t surviveMax;    // Maximum neighbors for survival
+        uint32_t birthCount;    // Exact neighbor count for birth (for custom rules)
+        
+        GameRule() : ruleSet(0), surviveMin(4), surviveMax(6), birthCount(4) {} // Default: Classic 3D
+    } currentRule;
     
     // Compute shader resources
     VkPipeline computePipeline = VK_NULL_HANDLE;
@@ -343,6 +362,11 @@ private:
                     if (!simulationRunning) {
                         stepSimulation();
                     }
+                    break;
+                case GLFW_KEY_C:
+                    // Reset grid with current pattern
+                    initializeGrid();
+                    std::cout << "Grid reset" << std::endl;
                     break;
             }
         }
@@ -1045,6 +1069,9 @@ private:
             
             // Render frame
             renderFrame();
+            
+            // Update performance metrics
+            updatePerformanceMetrics(deltaTime);
         }
         
         // Wait for device to finish before cleanup
@@ -1357,7 +1384,13 @@ private:
     }
     
     void initializeGrid() {
-        // Initialize with a simple pattern (glider-like in center)
+        // Initialize with a default pattern
+        loadPattern("glider_3d");
+        generation = 0;
+        std::cout << "Grid initialized with default pattern" << std::endl;
+    }
+    
+    void loadPattern(const std::string& patternName) {
         uint32_t* stateData = static_cast<uint32_t*>(stateBufferMapped);
         uint32_t totalCells = GRID_WIDTH * GRID_HEIGHT * GRID_DEPTH;
         
@@ -1366,29 +1399,33 @@ private:
             stateData[i] = 0;
         }
         
-        // Add a simple pattern in the center
-        uint32_t centerX = GRID_WIDTH / 2;
-        uint32_t centerY = GRID_HEIGHT / 2;
-        uint32_t centerZ = GRID_DEPTH / 2;
+        // Try to load pattern, fall back to default if not found
+        Pattern3D pattern;
+        if (patternName == "glider_3d") {
+            pattern = SimplePatternLoader::createGlider3D();
+        } else if (patternName == "block_3d") {
+            pattern = SimplePatternLoader::createBlock3D(3);
+        } else if (patternName == "random") {
+            pattern = SimplePatternLoader::createRandom(GRID_WIDTH, GRID_HEIGHT, GRID_DEPTH, 0.3f);
+        } else {
+            // Default: simple center pattern
+            pattern = SimplePatternLoader::createGlider3D();
+        }
         
-        // Create a small 3D pattern
-        for (int dx = -1; dx <= 1; ++dx) {
-            for (int dy = -1; dy <= 1; ++dy) {
-                for (int dz = -1; dz <= 1; ++dz) {
-                    if (dx == 0 && dy == 0 && dz == 0) continue;
-                    uint32_t x = centerX + dx;
-                    uint32_t y = centerY + dy;
-                    uint32_t z = centerZ + dz;
-                    if (x < GRID_WIDTH && y < GRID_HEIGHT && z < GRID_DEPTH) {
-                        uint32_t index = z * GRID_WIDTH * GRID_HEIGHT + y * GRID_WIDTH + x;
-                        stateData[index] = 1;
-                    }
+        // Center pattern in grid
+        pattern = SimplePatternLoader::centerPattern(pattern, GRID_WIDTH, GRID_HEIGHT, GRID_DEPTH);
+        
+        // Copy pattern to buffer
+        for (uint32_t x = 0; x < GRID_WIDTH; ++x) {
+            for (uint32_t y = 0; y < GRID_HEIGHT; ++y) {
+                for (uint32_t z = 0; z < GRID_DEPTH; ++z) {
+                    uint32_t index = z * GRID_WIDTH * GRID_HEIGHT + y * GRID_WIDTH + x;
+                    stateData[index] = pattern.getCell(x, y, z) ? 1 : 0;
                 }
             }
         }
         
-        generation = 0;
-        std::cout << "Grid initialized with pattern" << std::endl;
+        std::cout << "Loaded pattern: " << patternName << std::endl;
     }
     
     void initImGui() {
@@ -1410,6 +1447,8 @@ private:
     }
     
     void stepSimulation() {
+        auto stepStart = std::chrono::steady_clock::now();
+        
         // Record compute command buffer
         vkResetCommandBuffer(computeCommandBuffer, 0);
         
@@ -1440,10 +1479,10 @@ private:
         pushConstants.height = GRID_HEIGHT;
         pushConstants.depth = GRID_DEPTH;
         pushConstants.time = static_cast<float>(generation);
-        pushConstants.ruleSet = 0; // Classic rule
-        pushConstants.surviveMin = 4;
-        pushConstants.surviveMax = 6;
-        pushConstants.birthCount = 4;
+        pushConstants.ruleSet = currentRule.ruleSet;
+        pushConstants.surviveMin = currentRule.surviveMin;
+        pushConstants.surviveMax = currentRule.surviveMax;
+        pushConstants.birthCount = currentRule.birthCount;
         
         vkCmdPushConstants(computeCommandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &pushConstants);
         
@@ -1505,7 +1544,30 @@ private:
         
         vkUpdateDescriptorSets(vulkanContext->getDevice(), 2, descriptorWrites.data(), 0, nullptr);
         
+        auto stepEnd = std::chrono::steady_clock::now();
+        stepTime = std::chrono::duration<float, std::chrono::seconds::period>(stepEnd - stepStart).count();
+        
         generation++;
+    }
+    
+    void updatePerformanceMetrics(float deltaTime) {
+        frameCount++;
+        fpsTimer += deltaTime;
+        
+        if (fpsTimer >= fpsUpdateInterval) {
+            float avgFrameTime = fpsTimer / frameCount;
+            float fps = 1.0f / avgFrameTime;
+            
+            std::cout << "FPS: " << fps << " | Frame Time: " << (avgFrameTime * 1000.0f) << "ms";
+            if (stepTime > 0.0f) {
+                std::cout << " | Step Time: " << (stepTime * 1000.0f) << "ms";
+            }
+            std::cout << " | Generation: " << generation << std::endl;
+            
+            frameCount = 0;
+            fpsTimer = 0.0f;
+            stepTime = 0.0f;
+        }
     }
     
     void renderUI() {
