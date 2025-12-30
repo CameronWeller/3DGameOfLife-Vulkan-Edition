@@ -30,9 +30,24 @@ create_all_components()
 # Create unified library
 create_unified_library()
 
+# Add precompiled headers
+target_precompile_headers(${PROJECT_NAME}_lib PUBLIC
+    "pch.h"
+)
+
 # Main executable
 add_executable(${PROJECT_NAME}
     src/main.cpp
+    src/VulkanContext.cpp
+    src/DeviceManager.cpp
+    src/WindowManager.cpp
+    src/Logger.cpp
+    src/Camera.cpp
+    src/engine/vulkan/resources/ShaderManager.cpp
+)
+
+target_precompile_headers(${PROJECT_NAME} PRIVATE
+    "pch.h"
 )
 
 # Link main executable

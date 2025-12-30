@@ -1,0 +1,20 @@
+{
+  "build": {
+    "default_config": "Release",
+    "parallel_jobs": "auto",
+    "use_precompiled_headers": true,
+    "use_ccache": true,
+    "incremental_linking": true
+  },
+  "cache": {
+    "vcpkg_binary_caching": true,
+    "cmake_build_cache": true,
+    "shader_cache": true
+  },
+  "optimization": {
+    "link_time_optimization": true,
+    "whole_program_optimization": true,
+    "fast_math": true,
+    "vectorization": true
+  }
+} 

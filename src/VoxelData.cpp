@@ -1,3 +1,4 @@
+#include "pch.h"
 #include "VoxelData.h"
 #include <fstream>
 #include <algorithm>

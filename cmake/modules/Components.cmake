@@ -151,11 +151,11 @@ endfunction()
 # Create vulkan resources component
 function(create_vulkan_resources_component)
     set(VULKAN_RESOURCES_SOURCES
-        src/vulkan/resources/VulkanBufferManager.cpp
-        src/vulkan/resources/VulkanImageManager.cpp
-        src/vulkan/resources/VulkanSwapChain.cpp
-        src/vulkan/resources/VulkanFramebuffer.cpp
-        src/vulkan/resources/ShaderManager.cpp
+        src/engine/vulkan/resources/VulkanBufferManager.cpp
+        src/engine/vulkan/resources/VulkanImageManager.cpp
+        src/engine/vulkan/resources/VulkanSwapChain.cpp
+        src/engine/vulkan/resources/VulkanFramebuffer.cpp
+        src/engine/vulkan/resources/ShaderManager.cpp
     )
     
     add_library(vulkan_resources STATIC ${VULKAN_RESOURCES_SOURCES})
@@ -168,11 +168,11 @@ endfunction()
 # Vulkan Image Management Component
 function(create_vulkan_image_component)
     add_library(vulkan_image STATIC
-        src/vulkan/resources/VulkanImageManager.cpp
+        src/engine/vulkan/resources/VulkanImageManager.cpp
     )
     
     target_include_directories(vulkan_image PUBLIC
-        include/vulkan/resources
+        include/engine/vulkan/resources
         ${CMAKE_SOURCE_DIR}/include
     )
     
@@ -186,33 +186,35 @@ endfunction()
 # Vulkan Rendering Components
 function(create_vulkan_rendering_component)
     add_library(vulkan_rendering STATIC
-        src/vulkan/rendering/VulkanSwapChain.cpp
-        src/vulkan/rendering/VulkanRenderer.cpp
-        src/vulkan/rendering/VoxelRenderer.cpp
+        src/engine/vulkan/rendering/VulkanSwapChain.cpp
+        src/engine/vulkan/rendering/VulkanRenderer.cpp
+        src/engine/vulkan/rendering/VoxelRenderer.cpp
     )
     
     target_include_directories(vulkan_rendering PUBLIC
-        include/vulkan/rendering
+        include/engine/vulkan/rendering
         ${CMAKE_SOURCE_DIR}/include
     )
     
     target_link_libraries(vulkan_rendering PUBLIC
         core_engine
         vulkan_resources
-        vulkan_image
-        rendering
+        game_logic
+        camera
+        ui
         Vulkan::Vulkan
+        glm::glm
     )
 endfunction()
 
 # Vulkan Compute Component
 function(create_vulkan_compute_component)
     add_library(vulkan_compute STATIC
-        src/vulkan/compute/VulkanCompute.cpp
+        src/engine/vulkan/compute/VulkanCompute.cpp
     )
     
     target_include_directories(vulkan_compute PUBLIC
-        include/vulkan/compute
+        include/engine/vulkan/compute
         ${CMAKE_SOURCE_DIR}/include
     )
     
@@ -226,11 +228,11 @@ endfunction()
 # Vulkan UI Component
 function(create_vulkan_ui_component)
     add_library(vulkan_ui STATIC
-        src/vulkan/ui/VulkanImGui.cpp
+        src/engine/vulkan/ui/VulkanImGui.cpp
     )
     
     target_include_directories(vulkan_ui PUBLIC
-        include/vulkan/ui
+        include/engine/vulkan/ui
         ${CMAKE_SOURCE_DIR}/include
     )
     
@@ -239,6 +241,57 @@ function(create_vulkan_ui_component)
         Vulkan::Vulkan
         imgui
     )
+endfunction()
+
+# OpenGL Context Component
+function(create_opengl_component)
+    set(OPENGL_SOURCES
+        src/engine/opengl/OpenGLContext.cpp
+    )
+
+    set(OPENGL_HEADERS
+        include/engine/opengl/OpenGLContext.h
+    )
+
+    add_library(opengl_engine STATIC ${OPENGL_SOURCES} ${OPENGL_HEADERS})
+    apply_common_settings(opengl_engine)
+    target_link_libraries(opengl_engine PUBLIC
+        project_dependencies
+        OpenGL::GL
+        GLEW::GLEW
+        glfw
+        glm::glm
+    )
+
+    set_target_properties(opengl_engine PROPERTIES EXPORT_NAME OpenGLEngine)
+endfunction()
+
+# OpenGL Renderer Component
+function(create_opengl_renderer_component)
+    set(OPENGL_RENDERER_SOURCES
+        src/engine/opengl/OpenGLRenderer.cpp
+        src/engine/opengl/OpenGLContext.cpp
+    )
+
+    set(OPENGL_RENDERER_HEADERS
+        include/engine/opengl/OpenGLRenderer.h
+        include/engine/opengl/OpenGLContext.h
+    )
+
+    add_library(opengl_renderer STATIC
+        ${OPENGL_RENDERER_SOURCES}
+        ${OPENGL_RENDERER_HEADERS}
+    )
+
+    target_include_directories(opengl_renderer PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+
+    target_link_libraries(opengl_renderer PUBLIC
+        project_dependencies
+    )
+
+    set_target_properties(opengl_renderer PROPERTIES EXPORT_NAME OpenGLRenderer)
 endfunction()
 
 # Update create_all_components function
@@ -255,6 +308,8 @@ function(create_all_components)
     create_vulkan_rendering_component()
     create_vulkan_compute_component()
     create_vulkan_ui_component()
+    create_opengl_component()
+    create_opengl_renderer_component()
 endfunction()
 
 # Function to create a unified library from all components
@@ -272,6 +327,8 @@ function(create_unified_library)
         vulkan_rendering
         vulkan_compute
         vulkan_ui
+        opengl_engine
+        opengl_renderer
         project_dependencies
     )
     

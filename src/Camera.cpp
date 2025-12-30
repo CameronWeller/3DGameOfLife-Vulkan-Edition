@@ -1,3 +1,4 @@
+#include "pch.h"
 #include "Camera.h"
 // #include "Grid3D.h"  // Removed for minimal build - collision detection disabled
 #include <iostream>

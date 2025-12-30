@@ -1,3 +1,4 @@
+#include "pch.h"
 #include "RuleAnalyzer.h"
 #include "Grid3D.h"
 #include <fstream>

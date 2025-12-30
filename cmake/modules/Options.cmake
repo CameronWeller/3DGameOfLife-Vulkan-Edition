@@ -50,3 +50,11 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-Wall -Wextra -Wpedantic)
     # add_compile_options(-Werror) # Uncomment to treat warnings as errors
 endif()
+
+# Include directories
+include_directories(
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "$ENV{VULKAN_SDK}/Include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/include"
+    "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/include"
+)

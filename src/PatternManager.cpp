@@ -1,3 +1,4 @@
+#include "pch.h"
 #include "PatternManager.h"
 #include "Grid3D.h"
 #include <fstream>

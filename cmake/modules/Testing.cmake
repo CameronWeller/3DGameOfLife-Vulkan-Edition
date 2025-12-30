@@ -47,6 +47,12 @@ function(add_unit_tests)
         testing_dependencies
     )
     
+    target_include_directories(unit_tests PRIVATE
+        ${PROJECT_NAME}_lib
+        testing_dependencies
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/engine"
+    )
+    
     apply_common_settings(unit_tests)
     
     # Discover and add tests

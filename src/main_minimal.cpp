@@ -24,6 +24,7 @@
 // Add Vulkan rendering components
 // #include "vulkan/resources/VulkanSwapChain.h"  // Disabled - incomplete implementation
 #include "vulkan/resources/ShaderManager.h"
+#include "SimplePatternLoader.h"
 
 using namespace VulkanHIP;
 
@@ -118,6 +119,35 @@ private:
     bool firstMouse = true;
     float lastX = 640.0f, lastY = 360.0f;
     bool mouseControlEnabled = false;
+    
+    // Game of Life simulation state
+    static constexpr uint32_t GRID_WIDTH = 32;
+    static constexpr uint32_t GRID_HEIGHT = 32;
+    static constexpr uint32_t GRID_DEPTH = 32;
+    bool simulationRunning = false;
+    float simulationSpeed = 1.0f; // steps per second
+    float timeSinceLastStep = 0.0f;
+    uint64_t generation = 0;
+    
+    // Compute shader resources
+    VkPipeline computePipeline = VK_NULL_HANDLE;
+    VkPipelineLayout computePipelineLayout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout computeDescriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool computeDescriptorPool = VK_NULL_HANDLE;
+    VkDescriptorSet computeDescriptorSet = VK_NULL_HANDLE;
+    VkBuffer stateBuffer = VK_NULL_HANDLE;
+    VkBuffer nextStateBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory stateBufferMemory = VK_NULL_HANDLE;
+    VkDeviceMemory nextStateBufferMemory = VK_NULL_HANDLE;
+    void* stateBufferMapped = nullptr;
+    void* nextStateBufferMapped = nullptr;
+    bool buffersSwapped = false; // Track if we've swapped buffers
+    VkCommandBuffer computeCommandBuffer = VK_NULL_HANDLE;
+    VkFence computeFence = VK_NULL_HANDLE;
+    
+    // UI state
+    bool showUI = true;
+    std::unique_ptr<class VulkanImGui> imgui;
     
     // Cube geometry data - using triangulated vertices for proper rendering (very small cube)
     const std::vector<Vertex> cubeVertices = {
@@ -217,6 +247,21 @@ private:
         }
     }
     
+    static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
+        if (!window) return;
+        
+        MinimalVulkanApp* app = reinterpret_cast<MinimalVulkanApp*>(glfwGetWindowUserPointer(window));
+        if (app && app->camera) {
+            try {
+                app->camera->processMouseScroll(static_cast<float>(yoffset));
+            } catch (const std::exception& e) {
+                std::cerr << "Error in scroll callback: " << e.what() << std::endl;
+            } catch (...) {
+                std::cerr << "Unknown error in scroll callback" << std::endl;
+            }
+        }
+    }
+    
     void processMouseMovement(double xpos, double ypos) {
         // Multiple layers of safety checks
         if (!camera) {
@@ -289,6 +334,16 @@ private:
                     camera->setMode(VulkanHIP::CameraMode::Orbit);
                     std::cout << "Camera mode: Orbit" << std::endl;
                     break;
+                case GLFW_KEY_SPACE:
+                    simulationRunning = !simulationRunning;
+                    std::cout << "Simulation: " << (simulationRunning ? "Running" : "Paused") << std::endl;
+                    break;
+                case GLFW_KEY_N:
+                    // Step one generation manually
+                    if (!simulationRunning) {
+                        stepSimulation();
+                    }
+                    break;
             }
         }
     }
@@ -343,6 +398,7 @@ private:
         glfwSetCursorPosCallback(windowManager->getWindow(), mouseCallback);
         glfwSetKeyCallback(windowManager->getWindow(), keyCallback);
         glfwSetMouseButtonCallback(windowManager->getWindow(), mouseButtonCallback);
+        glfwSetScrollCallback(windowManager->getWindow(), scrollCallback);
         
         // Disable mouse cursor by default to prevent clicking issues
         glfwSetInputMode(windowManager->getWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
@@ -350,10 +406,13 @@ private:
         std::cout << "Input callbacks set up" << std::endl;
         std::cout << "Controls:" << std::endl;
         std::cout << "  ESC - Toggle mouse look" << std::endl;
-        std::cout << "  WASD - Move camera" << std::endl;
+        std::cout << "  WASD - Move camera (forward/back/left/right)" << std::endl;
         std::cout << "  Space/Ctrl - Move up/down" << std::endl;
+        std::cout << "  Mouse Wheel - Zoom in/out" << std::endl;
         std::cout << "  R - Reset camera" << std::endl;
         std::cout << "  1 - Fly mode, 2 - Orbit mode" << std::endl;
+        std::cout << "  SPACE - Play/pause simulation" << std::endl;
+        std::cout << "  N - Step simulation (when paused)" << std::endl;
     }
     
     void initVulkan() {
@@ -419,6 +478,12 @@ private:
         
         // Initialize frame synchronization
         createSyncObjects();
+        
+        // Initialize Game of Life compute resources
+        createComputeResources();
+        
+        // Initialize ImGui
+        initImGui();
         
         std::cout << "Rendering initialization complete" << std::endl;
     }
@@ -975,6 +1040,9 @@ private:
             // Update camera
             camera->update(deltaTime);
             
+            // Update simulation
+            updateSimulation(deltaTime);
+            
             // Render frame
             renderFrame();
         }
@@ -1067,6 +1135,386 @@ private:
         currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
     
+    void createComputeResources() {
+        std::cout << "Creating compute resources..." << std::endl;
+        
+        // Create storage buffers for grid state
+        createGridBuffers();
+        
+        // Create compute descriptor set layout
+        createComputeDescriptorSetLayout();
+        
+        // Create compute pipeline
+        createComputePipeline();
+        
+        // Create compute descriptor set
+        createComputeDescriptorSet();
+        
+        // Create compute command buffer
+        createComputeCommandBuffer();
+        
+        // Initialize grid with random pattern
+        initializeGrid();
+        
+        std::cout << "Compute resources created" << std::endl;
+    }
+    
+    void createGridBuffers() {
+        VkDeviceSize bufferSize = sizeof(uint32_t) * GRID_WIDTH * GRID_HEIGHT * GRID_DEPTH;
+        
+        // Create state buffer
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = bufferSize;
+        bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        
+        if (vkCreateBuffer(vulkanContext->getDevice(), &bufferInfo, nullptr, &stateBuffer) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create state buffer!");
+        }
+        
+        // Create next state buffer
+        if (vkCreateBuffer(vulkanContext->getDevice(), &bufferInfo, nullptr, &nextStateBuffer) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create next state buffer!");
+        }
+        
+        // Allocate memory for both buffers separately for easier management
+        VkMemoryRequirements memRequirements;
+        vkGetBufferMemoryRequirements(vulkanContext->getDevice(), stateBuffer, &memRequirements);
+        
+        VkMemoryAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memRequirements.size;
+        allocInfo.memoryTypeIndex = VulkanContext::findMemoryType(vulkanContext->getPhysicalDevice(),
+            memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        
+        if (vkAllocateMemory(vulkanContext->getDevice(), &allocInfo, nullptr, &stateBufferMemory) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate state buffer memory!");
+        }
+        
+        vkBindBufferMemory(vulkanContext->getDevice(), stateBuffer, stateBufferMemory, 0);
+        
+        // Allocate separate memory for next state buffer
+        VkDeviceMemory nextStateBufferMemory_temp;
+        if (vkAllocateMemory(vulkanContext->getDevice(), &allocInfo, nullptr, &nextStateBufferMemory_temp) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate next state buffer memory!");
+        }
+        
+        vkBindBufferMemory(vulkanContext->getDevice(), nextStateBuffer, nextStateBufferMemory_temp, 0);
+        
+        // Map memory (we'll store nextStateBufferMemory separately for cleanup)
+        nextStateBufferMemory = nextStateBufferMemory_temp;
+        vkMapMemory(vulkanContext->getDevice(), stateBufferMemory, 0, bufferSize, 0, &stateBufferMapped);
+        vkMapMemory(vulkanContext->getDevice(), nextStateBufferMemory, 0, bufferSize, 0, &nextStateBufferMapped);
+        
+        std::cout << "Grid buffers created: " << GRID_WIDTH << "x" << GRID_HEIGHT << "x" << GRID_DEPTH << std::endl;
+    }
+    
+    void createComputeDescriptorSetLayout() {
+        std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+        
+        bindings[0].binding = 0;
+        bindings[0].descriptorCount = 1;
+        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[0].pImmutableSamplers = nullptr;
+        bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        
+        bindings[1].binding = 1;
+        bindings[1].descriptorCount = 1;
+        bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[1].pImmutableSamplers = nullptr;
+        bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        
+        VkDescriptorSetLayoutCreateInfo layoutInfo{};
+        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+        layoutInfo.pBindings = bindings.data();
+        
+        if (vkCreateDescriptorSetLayout(vulkanContext->getDevice(), &layoutInfo, nullptr, &computeDescriptorSetLayout) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create compute descriptor set layout!");
+        }
+    }
+    
+    void createComputePipeline() {
+        // Load compute shader using ShaderManager
+        VkPipelineShaderStageCreateInfo computeShaderStageInfo = shaderManager->createComputeStage("shaders/game_of_life_3d.comp.spv");
+        
+        // Push constants
+        struct PushConstants {
+            uint32_t width;
+            uint32_t height;
+            uint32_t depth;
+            float time;
+            uint32_t ruleSet;
+            uint32_t surviveMin;
+            uint32_t surviveMax;
+            uint32_t birthCount;
+        };
+        
+        VkPushConstantRange pushConstantRange{};
+        pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        pushConstantRange.offset = 0;
+        pushConstantRange.size = sizeof(PushConstants);
+        
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.setLayoutCount = 1;
+        pipelineLayoutInfo.pSetLayouts = &computeDescriptorSetLayout;
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+        pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+        
+        if (vkCreatePipelineLayout(vulkanContext->getDevice(), &pipelineLayoutInfo, nullptr, &computePipelineLayout) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create compute pipeline layout!");
+        }
+        
+        VkComputePipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipelineInfo.layout = computePipelineLayout;
+        pipelineInfo.stage = computeShaderStageInfo;
+        
+        if (vkCreateComputePipelines(vulkanContext->getDevice(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computePipeline) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create compute pipeline!");
+        }
+        
+        // Note: ShaderManager handles shader module cleanup
+        std::cout << "Compute pipeline created" << std::endl;
+    }
+    
+    void createComputeDescriptorSet() {
+        VkDescriptorPoolSize poolSize{};
+        poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        poolSize.descriptorCount = 2;
+        
+        VkDescriptorPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes = &poolSize;
+        poolInfo.maxSets = 1;
+        
+        if (vkCreateDescriptorPool(vulkanContext->getDevice(), &poolInfo, nullptr, &computeDescriptorPool) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create compute descriptor pool!");
+        }
+        
+        VkDescriptorSetAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool = computeDescriptorPool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &computeDescriptorSetLayout;
+        
+        if (vkAllocateDescriptorSets(vulkanContext->getDevice(), &allocInfo, &computeDescriptorSet) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate compute descriptor set!");
+        }
+        
+        VkDescriptorBufferInfo stateBufferInfo{};
+        stateBufferInfo.buffer = stateBuffer;
+        stateBufferInfo.offset = 0;
+        stateBufferInfo.range = VK_WHOLE_SIZE;
+        
+        VkDescriptorBufferInfo nextStateBufferInfo{};
+        nextStateBufferInfo.buffer = nextStateBuffer;
+        nextStateBufferInfo.offset = 0;
+        nextStateBufferInfo.range = VK_WHOLE_SIZE;
+        
+        std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
+        
+        descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[0].dstSet = computeDescriptorSet;
+        descriptorWrites[0].dstBinding = 0;
+        descriptorWrites[0].dstArrayElement = 0;
+        descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        descriptorWrites[0].descriptorCount = 1;
+        descriptorWrites[0].pBufferInfo = &stateBufferInfo;
+        
+        descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[1].dstSet = computeDescriptorSet;
+        descriptorWrites[1].dstBinding = 1;
+        descriptorWrites[1].dstArrayElement = 0;
+        descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        descriptorWrites[1].descriptorCount = 1;
+        descriptorWrites[1].pBufferInfo = &nextStateBufferInfo;
+        
+        vkUpdateDescriptorSets(vulkanContext->getDevice(), static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+    }
+    
+    void createComputeCommandBuffer() {
+        VkCommandBufferAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.commandPool = vulkanContext->getGraphicsCommandPool();
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = 1;
+        
+        if (vkAllocateCommandBuffers(vulkanContext->getDevice(), &allocInfo, &computeCommandBuffer) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate compute command buffer!");
+        }
+        
+        VkFenceCreateInfo fenceInfo{};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fenceInfo.flags = 0;
+        
+        if (vkCreateFence(vulkanContext->getDevice(), &fenceInfo, nullptr, &computeFence) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create compute fence!");
+        }
+    }
+    
+    void initializeGrid() {
+        // Initialize with a simple pattern (glider-like in center)
+        uint32_t* stateData = static_cast<uint32_t*>(stateBufferMapped);
+        uint32_t totalCells = GRID_WIDTH * GRID_HEIGHT * GRID_DEPTH;
+        
+        // Clear grid
+        for (uint32_t i = 0; i < totalCells; ++i) {
+            stateData[i] = 0;
+        }
+        
+        // Add a simple pattern in the center
+        uint32_t centerX = GRID_WIDTH / 2;
+        uint32_t centerY = GRID_HEIGHT / 2;
+        uint32_t centerZ = GRID_DEPTH / 2;
+        
+        // Create a small 3D pattern
+        for (int dx = -1; dx <= 1; ++dx) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dz = -1; dz <= 1; ++dz) {
+                    if (dx == 0 && dy == 0 && dz == 0) continue;
+                    uint32_t x = centerX + dx;
+                    uint32_t y = centerY + dy;
+                    uint32_t z = centerZ + dz;
+                    if (x < GRID_WIDTH && y < GRID_HEIGHT && z < GRID_DEPTH) {
+                        uint32_t index = z * GRID_WIDTH * GRID_HEIGHT + y * GRID_WIDTH + x;
+                        stateData[index] = 1;
+                    }
+                }
+            }
+        }
+        
+        generation = 0;
+        std::cout << "Grid initialized with pattern" << std::endl;
+    }
+    
+    void initImGui() {
+        // ImGui will be initialized later when we have a proper render pass
+        // For now, just mark it as available
+        std::cout << "ImGui ready for initialization" << std::endl;
+    }
+    
+    void updateSimulation(float deltaTime) {
+        if (!simulationRunning) return;
+        
+        timeSinceLastStep += deltaTime;
+        float stepInterval = 1.0f / simulationSpeed;
+        
+        if (timeSinceLastStep >= stepInterval) {
+            timeSinceLastStep = 0.0f;
+            stepSimulation();
+        }
+    }
+    
+    void stepSimulation() {
+        // Record compute command buffer
+        vkResetCommandBuffer(computeCommandBuffer, 0);
+        
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        
+        if (vkBeginCommandBuffer(computeCommandBuffer, &beginInfo) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to begin compute command buffer!");
+        }
+        
+        vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
+        vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSet, 0, nullptr);
+        
+        // Push constants
+        struct PushConstants {
+            uint32_t width;
+            uint32_t height;
+            uint32_t depth;
+            float time;
+            uint32_t ruleSet;
+            uint32_t surviveMin;
+            uint32_t surviveMax;
+            uint32_t birthCount;
+        };
+        
+        PushConstants pushConstants{};
+        pushConstants.width = GRID_WIDTH;
+        pushConstants.height = GRID_HEIGHT;
+        pushConstants.depth = GRID_DEPTH;
+        pushConstants.time = static_cast<float>(generation);
+        pushConstants.ruleSet = 0; // Classic rule
+        pushConstants.surviveMin = 4;
+        pushConstants.surviveMax = 6;
+        pushConstants.birthCount = 4;
+        
+        vkCmdPushConstants(computeCommandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &pushConstants);
+        
+        // Dispatch compute shader
+        uint32_t groupCountX = (GRID_WIDTH + 7) / 8;
+        uint32_t groupCountY = (GRID_HEIGHT + 7) / 8;
+        uint32_t groupCountZ = (GRID_DEPTH + 7) / 8;
+        vkCmdDispatch(computeCommandBuffer, groupCountX, groupCountY, groupCountZ);
+        
+        if (vkEndCommandBuffer(computeCommandBuffer) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to end compute command buffer!");
+        }
+        
+        // Submit compute work
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &computeCommandBuffer;
+        
+        vkResetFences(vulkanContext->getDevice(), 1, &computeFence);
+        if (vkQueueSubmit(vulkanContext->getGraphicsQueue(), 1, &submitInfo, computeFence) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to submit compute command buffer!");
+        }
+        
+        // Wait for compute to finish
+        vkWaitForFences(vulkanContext->getDevice(), 1, &computeFence, VK_TRUE, UINT64_MAX);
+        
+        // Swap buffers for next iteration
+        std::swap(stateBuffer, nextStateBuffer);
+        std::swap(stateBufferMemory, nextStateBufferMemory);
+        std::swap(stateBufferMapped, nextStateBufferMapped);
+        buffersSwapped = !buffersSwapped;
+        
+        // Update descriptor set for next iteration (buffers are now swapped)
+        VkDescriptorBufferInfo stateBufferInfo{};
+        stateBufferInfo.buffer = stateBuffer;
+        stateBufferInfo.offset = 0;
+        stateBufferInfo.range = VK_WHOLE_SIZE;
+        
+        VkDescriptorBufferInfo nextStateBufferInfo{};
+        nextStateBufferInfo.buffer = nextStateBuffer;
+        nextStateBufferInfo.offset = 0;
+        nextStateBufferInfo.range = VK_WHOLE_SIZE;
+        
+        std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
+        descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[0].dstSet = computeDescriptorSet;
+        descriptorWrites[0].dstBinding = 0;
+        descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        descriptorWrites[0].descriptorCount = 1;
+        descriptorWrites[0].pBufferInfo = &stateBufferInfo;
+        
+        descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[1].dstSet = computeDescriptorSet;
+        descriptorWrites[1].dstBinding = 1;
+        descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        descriptorWrites[1].descriptorCount = 1;
+        descriptorWrites[1].pBufferInfo = &nextStateBufferInfo;
+        
+        vkUpdateDescriptorSets(vulkanContext->getDevice(), 2, descriptorWrites.data(), 0, nullptr);
+        
+        generation++;
+    }
+    
+    void renderUI() {
+        if (!showUI) return;
+        
+        // Basic UI will be added when ImGui is fully integrated
+        // For now, just log UI state
+    }
+    
     void cleanup() {
         std::cout << "Cleaning up resources..." << std::endl;
         
@@ -1154,6 +1602,51 @@ private:
         if (swapchain != VK_NULL_HANDLE) {
             vkDestroySwapchainKHR(vulkanContext->getDevice(), swapchain, nullptr);
             swapchain = VK_NULL_HANDLE;
+        }
+        
+        // Cleanup compute resources
+        if (computeFence != VK_NULL_HANDLE) {
+            vkDestroyFence(vulkanContext->getDevice(), computeFence, nullptr);
+            computeFence = VK_NULL_HANDLE;
+        }
+        
+        if (computePipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(vulkanContext->getDevice(), computePipeline, nullptr);
+            computePipeline = VK_NULL_HANDLE;
+        }
+        
+        if (computePipelineLayout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(vulkanContext->getDevice(), computePipelineLayout, nullptr);
+            computePipelineLayout = VK_NULL_HANDLE;
+        }
+        
+        if (computeDescriptorSetLayout != VK_NULL_HANDLE) {
+            vkDestroyDescriptorSetLayout(vulkanContext->getDevice(), computeDescriptorSetLayout, nullptr);
+            computeDescriptorSetLayout = VK_NULL_HANDLE;
+        }
+        
+        if (computeDescriptorPool != VK_NULL_HANDLE) {
+            vkDestroyDescriptorPool(vulkanContext->getDevice(), computeDescriptorPool, nullptr);
+            computeDescriptorPool = VK_NULL_HANDLE;
+        }
+        
+        if (stateBuffer != VK_NULL_HANDLE) {
+            if (stateBufferMapped) {
+                vkUnmapMemory(vulkanContext->getDevice(), stateBufferMemory);
+            }
+            if (nextStateBufferMapped) {
+                vkUnmapMemory(vulkanContext->getDevice(), nextStateBufferMemory);
+            }
+            vkDestroyBuffer(vulkanContext->getDevice(), stateBuffer, nullptr);
+            vkDestroyBuffer(vulkanContext->getDevice(), nextStateBuffer, nullptr);
+            vkFreeMemory(vulkanContext->getDevice(), stateBufferMemory, nullptr);
+            if (nextStateBufferMemory != VK_NULL_HANDLE) {
+                vkFreeMemory(vulkanContext->getDevice(), nextStateBufferMemory, nullptr);
+            }
+            stateBuffer = VK_NULL_HANDLE;
+            nextStateBuffer = VK_NULL_HANDLE;
+            stateBufferMemory = VK_NULL_HANDLE;
+            nextStateBufferMemory = VK_NULL_HANDLE;
         }
         
         // Cleanup shader manager

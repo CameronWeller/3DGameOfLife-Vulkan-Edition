@@ -12,6 +12,8 @@ find_package(nlohmann_json REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(GTest REQUIRED)
 find_package(benchmark REQUIRED)
+find_package(OpenGL REQUIRED)
+find_package(GLEW CONFIG REQUIRED)
 
 # Find glslc compiler
 find_program(GLSLC_EXECUTABLE glslc HINTS ${Vulkan_GLSLC_EXECUTABLE} ENV VULKAN_SDK PATH_SUFFIXES bin)
@@ -28,6 +30,8 @@ endif()
 # Create a unified dependencies target
 add_library(project_dependencies INTERFACE)
 target_link_libraries(project_dependencies INTERFACE
+    OpenGL::GL
+    GLEW::GLEW
     Vulkan::Vulkan
     glfw
     glm::glm

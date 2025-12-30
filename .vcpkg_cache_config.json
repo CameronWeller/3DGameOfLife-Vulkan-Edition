@@ -1,0 +1,13 @@
+{
+  "binarycaching": {
+    "enabled": true,
+    "path": "./vcpkg_cache",
+    "files": true,
+    "nuget": false,
+    "interactive": false
+  },
+  "registry": {
+    "kind": "filesystem",
+    "path": "./vcpkg_registry"
+  }
+} 

@@ -1,0 +1,5 @@
+if(EXISTS "C:/Dev/3DGameOfLife-Vulkan-Edition/3DGameOfLife-Vulkan-Edition/build_opengl/integration_tests[1]_tests.cmake")
+  include("C:/Dev/3DGameOfLife-Vulkan-Edition/3DGameOfLife-Vulkan-Edition/build_opengl/integration_tests[1]_tests.cmake")
+else()
+  add_test(integration_tests_NOT_BUILT integration_tests_NOT_BUILT)
+endif()

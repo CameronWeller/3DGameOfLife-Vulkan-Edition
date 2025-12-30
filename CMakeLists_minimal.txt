@@ -29,6 +29,7 @@ add_executable(minimal_vulkan_app
     src/WindowManager.cpp
     src/Logger.cpp
     src/Camera.cpp
+    src/vulkan/resources/ShaderManager.cpp
 )
 
 # Link libraries
@@ -58,5 +59,41 @@ target_compile_definitions(minimal_vulkan_app PRIVATE
     $<$<CONFIG:Debug>:DEBUG>
     $<$<CONFIG:Release>:NDEBUG>
 )
+
+# Shader compilation
+find_program(GLSLC_EXECUTABLE glslc PATHS ${VULKAN_SDK}/bin ENV PATH)
+if(GLSLC_EXECUTABLE)
+    set(SHADER_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
+    set(SHADER_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders)
+    file(MAKE_DIRECTORY ${SHADER_BINARY_DIR})
+    
+    # Compile compute shader
+    add_custom_command(
+        OUTPUT ${SHADER_BINARY_DIR}/game_of_life_3d.comp.spv
+        COMMAND ${GLSLC_EXECUTABLE} -o ${SHADER_BINARY_DIR}/game_of_life_3d.comp.spv ${SHADER_SOURCE_DIR}/game_of_life_3d.comp
+        DEPENDS ${SHADER_SOURCE_DIR}/game_of_life_3d.comp
+        COMMENT "Compiling compute shader: game_of_life_3d.comp"
+    )
+    
+    # Compile vertex/fragment shaders
+    add_custom_command(
+        OUTPUT ${SHADER_BINARY_DIR}/minimal.vert.spv ${SHADER_BINARY_DIR}/minimal.frag.spv
+        COMMAND ${GLSLC_EXECUTABLE} -o ${SHADER_BINARY_DIR}/minimal.vert.spv ${SHADER_SOURCE_DIR}/minimal.vert
+        COMMAND ${GLSLC_EXECUTABLE} -o ${SHADER_BINARY_DIR}/minimal.frag.spv ${SHADER_SOURCE_DIR}/minimal.frag
+        DEPENDS ${SHADER_SOURCE_DIR}/minimal.vert ${SHADER_SOURCE_DIR}/minimal.frag
+        COMMENT "Compiling graphics shaders"
+    )
+    
+    # Copy shaders to output
+    add_custom_command(TARGET minimal_vulkan_app POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:minimal_vulkan_app>/shaders
+        COMMAND ${CMAKE_COMMAND} -E copy ${SHADER_BINARY_DIR}/game_of_life_3d.comp.spv $<TARGET_FILE_DIR:minimal_vulkan_app>/shaders/
+        COMMAND ${CMAKE_COMMAND} -E copy ${SHADER_BINARY_DIR}/minimal.vert.spv $<TARGET_FILE_DIR:minimal_vulkan_app>/shaders/
+        COMMAND ${CMAKE_COMMAND} -E copy ${SHADER_BINARY_DIR}/minimal.frag.spv $<TARGET_FILE_DIR:minimal_vulkan_app>/shaders/
+        COMMENT "Copying shaders to output directory"
+    )
+else()
+    message(WARNING "glslc not found. Shaders must be compiled manually.")
+endif()
 
 message(STATUS "Minimal Vulkan App configured successfully") 
