@@ -1,30 +1,18 @@
-// UI.cpp is excluded from precompiled headers to avoid VulkanEngine incomplete type issues
-// Include standard headers manually since we're not using PCH
-#include <iostream>
-#include <vector>
-#include <string>
-#include <memory>
-#include <sstream>
-#include <iomanip>
-#include <thread>
-#include <filesystem>
-#include <functional>
-#include <unordered_map>
-#include <stdexcept>
-
-// External libraries
-#include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
-#include <GLFW/glfw3.h>
-#include <imgui_impl_glfw.h>
-#include <imgui_impl_vulkan.h>
-
-// CRITICAL: Include VulkanEngine.h BEFORE UI.h to ensure complete type definition
-// UI.h only has forward declaration, but UI.cpp needs full definition
+#include "pch.h"
+// Include VulkanEngine.h before UI.h to ensure complete type definition
+// This must come after pch.h to work with precompiled headers
 #include "VulkanEngine.h"
 #include "UI.h"
 #include "SaveManager.h"
 #include "AppState.h"
+#include <GLFW/glfw3.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_vulkan.h>
+#include <sstream>
+#include <iomanip>
+#include <thread>
+#include <filesystem>
+#include <iostream>
 
 UI::UI(VulkanEngine* engine)
     : engine_(engine), isPaused_(true), tickRate(1.0f),
@@ -51,13 +39,6 @@ void UI::init() {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    
-    // Cache Vulkan handles during init when we have complete type
-    if (engine_) {
-        VulkanEngine& engine = *static_cast<VulkanEngine*>(engine_);
-        cachedDevice_ = engine.getDevice();
-        cachedDescriptorPool_ = engine.getDescriptorPool();
-    }
     
     // Set up modern theme
     ImGui::StyleColorsDark();
@@ -927,11 +908,11 @@ void UI::startRuleAnalysis() {
 
     // Start analysis in a separate thread
     // Extract grid dimensions before lambda to avoid incomplete type issues
-    // Cast to complete type (VulkanEngine.h is included above)
-    VulkanEngine& engine = *static_cast<VulkanEngine*>(engine_);
-    uint32_t gridWidth = engine.getGridWidth();
-    uint32_t gridHeight = engine.getGridHeight();
-    uint32_t gridDepth = engine.getGridDepth();
+    // Cast to ensure compiler sees complete type
+    VulkanEngine* engine = static_cast<VulkanEngine*>(engine_);
+    uint32_t gridWidth = engine ? engine->getGridWidth() : 32;
+    uint32_t gridHeight = engine ? engine->getGridHeight() : 32;
+    uint32_t gridDepth = engine ? engine->getGridDepth() : 32;
     
     std::thread([this, ruleSets, progressStep, gridWidth, gridHeight, gridDepth]() {
         for (const auto& rule : ruleSets) {
@@ -974,13 +955,13 @@ void UI::generateAnalysisReports() {
 }
 
 void UI::cleanupPreviewTextures() {
-    if (!engine_ || cachedDevice_ == VK_NULL_HANDLE) {
+    if (!engine_) {
         return;
     }
     
-    // Use cached handles to avoid incomplete type issues
-    VkDevice device = cachedDevice_;
-    VkDescriptorPool descriptorPool = cachedDescriptorPool_;
+    // Extract device and pool before using them to ensure complete type
+    VkDevice device = static_cast<VulkanEngine*>(engine_)->getDevice();
+    VkDescriptorPool descriptorPool = static_cast<VulkanEngine*>(engine_)->getDescriptorPool();
     
     for (const auto& [path, descriptorSet] : previewTextures_) {
         // Free descriptor set
