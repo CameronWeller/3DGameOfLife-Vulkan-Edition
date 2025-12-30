@@ -34,6 +34,10 @@ jobs:
       run: |
         cmake --build build --config Release --target compile_shaders
     
+    - name: Build Tests
+      run: |
+        cmake --build build --config Release --target smoke_test_beta playtest_beta
+    
     - name: Run Smoke Test
       run: |
         cd build
