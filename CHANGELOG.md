@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Corrected project documentation (was incorrectly showing user metrics tracker content)
 - Improved .gitignore patterns for build artifacts and IDE files
+- **CMake Configuration**: Fixed precompiled header configuration - moved target_precompile_headers after apply_common_settings to ensure include directories are configured
+- **Include Paths**: Corrected all engine/vulkan include paths throughout codebase (vulkan/* → engine/vulkan/*)
+- **CI Workflow**: Fixed beta build workflow to build test targets before running ctest and install all dependencies from vcpkg.json
+- **VulkanCompute**: Implemented missing methods (descriptor pools, buffers, submission helpers)
+- **VulkanEngine/UI**: Fixed constructor calls and added missing getDescriptorPool() accessor
 
 ## [1.0.0] - In Development
 
