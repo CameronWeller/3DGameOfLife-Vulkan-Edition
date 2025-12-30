@@ -22,6 +22,8 @@ find_package(glfw3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 
 # Create minimal executable
+# Note: This is a standalone minimal build that compiles sources directly
+# (not using the unified library to avoid dependencies)
 add_executable(minimal_vulkan_app
     src/main_minimal.cpp
     src/VulkanContext.cpp
@@ -29,7 +31,8 @@ add_executable(minimal_vulkan_app
     src/WindowManager.cpp
     src/Logger.cpp
     src/Camera.cpp
-    src/vulkan/resources/ShaderManager.cpp
+    src/engine/vulkan/resources/ShaderManager.cpp
+    src/SimplePatternLoader.cpp
 )
 
 # Link libraries
@@ -42,8 +45,9 @@ target_link_libraries(minimal_vulkan_app PRIVATE
 # Include directories
 target_include_directories(minimal_vulkan_app PRIVATE
     include
-    include/vulkan
-    include/vulkan/resources
+    include/engine
+    include/engine/vulkan
+    include/engine/vulkan/resources
     ${Vulkan_INCLUDE_DIRS}
 )
 
@@ -67,29 +71,47 @@ if(GLSLC_EXECUTABLE)
     set(SHADER_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders)
     file(MAKE_DIRECTORY ${SHADER_BINARY_DIR})
     
+    # Define shader output files
+    set(COMPUTE_SHADER_OUTPUT ${SHADER_BINARY_DIR}/game_of_life_3d.comp.spv)
+    set(VERTEX_SHADER_OUTPUT ${SHADER_BINARY_DIR}/minimal.vert.spv)
+    set(FRAGMENT_SHADER_OUTPUT ${SHADER_BINARY_DIR}/minimal.frag.spv)
+    
     # Compile compute shader
     add_custom_command(
-        OUTPUT ${SHADER_BINARY_DIR}/game_of_life_3d.comp.spv
-        COMMAND ${GLSLC_EXECUTABLE} -o ${SHADER_BINARY_DIR}/game_of_life_3d.comp.spv ${SHADER_SOURCE_DIR}/game_of_life_3d.comp
+        OUTPUT ${COMPUTE_SHADER_OUTPUT}
+        COMMAND ${GLSLC_EXECUTABLE} -o ${COMPUTE_SHADER_OUTPUT} ${SHADER_SOURCE_DIR}/game_of_life_3d.comp
         DEPENDS ${SHADER_SOURCE_DIR}/game_of_life_3d.comp
         COMMENT "Compiling compute shader: game_of_life_3d.comp"
     )
     
     # Compile vertex/fragment shaders
     add_custom_command(
-        OUTPUT ${SHADER_BINARY_DIR}/minimal.vert.spv ${SHADER_BINARY_DIR}/minimal.frag.spv
-        COMMAND ${GLSLC_EXECUTABLE} -o ${SHADER_BINARY_DIR}/minimal.vert.spv ${SHADER_SOURCE_DIR}/minimal.vert
-        COMMAND ${GLSLC_EXECUTABLE} -o ${SHADER_BINARY_DIR}/minimal.frag.spv ${SHADER_SOURCE_DIR}/minimal.frag
+        OUTPUT ${VERTEX_SHADER_OUTPUT} ${FRAGMENT_SHADER_OUTPUT}
+        COMMAND ${GLSLC_EXECUTABLE} -o ${VERTEX_SHADER_OUTPUT} ${SHADER_SOURCE_DIR}/minimal.vert
+        COMMAND ${GLSLC_EXECUTABLE} -o ${FRAGMENT_SHADER_OUTPUT} ${SHADER_SOURCE_DIR}/minimal.frag
         DEPENDS ${SHADER_SOURCE_DIR}/minimal.vert ${SHADER_SOURCE_DIR}/minimal.frag
         COMMENT "Compiling graphics shaders"
     )
     
-    # Copy shaders to output
+    # Create custom target that depends on all shader outputs
+    # This ensures shaders are compiled before the executable is built
+    add_custom_target(compile_shaders_minimal
+        DEPENDS 
+            ${COMPUTE_SHADER_OUTPUT}
+            ${VERTEX_SHADER_OUTPUT}
+            ${FRAGMENT_SHADER_OUTPUT}
+        COMMENT "Compiling all shaders for minimal build"
+    )
+    
+    # Make executable depend on shader compilation target
+    add_dependencies(minimal_vulkan_app compile_shaders_minimal)
+    
+    # Copy shaders to output directory after build
     add_custom_command(TARGET minimal_vulkan_app POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:minimal_vulkan_app>/shaders
-        COMMAND ${CMAKE_COMMAND} -E copy ${SHADER_BINARY_DIR}/game_of_life_3d.comp.spv $<TARGET_FILE_DIR:minimal_vulkan_app>/shaders/
-        COMMAND ${CMAKE_COMMAND} -E copy ${SHADER_BINARY_DIR}/minimal.vert.spv $<TARGET_FILE_DIR:minimal_vulkan_app>/shaders/
-        COMMAND ${CMAKE_COMMAND} -E copy ${SHADER_BINARY_DIR}/minimal.frag.spv $<TARGET_FILE_DIR:minimal_vulkan_app>/shaders/
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${COMPUTE_SHADER_OUTPUT} $<TARGET_FILE_DIR:minimal_vulkan_app>/shaders/
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${VERTEX_SHADER_OUTPUT} $<TARGET_FILE_DIR:minimal_vulkan_app>/shaders/
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FRAGMENT_SHADER_OUTPUT} $<TARGET_FILE_DIR:minimal_vulkan_app>/shaders/
         COMMENT "Copying shaders to output directory"
     )
 else()
