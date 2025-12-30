@@ -2,7 +2,7 @@
 #include "VulkanEngine.h"
 #include "VulkanMemoryManager.h"
 #include "PatternManager.h"
-#include "vulkan/rendering/VoxelRenderer.h"
+#include "engine/vulkan/rendering/VoxelRenderer.h"
 #include <stdexcept>
 #include <algorithm>
 #include <random>

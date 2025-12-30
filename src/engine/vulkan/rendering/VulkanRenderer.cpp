@@ -2,7 +2,7 @@
 #include "VulkanRenderer.h"
 #include "VulkanContext.h"
 #include "VulkanSwapChain.h"
-#include "vulkan/resources/VulkanImageManager.h"
+#include "engine/vulkan/resources/VulkanImageManager.h"
 #include "Camera.h"
 #include <stdexcept>
 #include <fstream>

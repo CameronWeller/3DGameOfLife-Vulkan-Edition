@@ -13,14 +13,14 @@
 #include "SaveManager.h"
 #include "Camera.h"
 #include "Grid3D.h"
-#include "vulkan/resources/VulkanBufferManager.h"
-#include "vulkan/resources/VulkanImageManager.h"
-#include "vulkan/resources/VulkanSwapChain.h"
-#include "vulkan/rendering/VulkanRenderer.h"
-#include "vulkan/rendering/VoxelRenderer.h"
-#include "vulkan/resources/VulkanFramebuffer.h"
-#include "vulkan/ui/VulkanImGui.h"
-#include "vulkan/resources/ShaderManager.h"
+#include "engine/vulkan/resources/VulkanBufferManager.h"
+#include "engine/vulkan/resources/VulkanImageManager.h"
+#include "engine/vulkan/resources/VulkanSwapChain.h"
+#include "engine/vulkan/rendering/VulkanRenderer.h"
+#include "engine/vulkan/rendering/VoxelRenderer.h"
+#include "engine/vulkan/resources/VulkanFramebuffer.h"
+#include "engine/vulkan/ui/VulkanImGui.h"
+#include "engine/vulkan/resources/ShaderManager.h"
 
 namespace VulkanHIP {
 

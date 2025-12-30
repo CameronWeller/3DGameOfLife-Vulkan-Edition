@@ -4,14 +4,14 @@
 
 
 # Configuration directories and files
-SourceDirectory: C:/Dev/3DGameOfLife-Vulkan-Edition
-BuildDirectory: C:/Dev/3DGameOfLife-Vulkan-Edition/build_test
+SourceDirectory: C:/Dev/3DGameOfLife-Vulkan-Edition/3DGameOfLife-Vulkan-Edition
+BuildDirectory: C:/Dev/3DGameOfLife-Vulkan-Edition/3DGameOfLife-Vulkan-Edition/build_test
 
 # Where to place the cost data store
 CostDataFile: 
 
 # Site is something like machine.domain, i.e. pragmatic.crd
-Site: ArchiTop
+Site: ArchiDesk
 
 # Build name is osname-revision-compiler, i.e. Linux-2.4.2-2smp-c++
 BuildName: Win32-MSBuild
@@ -27,7 +27,7 @@ SubmitInactivityTimeout:
 NightlyStartTime: 00:00:00 EDT
 
 # Commands for the build/test/submit cycle
-ConfigureCommand: "C:/Program Files/CMake/bin/cmake.exe" "C:/Dev/3DGameOfLife-Vulkan-Edition"
+ConfigureCommand: "C:/Program Files/CMake/bin/cmake.exe" "C:/Dev/3DGameOfLife-Vulkan-Edition/3DGameOfLife-Vulkan-Edition"
 MakeCommand: "C:\Program Files\CMake\bin\cmake.exe" --build . --config "${CTEST_CONFIGURATION_TYPE}"
 DefaultCTestConfigurationType: Release
 
@@ -63,8 +63,8 @@ UpdateOptions:
 UpdateType: git
 
 # Compiler info
-Compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe
-CompilerVersion: 19.44.35208.0
+Compiler: C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe
+CompilerVersion: 19.44.35220.0
 
 # Dynamic analysis (MemCheck)
 PurifyCommand: 

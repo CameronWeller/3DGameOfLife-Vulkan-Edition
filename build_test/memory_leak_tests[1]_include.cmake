@@ -1,5 +1,5 @@
-if(EXISTS "C:/Dev/3DGameOfLife-Vulkan-Edition/build_test/memory_leak_tests[1]_tests.cmake")
-  include("C:/Dev/3DGameOfLife-Vulkan-Edition/build_test/memory_leak_tests[1]_tests.cmake")
+if(EXISTS "C:/Dev/3DGameOfLife-Vulkan-Edition/3DGameOfLife-Vulkan-Edition/build_test/memory_leak_tests[1]_tests.cmake")
+  include("C:/Dev/3DGameOfLife-Vulkan-Edition/3DGameOfLife-Vulkan-Edition/build_test/memory_leak_tests[1]_tests.cmake")
 else()
   add_test(memory_leak_tests_NOT_BUILT memory_leak_tests_NOT_BUILT)
 endif()
