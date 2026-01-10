@@ -64,6 +64,12 @@ class VulkanCompute;
 class VulkanImGui;
 class ShaderManager;
 
+// Forward declarations for compute structures
+namespace VulkanHIP {
+    struct GameOfLifePushConstants;
+    struct ComputePipelineInfo;
+}
+
 /**
  * @brief RAII wrapper for Vulkan resources
  */
@@ -107,34 +113,7 @@ using Pipeline = VulkanResource<VkPipeline, struct PipelineDeleter>;
 using PipelineLayout = VulkanResource<VkPipelineLayout, struct PipelineLayoutDeleter>;
 using ShaderModule = VulkanResource<VkShaderModule, struct ShaderModuleDeleter>;
 
-/**
- * @brief Game of Life push constants for compute shader
- */
-struct GameOfLifePushConstants {
-    uint32_t width;
-    uint32_t height;
-    uint32_t depth;
-    uint32_t ruleSet;  // 0: Classic, 1: HighLife, 2: Day & Night, 3: Custom, 4: 5766, 5: 4555
-    uint32_t surviveMin;
-    uint32_t surviveMax;
-    uint32_t birthCount;
-};
-
-/**
- * @brief Compute pipeline information
- */
-struct ComputePipelineInfo {
-    VkPipeline pipeline;
-    VkPipelineLayout layout;
-    VkDescriptorSetLayout descriptorSetLayout;
-    VkDescriptorPool descriptorPool;
-    std::vector<VkDescriptorSet> descriptorSets;
-    VkBuffer stateBuffer;
-    VkBuffer nextStateBuffer;
-    VmaAllocation stateBufferAllocation;
-    VmaAllocation nextStateBufferAllocation;
-    GameOfLifePushConstants pushConstants;
-};
+// Forward declarations - actual definitions are in VulkanCompute.h
 
 /**
  * @brief Helper macros for Vulkan error checking
@@ -322,8 +301,8 @@ private:
     void submitComputeWork();
     void createComputeCommandPool();
     void createComputeCommandBuffers();
-    void createComputeBuffers(ComputePipelineInfo& pipelineInfo, uint32_t width, uint32_t height, uint32_t depth);
-    void updateComputePushConstants(const GameOfLifePushConstants& constants);
+    void createComputeBuffers(VulkanHIP::ComputePipelineInfo& pipelineInfo, uint32_t width, uint32_t height, uint32_t depth);
+    void updateComputePushConstants(const VulkanHIP::GameOfLifePushConstants& constants);
     void submitComputeCommand(VkCommandBuffer commandBuffer);
     void waitForComputeCompletion();
 
@@ -392,7 +371,7 @@ private:
     EngineStateMachine stateMachine_;
 
     // Compute pipeline
-    ComputePipelineInfo computePipeline_;
+    VulkanHIP::ComputePipelineInfo computePipeline_;
 
     // Loading state
     float loadingElapsed_ = 0.0f;

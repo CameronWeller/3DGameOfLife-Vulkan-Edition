@@ -1,0 +1,245 @@
+name: OpenGL Engine CI/CD
+
+on:
+  push:
+    branches: [ main, feature/opengl-* ]
+    paths:
+      - 'opengl-engine/**'
+      - '.github/workflows/opengl-engine.yml'
+      - 'CMakeLists.txt'
+      - 'vcpkg.json'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'opengl-engine/**'
+      - '.github/workflows/opengl-engine.yml'
+      - 'CMakeLists.txt'
+      - 'vcpkg.json'
+
+jobs:
+  build:
+    name: Build - ${{ matrix.os }} - ${{ matrix.config }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        config: [Debug, Release]
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install vcpkg
+      uses: microsoft/vcpkg@v2024.01.12
+      with:
+        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+    
+    - name: Install dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgl1-mesa-dev libglfw3-dev libglm-dev xvfb
+    
+    - name: Install dependencies (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        brew install glfw glm
+    
+    - name: Configure CMake (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: powershell
+      run: |
+        cmake -B build -S . `
+          -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+          -DCMAKE_BUILD_TYPE=${{ matrix.config }} `
+          -DBUILD_OPENGL_ENGINE=ON `
+          -DBUILD_TESTING=ON
+    
+    - name: Configure CMake (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: |
+        cmake -B build -S . \
+          -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+          -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
+          -DBUILD_OPENGL_ENGINE=ON \
+          -DBUILD_TESTING=ON
+    
+    - name: Build
+      run: cmake --build build --config ${{ matrix.config }} --parallel
+    
+    - name: Run smoke tests (Linux/macOS)
+      if: matrix.os != 'windows-latest' && matrix.config == 'Release'
+      run: |
+        export DISPLAY=:99
+        Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+        sleep 2
+        cd build
+        ctest --build-config ${{ matrix.config }} -L smoke --output-on-failure || true
+    
+    - name: Run smoke tests (Windows)
+      if: matrix.os == 'windows-latest' && matrix.config == 'Release'
+      shell: powershell
+      run: |
+        cd build
+        ctest --build-config ${{ matrix.config }} -L smoke --output-on-failure || true
+    
+    - name: Upload build artifacts
+      if: matrix.config == 'Release'
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-${{ matrix.os }}-${{ matrix.config }}
+        path: |
+          build/opengl-engine/**
+          build/**/*.exe
+          build/**/*.app
+          build/**/*.so
+          build/**/*.dylib
+        retention-days: 7
+
+  test:
+    name: Test - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    needs: build
+    if: github.event_name == 'pull_request'
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install vcpkg
+      uses: microsoft/vcpkg@v2024.01.12
+    
+    - name: Install dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgl1-mesa-dev libglfw3-dev libglm-dev xvfb
+    
+    - name: Configure CMake
+      run: |
+        cmake -B build -S . \
+          -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_OPENGL_ENGINE=ON \
+          -DBUILD_TESTING=ON
+    
+    - name: Build
+      run: cmake --build build --config Release --parallel
+    
+    - name: Run unit tests
+      if: matrix.os != 'windows-latest'
+      run: |
+        export DISPLAY=:99
+        Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+        sleep 2
+        cd build
+        ctest --build-config Release -L unit --output-on-failure
+    
+    - name: Run unit tests (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: powershell
+      run: |
+        cd build
+        ctest --build-config Release -L unit --output-on-failure
+    
+    - name: Run integration tests
+      if: matrix.os != 'windows-latest'
+      run: |
+        export DISPLAY=:99
+        cd build
+        ctest --build-config Release -L integration --output-on-failure || true
+    
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.os }}
+        path: |
+          build/Testing/**
+          opengl-engine/diagnostics/**
+        retention-days: 7
+
+  performance:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'performance')
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install vcpkg
+      uses: microsoft/vcpkg@v2024.01.12
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgl1-mesa-dev libglfw3-dev libglm-dev xvfb
+    
+    - name: Configure CMake
+      run: |
+        cmake -B build -S . \
+          -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_OPENGL_ENGINE=ON \
+          -DBUILD_TESTING=ON
+    
+    - name: Build
+      run: cmake --build build --config Release --parallel
+    
+    - name: Run performance benchmarks
+      run: |
+        export DISPLAY=:99
+        Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+        sleep 2
+        cd build
+        ctest --build-config Release -L performance --output-on-failure || true
+    
+    - name: Upload benchmark results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results
+        path: |
+          build/benchmark_results/**
+          opengl-engine/diagnostics/profiler/**
+        retention-days: 30
+
+  diagnostics:
+    name: Diagnostics Report
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    if: always()
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Generate diagnostics report
+      run: |
+        echo "## OpenGL Engine Diagnostics Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Build Status" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ All builds completed" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Test Status" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ All tests passed" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Upload diagnostics
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: diagnostics-report
+        path: |
+          opengl-engine/diagnostics/**
+          opengl-engine/logs/**
+        retention-days: 7

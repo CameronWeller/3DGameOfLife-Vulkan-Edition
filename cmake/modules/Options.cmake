@@ -32,6 +32,10 @@ if(WIN32)
     
     # Use MT instead of MD when building with MSVC
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    
+    # Add /FS flag to allow multiple CL.EXE processes to write to the same PDB file
+    # This fixes "cannot open program database" errors during parallel builds
+    add_compile_options(/FS)
 endif()
 
 # Set policy for GLM compatibility

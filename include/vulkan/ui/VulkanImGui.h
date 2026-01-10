@@ -24,6 +24,9 @@ public:
     void endFrame(VkCommandBuffer commandBuffer);
     void cleanup();
     
+    // Getters
+    VkDescriptorPool getDescriptorPool() const { return imguiDescriptorPool_; }
+    
 private:
     VulkanContext* vulkanContext_;
     WindowManager* windowManager_;

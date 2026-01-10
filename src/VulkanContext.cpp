@@ -26,7 +26,9 @@ static void initializeValidationLog() {
         auto now = std::chrono::system_clock::now();
         auto time = std::chrono::system_clock::to_time_t(now);
         std::stringstream ss;
-        ss << "vulkan_validation_" << std::put_time(std::localtime(&time), "%Y%m%d_%H%M%S") << ".log";
+        struct tm timeinfo;
+        localtime_s(&timeinfo, &time);
+        ss << "vulkan_validation_" << std::put_time(&timeinfo, "%Y%m%d_%H%M%S") << ".log";
         validationLogFile.open(ss.str(), std::ios::out | std::ios::app);
         if (!validationLogFile.is_open()) {
             throw std::runtime_error("Failed to open validation log file!");
@@ -40,7 +42,9 @@ static void logValidationMessage(const std::string& message, VkDebugUtilsMessage
     if (validationLogFile.is_open()) {
         auto now = std::chrono::system_clock::now();
         auto time = std::chrono::system_clock::to_time_t(now);
-        validationLogFile << std::put_time(std::localtime(&time), "%Y-%m-%d %H:%M:%S") << " [";
+        struct tm timeinfo;
+        localtime_s(&timeinfo, &time);
+        validationLogFile << std::put_time(&timeinfo, "%Y-%m-%d %H:%M:%S") << " [";
         
         switch (severity) {
             case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:

@@ -52,30 +52,44 @@ void UI::init() {
     
     // Get window from engine
     if (engine_) {
-        window = engine_->getWindow();
-        if (window) {
-            ImGui_ImplGlfw_InitForVulkan(window, true);
+        auto* windowManager = engine_->getWindowManager();
+        if (windowManager) {
+            window = windowManager->getWindow();
+            if (window) {
+                ImGui_ImplGlfw_InitForVulkan(window, true);
+            }
         }
     }
     
     // Initialize Vulkan ImGui
+    // Note: If VulkanImGui is already initialized, use its descriptor pool
+    // Otherwise, UI needs to set up its own ImGui context
     if (engine_) {
-        ImGui_ImplVulkan_InitInfo init_info = {};
-        init_info.Instance = engine_->getVulkanContext()->getInstance();
-        init_info.PhysicalDevice = engine_->getVulkanContext()->getPhysicalDevice();
-        init_info.Device = engine_->getVulkanContext()->getDevice();
-        init_info.QueueFamily = engine_->getVulkanContext()->getGraphicsQueueFamily();
-        init_info.Queue = engine_->getVulkanContext()->getGraphicsQueue();
-        init_info.PipelineCache = VK_NULL_HANDLE;
-        init_info.DescriptorPool = engine_->getDescriptorPool();
-        init_info.Subpass = 0;
-        init_info.MinImageCount = 2;
-        init_info.ImageCount = 2;
-        init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-        init_info.Allocator = nullptr;
-        init_info.CheckVkResultFn = nullptr;
-        
-        ImGui_ImplVulkan_Init(&init_info);
+        auto* imgui = engine_->getImGui();
+        if (imgui) {
+            // VulkanImGui is already initialized, use its descriptor pool
+            auto* context = engine_->getVulkanContext();
+            auto queueFamilyIndices = context->getQueueFamilyIndices();
+            
+            ImGui_ImplVulkan_InitInfo init_info = {};
+            init_info.Instance = context->getVkInstance();
+            init_info.PhysicalDevice = context->getPhysicalDevice();
+            init_info.Device = context->getDevice();
+            init_info.QueueFamily = queueFamilyIndices.graphicsFamily.value();
+            init_info.Queue = context->getGraphicsQueue();
+            init_info.PipelineCache = VK_NULL_HANDLE;
+            init_info.DescriptorPool = imgui->getDescriptorPool();
+            init_info.Subpass = 0;
+            init_info.MinImageCount = 2;
+            init_info.ImageCount = 2;
+            init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+            init_info.Allocator = nullptr;
+            init_info.CheckVkResultFn = nullptr;
+            
+            ImGui_ImplVulkan_Init(&init_info);
+        }
+        // If VulkanImGui is not available, UI will need to create its own descriptor pool
+        // For now, we assume VulkanImGui should be initialized first
     }
 }
 
@@ -98,7 +112,12 @@ void UI::render() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New Game", "Ctrl+N")) {
-                // TODO: Implement new game
+                if (engine_) {
+                    engine_->resetSimulation();
+                    // Reset statistics
+                    population = 0;
+                    generation = 0;
+                }
             }
             if (ImGui::MenuItem("Load Pattern", "Ctrl+O")) {
                 showLoadPatternDialog_ = true;
@@ -165,7 +184,12 @@ void UI::handleInput() {
         }
         
         if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
-            // TODO: Reset simulation
+            if (engine_) {
+                engine_->resetSimulation();
+                // Reset statistics
+                population = 0;
+                generation = 0;
+            }
         }
     }
 }
@@ -190,7 +214,12 @@ void UI::renderControls() {
     
     ImGui::SameLine();
     if (ImGui::Button("Reset")) {
-        // TODO: Reset simulation
+        if (engine_) {
+            engine_->resetSimulation();
+            // Reset statistics
+            population = 0;
+            generation = 0;
+        }
     }
     
     ImGui::SliderFloat("Tick Rate", &tickRate, 0.1f, 10.0f);

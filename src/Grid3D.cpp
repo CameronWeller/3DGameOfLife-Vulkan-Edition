@@ -245,21 +245,21 @@ void Grid3D::createComputeResources() {
     VK_CHECK(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computePipeline));
     
     // Create command buffer for compute operations
-    VkCommandPoolCreateInfo poolInfo{};
-    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    VkCommandPoolCreateInfo cmdPoolInfo{};
+    cmdPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    cmdPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     
     // Fix: Use the correct way to get compute queue family index
     auto queueFamilies = VulkanHIP::VulkanEngine::getInstance()->getVulkanContext()->getQueueFamilyIndices();
     if (queueFamilies.hasCompute()) {
-        poolInfo.queueFamilyIndex = queueFamilies.computeFamily.value();
+        cmdPoolInfo.queueFamilyIndex = queueFamilies.computeFamily.value();
     } else {
         // Fallback to graphics queue family if no dedicated compute queue
-        poolInfo.queueFamilyIndex = queueFamilies.graphicsFamily.value();
+        cmdPoolInfo.queueFamilyIndex = queueFamilies.graphicsFamily.value();
     }
     
     VkCommandPool computeCommandPool;
-    VK_CHECK(vkCreateCommandPool(device, &poolInfo, nullptr, &computeCommandPool));
+    VK_CHECK(vkCreateCommandPool(device, &cmdPoolInfo, nullptr, &computeCommandPool));
     
     VkCommandBufferAllocateInfo cmdAllocInfo{};
     cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;

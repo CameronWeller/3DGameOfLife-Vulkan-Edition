@@ -85,7 +85,7 @@ This document serves as a comprehensive planning framework for realigning all pr
 - [ ] **GPU Optimization**
   - Priority: medium
   - Target FPS: 120 minimum
-  - Maximum grid size: 5000 cubed
+  - Maximum grid size: 100 cubed (for 0.1.0 release, scalable architecture for larger grids)
   - Multi-GPU support: [ ] Yes [✅ ] No
   
 - [ ] **Memory Management**

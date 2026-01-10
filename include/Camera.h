@@ -45,12 +45,18 @@ public:
     const glm::vec3& getTarget() const { return target; }
     float getZoom() const { return zoom; }
     CameraMode getMode() const { return mode; }
+    float getMovementSpeed() const { return movementSpeed; }
+    float getMouseSensitivity() const { return mouseSensitivity; }
+    float getOrbitDistance() const { return orbitDistance; }
 
     // Setters
     void setPosition(const glm::vec3& pos) { position = pos; }
     void setTarget(const glm::vec3& tgt) { target = tgt; }
     void setMode(CameraMode newMode);
     void setGrid(Grid3D* grid) { grid_ = grid; }
+    void setMovementSpeed(float speed) { movementSpeed = speed; }
+    void setMouseSensitivity(float sensitivity) { mouseSensitivity = sensitivity; }
+    void setOrbitDistance(float distance) { orbitDistance = distance; }
 
 private:
     // Camera vectors

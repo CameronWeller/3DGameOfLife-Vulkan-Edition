@@ -16,6 +16,9 @@ project(3DGameOfLife-Vulkan-Edition
 # Add module path
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
+# Build options
+option(BUILD_OPENGL_ENGINE "Build OpenGL engine version" ON)
+
 # Include modular configuration
 include(Options)           # Build options and compiler settings
 include(Dependencies)      # External dependencies
@@ -130,4 +133,10 @@ if(ENABLE_STATIC_ANALYSIS)
     message(STATUS "Static Analysis: clang-tidy, cppcheck, iwyu")
 endif()
 message(STATUS "Shaders: compile_shaders, copy_shaders, validate_shaders, clean_shaders")
+if(BUILD_OPENGL_ENGINE)
+    message(STATUS "OpenGL Engine: Enabled")
+    add_subdirectory(opengl-engine)
+else()
+    message(STATUS "OpenGL Engine: Disabled")
+endif()
 message(STATUS "")

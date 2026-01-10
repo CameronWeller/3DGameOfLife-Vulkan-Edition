@@ -373,4 +373,10 @@ std::vector<char> VulkanEngine::readFile(const std::string& filename) {
     return buffer;
 }
 
+void VulkanEngine::resetSimulation() {
+    if (grid_) {
+        grid_->clear();
+    }
+}
+
 } // namespace VulkanHIP

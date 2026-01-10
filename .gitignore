@@ -198,4 +198,17 @@ performance_data/
 
 # Minimal build artifacts
 minimal_vulkan_app.dir/
-minimal_vulkan_app.vcxproj* 
+minimal_vulkan_app.vcxproj*
+
+# OpenGL Engine build artifacts
+opengl-engine/build/
+opengl-engine/CMakeFiles/
+opengl-engine/CMakeCache.txt
+opengl-engine/*.exe
+opengl-engine/*.dll
+opengl-engine/*.so
+opengl-engine/*.dylib
+opengl-engine/*.a
+opengl-engine/*.lib
+opengl-engine/*.o
+opengl-engine/*.obj 

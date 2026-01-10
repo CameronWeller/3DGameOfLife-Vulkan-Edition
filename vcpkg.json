@@ -9,7 +9,8 @@
       "name": "imgui",
       "features": [
         "vulkan-binding",
-        "glfw-binding"
+        "glfw-binding",
+        "opengl3-binding"
       ]
     },
     "spdlog",
@@ -17,7 +18,8 @@
     "nlohmann-json",
     "gtest",
     "benchmark",
-    "vulkan-tools"
+    "vulkan-tools",
+    "glad"
   ],
   "builtin-baseline": "d9ccd77bb554e67137f3f754a2e2f11f4188c82c",
   "overrides": [
