@@ -10,6 +10,7 @@ find_package(nlohmann_json REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(GTest REQUIRED)
 find_package(benchmark REQUIRED)
+find_package(glad CONFIG REQUIRED)
 
 # Find GLAD (via vcpkg or system)
 find_path(GLAD_INCLUDE_DIR glad/glad.h)
@@ -20,6 +21,7 @@ endif()
 # Include directories
 set(OPENGL_ENGINE_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/opengl
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${GLAD_INCLUDE_DIR}
@@ -50,6 +52,8 @@ set(OPENGL_ENGINE_SOURCES
     
     # Game logic
     src/opengl/Grid3D.cpp
+    ../src/Camera.cpp
+    ../src/PatternManager.cpp
     
     # UI
     src/opengl/ui/OpenGLImGui.cpp
@@ -88,26 +92,17 @@ target_link_libraries(${PROJECT_NAME}-OpenGL PRIVATE
     spdlog::spdlog
     nlohmann_json::nlohmann_json
     imgui::imgui
+    glad::glad
 )
-
-# Link shared components from parent (if available)
-# Note: These may need to be linked as static libraries or headers-only
-# For now, we'll link against the source files directly
-if(TARGET game_logic)
-    target_link_libraries(${PROJECT_NAME}-OpenGL PRIVATE game_logic)
-endif()
-
-if(TARGET camera)
-    target_link_libraries(${PROJECT_NAME}-OpenGL PRIVATE camera)
-endif()
-
-if(TARGET utilities)
-    target_link_libraries(${PROJECT_NAME}-OpenGL PRIVATE utilities)
-endif()
 
 # Apply common settings from parent
 if(COMMAND apply_common_settings)
     apply_common_settings(${PROJECT_NAME}-OpenGL)
+endif()
+
+if(MSVC)
+    set_property(TARGET ${PROJECT_NAME}-OpenGL PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
 # Platform-specific OpenGL linking
@@ -301,5 +296,12 @@ foreach(shader ${OPENGL_SHADERS})
     get_filename_component(shader_name ${shader} NAME)
     configure_file(${shader} ${CMAKE_CURRENT_BINARY_DIR}/shaders/${shader_name} COPYONLY)
 endforeach()
+
+add_custom_command(TARGET ${PROJECT_NAME}-OpenGL POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/shaders"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}-OpenGL>/shaders"
+    COMMENT "Copying OpenGL shaders next to executable"
+)
 
 message(STATUS "OpenGL Engine shaders configured")

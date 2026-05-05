@@ -166,8 +166,8 @@ void Grid3D::randomize(float density) {
     std::mt19937 gen(rd());
     std::uniform_real_distribution<float> dis(0.0f, 1.0f);
     
-    for (auto& cell : currentState_) {
-        cell = dis(gen) < density;
+    for (size_t i = 0; i < currentState_.size(); ++i) {
+        currentState_[i] = dis(gen) < density;
     }
     
     needsStateSync_ = true;
@@ -311,7 +311,7 @@ void Grid3D::syncStateFromGPU() {
 bool Grid3D::loadPattern(const std::string& filename) {
     try {
         // Use existing PatternManager (it should work with minimal changes)
-        auto pattern = PatternManager::loadPattern(filename);
+        auto pattern = ::PatternManager::loadPattern(filename);
         if (!pattern) {
             return false;
         }
@@ -351,7 +351,7 @@ bool Grid3D::loadPattern(const std::string& filename) {
 
 bool Grid3D::savePattern(const std::string& filename) const {
     try {
-        PatternManager::Pattern pattern(
+        ::PatternManager::Pattern pattern(
             std::filesystem::path(filename).stem().string(),
             "3D Game of Life Pattern",
             width_, height_, depth_,
@@ -362,7 +362,7 @@ bool Grid3D::savePattern(const std::string& filename) const {
             static_cast<uint32_t>(generation_)
         );
         
-        bool result = PatternManager::savePattern(filename, pattern);
+        bool result = ::PatternManager::savePattern(filename, pattern);
         
         if (result) {
             VulkanHIP::Logger::getInstance().log(VulkanHIP::Logger::LogLevel::Info,
@@ -377,8 +377,8 @@ bool Grid3D::savePattern(const std::string& filename) const {
     }
 }
 
-PatternManager::Pattern Grid3D::getCurrentPattern() const {
-    PatternManager::Pattern pattern(
+::PatternManager::Pattern Grid3D::getCurrentPattern() const {
+    ::PatternManager::Pattern pattern(
         "Current Grid",
         "Current simulation state",
         width_, height_, depth_,

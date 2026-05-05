@@ -4,6 +4,7 @@
 
 # Build directories
 build/
+build_*/
 build_minimal/
 .cmake/
 cmake-build-*/
@@ -211,4 +212,4 @@ opengl-engine/*.dylib
 opengl-engine/*.a
 opengl-engine/*.lib
 opengl-engine/*.o
-opengl-engine/*.obj 
+opengl-engine/*.obj

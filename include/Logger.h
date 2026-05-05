@@ -9,6 +9,9 @@
 #include <filesystem>
 #include <atomic>
 #include <iostream>
+#include <algorithm>
+#include <stdexcept>
+#include <vector>
 
 namespace VulkanHIP {
 
@@ -166,4 +169,4 @@ private:
     std::string logDirectory_ = "logs";
 };
 
-} // namespace VulkanHIP 
+} // namespace VulkanHIP

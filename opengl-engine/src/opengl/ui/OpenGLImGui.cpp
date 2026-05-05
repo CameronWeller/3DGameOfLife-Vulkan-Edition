@@ -22,8 +22,9 @@ void OpenGLImGui::initialize(GLFWwindow* window) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
     
-    // Enable docking (optional)
+#ifdef ImGuiConfigFlags_DockingEnable
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+#endif
     
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
