@@ -1,5 +1,4 @@
 #include "PatternManager.h"
-#include "Grid3D.h"
 #include <fstream>
 #include <filesystem>
 #include <algorithm>
@@ -293,4 +292,4 @@ uint32_t getIndex(uint32_t x, uint32_t y, uint32_t z, uint32_t width, uint32_t h
     return z * width * height + y * width + x;
 }
 
-} // namespace PatternManager 
+} // namespace PatternManager

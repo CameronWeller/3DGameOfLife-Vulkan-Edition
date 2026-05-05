@@ -8,6 +8,9 @@ namespace OpenGLHIP {
 
 OpenGLVoxelRenderer::OpenGLVoxelRenderer() {
     renderer_ = std::make_unique<OpenGLRenderer>();
+    for (auto& plane : frustumPlanes_) {
+        plane = glm::vec4(0.0f);
+    }
 }
 
 OpenGLVoxelRenderer::~OpenGLVoxelRenderer() {
@@ -285,6 +288,7 @@ void OpenGLVoxelRenderer::render(const glm::mat4& viewMatrix, const glm::mat4& p
     
     // Render using instanced drawing
     if (!indices_.empty() && visibleCount > 0) {
+        indexBuffer_->bind();
         glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(indices_.size()),
                                 GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(instances_.size()));
         

@@ -101,9 +101,8 @@ OpenGLContext::~OpenGLContext() {
 }
 
 bool OpenGLContext::initializeGLAD() {
-    // GLAD initialization via vcpkg package
-    // GLAD provides gladLoadGL() which takes a function pointer loader
-    if (!gladLoadGL(glfwGetProcAddress)) {
+    // The vcpkg glad package used here loads through the current context.
+    if (!gladLoadGL()) {
         VulkanHIP::Logger::getInstance().log(VulkanHIP::Logger::LogLevel::Error,
             "Failed to load OpenGL functions via GLAD");
         return false;
@@ -161,7 +160,8 @@ bool OpenGLContext::detectVersion() {
     version_.supportsComputeShaders = (version_.major > 4) || (version_.major == 4 && version_.minor >= 3);
     if (!version_.supportsComputeShaders) {
         // Check for compute shader extension
-        std::string extensions = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
+        const char* extensionsStr = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
+        std::string extensions = extensionsStr ? extensionsStr : "";
         if (extensions.find("GL_ARB_compute_shader") != std::string::npos) {
             version_.supportsComputeShaders = true;
         }
@@ -170,7 +170,8 @@ bool OpenGLContext::detectVersion() {
     // Check debug context support (requires OpenGL 4.3+ or extension)
     version_.supportsDebugContext = (version_.major > 4) || (version_.major == 4 && version_.minor >= 3);
     if (!version_.supportsDebugContext) {
-        std::string extensions = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
+        const char* extensionsStr = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
+        std::string extensions = extensionsStr ? extensionsStr : "";
         if (extensions.find("GL_KHR_debug") != std::string::npos ||
             extensions.find("GL_ARB_debug_output") != std::string::npos) {
             version_.supportsDebugContext = true;
@@ -218,7 +219,18 @@ void OpenGLContext::setupDebugContext() {
 }
 
 void OpenGLContext::checkExtensions(const std::vector<int>& requiredExtensions) {
-    std::string extensionsStr = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
+    if (requiredExtensions.empty()) {
+        return;
+    }
+
+    const char* rawExtensions = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
+    if (!rawExtensions) {
+        VulkanHIP::Logger::getInstance().log(VulkanHIP::Logger::LogLevel::Warning,
+            "Skipping extension string check; glGetString(GL_EXTENSIONS) is unavailable in this context");
+        return;
+    }
+
+    std::string extensionsStr = rawExtensions;
     
     for (const auto& extName : requiredExtensions) {
         const char* extCStr = reinterpret_cast<const char*>(extName);

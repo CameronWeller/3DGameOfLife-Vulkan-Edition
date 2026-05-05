@@ -1,5 +1,5 @@
 #include "opengl/diagnostics/OpenGLDebugCallback.h"
-#include "../../../include/Logger.h"
+#include "Logger.h"
 #include <GLFW/glfw3.h>
 #include <filesystem>
 #include <algorithm>
@@ -238,7 +238,7 @@ std::string OpenGLDebugCallback::typeToString(GLenum type) {
     }
 }
 
-void OpenGLDebugCallback::APIENTRY debugCallback(
+void APIENTRY OpenGLDebugCallback::debugCallback(
     GLenum source,
     GLenum type,
     GLuint id,

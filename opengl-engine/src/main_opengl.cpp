@@ -29,8 +29,8 @@ int g_renderMode = 0;  // 0: Solid, 1: Wireframe, 2: Points
 int main() {
     try {
         // Initialize logger
-        Logger logger;
-        logger.log(LogLevel::Info, "Starting OpenGL engine application");
+        auto& logger = Logger::getInstance();
+        logger.log(Logger::LogLevel::Info, "Starting OpenGL engine application");
 
         // Initialize memory manager
         OpenGLMemoryManager::getInstance().initialize();
@@ -63,7 +63,7 @@ int main() {
             }
         });
         
-        logger.log(LogLevel::Info, "Controls:\n  ESC - Exit\n  SPACE - Play/Pause\n  R - Reset");
+        logger.log(Logger::LogLevel::Info, "Controls:\n  ESC - Exit\n  SPACE - Play/Pause\n  R - Reset");
         
         // Initialize OpenGL context
         auto& glContext = OpenGLContext::getInstance();
@@ -76,13 +76,13 @@ int main() {
         glContext.initialize(windowManager.getWindow(), contextConfig);
         
         if (!glContext.supportsComputeShaders()) {
-            logger.log(LogLevel::Error, "OpenGL version does not support compute shaders!");
+            logger.log(Logger::LogLevel::Error, "OpenGL version does not support compute shaders!");
             return 1;
         }
         
-        logger.log(LogLevel::Info, "OpenGL context initialized");
-        logger.log(LogLevel::Info, "Version: " + glContext.getVersion().versionString);
-        logger.log(LogLevel::Info, "Compute shaders: " + std::string(glContext.supportsComputeShaders() ? "Yes" : "No"));
+        logger.log(Logger::LogLevel::Info, "OpenGL context initialized");
+        logger.log(Logger::LogLevel::Info, "Version: " + glContext.getVersion().versionString);
+        logger.log(Logger::LogLevel::Info, "Compute shaders: " + std::string(glContext.supportsComputeShaders() ? "Yes" : "No"));
         
         // Initialize renderer
         auto renderer = std::make_unique<OpenGLRenderer>();
@@ -114,7 +114,7 @@ int main() {
         voxelRenderer->initialize();
         
         // Initialize Grid3D
-        auto grid = std::make_unique<Grid3D>(32, 32, 32);
+        auto grid = std::make_unique<OpenGLHIP::Grid3D>(32, 32, 32);
         grid->randomize(0.3f);  // 30% initial density
         
         // Initialize Camera
@@ -126,8 +126,8 @@ int main() {
         auto& imgui = OpenGLImGui::getInstance();
         imgui.initialize(windowManager.getWindow());
         
-        logger.log(LogLevel::Info, "All components initialized successfully");
-        logger.log(LogLevel::Info, "Grid initialized: 32x32x32, 30% density");
+        logger.log(Logger::LogLevel::Info, "All components initialized successfully");
+        logger.log(Logger::LogLevel::Info, "Grid initialized: 32x32x32, 30% density");
         
         // Main render loop
         auto lastFrameTime = std::chrono::high_resolution_clock::now();
@@ -155,7 +155,7 @@ int main() {
                     simulationTimer = 0.0f;
                     lastUpdateTime = currentTime;
                 } catch (const std::exception& e) {
-                    logger.log(LogLevel::Error, std::string("Simulation update error: ") + e.what());
+                    logger.log(Logger::LogLevel::Error, std::string("Simulation update error: ") + e.what());
                 }
             }
             
@@ -198,14 +198,14 @@ int main() {
             if (frameCount % 60 == 0) {
                 auto& profiler = OpenGLProfiler::getInstance();
                 auto lastFrame = profiler.getLastFrameMetrics();
-                logger.log(LogLevel::Debug, 
+                logger.log(Logger::LogLevel::Debug,
                     "FPS: " + std::to_string(lastFrame.fps) + 
                     ", Generation: " + std::to_string(grid->getGeneration()) +
                     ", Population: " + std::to_string(grid->getPopulation()));
             }
         }
         
-        logger.log(LogLevel::Info, "Application shutting down");
+        logger.log(Logger::LogLevel::Info, "Application shutting down");
         
         // Cleanup
         imgui.shutdown();
@@ -224,4 +224,3 @@ int main() {
         return 1;
     }
 }
-

@@ -7,15 +7,11 @@
 #include <string>
 #include <cstdint>
 #include "../../../include/GameRules.h"
+#include "../../../include/PatternManager.h"
 #include "compute/OpenGLCompute.h"
 #include "rendering/OpenGLVoxelRenderer.h"
 
 namespace OpenGLHIP {
-
-// Forward declaration
-namespace PatternManager {
-    struct Pattern;
-}
 
 class Grid3D {
 public:
@@ -47,7 +43,7 @@ public:
     // Pattern management
     bool loadPattern(const std::string& filename);
     bool savePattern(const std::string& filename) const;
-    PatternManager::Pattern getCurrentPattern() const;
+    ::PatternManager::Pattern getCurrentPattern() const;
     
     // Grid properties
     uint32_t getWidth() const { return width_; }

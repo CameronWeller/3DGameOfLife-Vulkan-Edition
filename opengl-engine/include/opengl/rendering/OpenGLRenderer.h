@@ -71,8 +71,6 @@ private:
     bool compileShaderStage(GLuint shader, const std::string& source, const std::string& type);
     void logShaderError(GLuint shader, const std::string& type);
     void logProgramError(GLuint program);
-    
-    void cleanup();
 };
 
 } // namespace OpenGLHIP
