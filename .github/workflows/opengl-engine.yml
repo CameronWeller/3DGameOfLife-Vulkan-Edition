@@ -31,10 +31,22 @@ jobs:
       with:
         submodules: recursive
     
-    - name: Install vcpkg
-      uses: microsoft/vcpkg@v2024.01.12
-      with:
-        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+    - name: Install vcpkg (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: powershell
+      run: |
+        if (!(Test-Path "${{ github.workspace }}/vcpkg/.git")) {
+          git clone https://github.com/microsoft/vcpkg.git "${{ github.workspace }}/vcpkg"
+        }
+        & "${{ github.workspace }}/vcpkg/bootstrap-vcpkg.bat"
+
+    - name: Install vcpkg (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: |
+        if [ ! -d "${{ github.workspace }}/vcpkg/.git" ]; then
+          git clone https://github.com/microsoft/vcpkg.git "${{ github.workspace }}/vcpkg"
+        fi
+        "${{ github.workspace }}/vcpkg/bootstrap-vcpkg.sh"
     
     - name: Install dependencies (Ubuntu)
       if: matrix.os == 'ubuntu-latest'
@@ -114,8 +126,22 @@ jobs:
       with:
         submodules: recursive
     
-    - name: Install vcpkg
-      uses: microsoft/vcpkg@v2024.01.12
+    - name: Install vcpkg (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: powershell
+      run: |
+        if (!(Test-Path "${{ github.workspace }}/vcpkg/.git")) {
+          git clone https://github.com/microsoft/vcpkg.git "${{ github.workspace }}/vcpkg"
+        }
+        & "${{ github.workspace }}/vcpkg/bootstrap-vcpkg.bat"
+
+    - name: Install vcpkg (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: |
+        if [ ! -d "${{ github.workspace }}/vcpkg/.git" ]; then
+          git clone https://github.com/microsoft/vcpkg.git "${{ github.workspace }}/vcpkg"
+        fi
+        "${{ github.workspace }}/vcpkg/bootstrap-vcpkg.sh"
     
     - name: Install dependencies (Ubuntu)
       if: matrix.os == 'ubuntu-latest'
@@ -179,7 +205,11 @@ jobs:
         submodules: recursive
     
     - name: Install vcpkg
-      uses: microsoft/vcpkg@v2024.01.12
+      run: |
+        if [ ! -d "${{ github.workspace }}/vcpkg/.git" ]; then
+          git clone https://github.com/microsoft/vcpkg.git "${{ github.workspace }}/vcpkg"
+        fi
+        "${{ github.workspace }}/vcpkg/bootstrap-vcpkg.sh"
     
     - name: Install dependencies
       run: |
