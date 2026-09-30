@@ -57,6 +57,7 @@ static_assert(GLM_CONFIG_CLIP_CONTROL & GLM_CLIP_CONTROL_ZO_BIT,
 #include "VulkanContext.h"
 #include "engine/vulkan/resources/ShaderManager.h"
 #include "Life3DRules.h"
+#include "tutorial/Tutorial.h"
 
 using namespace VulkanHIP;
 
@@ -102,7 +103,7 @@ struct Options {
     std::string loadPath;
     std::string savePath;
     bool fly = false;
-    std::string menu; // open a menu at start (for screenshots): pause, settings, inventory, newworld
+    std::string menu; // open a menu at start (for screenshots): pause, settings, inventory, newworld, tutorial[:N]
     std::vector<ScriptAction> script;
 };
 
@@ -120,7 +121,7 @@ void printUsage() {
                  "  --verify          check the GPU against the CPU reference and exit\n"
                  "  --load PATH       open a saved world (Ctrl+S saves world.life3d in the user data folder)\n"
                  "  --fly             start flying instead of walking\n"
-                 "  --menu NAME       open pause, settings, inventory or newworld at start\n"
+                 "  --menu NAME       open pause, settings, inventory, newworld or tutorial[:LESSON] at start\n"
                  "  --save PATH       save the world to PATH on exit\n"
                  "Scripted input (applied in order, for tests):\n"
                  "  --pos X,Y,Z  --look YAW,PITCH  --slot N (0 = empty hand)  --place  --break  --resize W,H\n"
@@ -430,6 +431,11 @@ public:
         else if (options.menu == "settings") { openPauseMenu(); screen = Screen::Settings; }
         else if (options.menu == "inventory") openInventory();
         else if (options.menu == "newworld") { openPauseMenu(); openNewWorldScreen(); }
+        else if (options.menu.rfind("tutorial", 0) == 0) {
+            // --menu tutorial:N opens lesson N; --steps then advances the lesson's scene.
+            openTutorial(options.menu.size() > 9 ? std::stoul(options.menu.substr(9)) - 1 : 0);
+            for (uint32_t i = 0; i < options.warmupSteps; ++i) runPass(true);
+        }
         else if (!options.menu.empty()) throw std::runtime_error("Unknown --menu " + options.menu);
         mainLoop();
         if (persistSettings) saveSettings(settings);
@@ -628,6 +634,7 @@ private:
     float verticalSpeed = 0.0f;
     double lastSpacePress = -1.0;
     int windowedX = 100, windowedY = 100, windowedWidth = 1280, windowedHeight = 800;
+    tutorial::Tutorial tutorialPanel; // lesson panel over the running world (src/tutorial)
 
     // Screenshots
     std::string pendingScreenshot;
@@ -1420,6 +1427,7 @@ private:
     }
 
     void newWorld(bool seed) {
+        tutorialPanel.close(); // its lesson no longer matches the world
         resetChunks();
         generation = 0;
         population = 0;
@@ -1493,6 +1501,7 @@ private:
             std::cerr << "Truncated save: " << path << std::endl;
             return false;
         }
+        tutorialPanel.close();
         resetChunks();
         for (const glm::ivec3& cell : cells) setCell(cell, true);
         ruleIndex = savedRule;
@@ -1980,6 +1989,10 @@ private:
             return;
         }
         if (action != GLFW_PRESS) return;
+        if (tutorial::Tutorial::Request request = tutorialPanel.handleKey(key); request != tutorial::Tutorial::Request::None) {
+            handleTutorialRequest(request);
+            return;
+        }
         if (key >= GLFW_KEY_1 && key < GLFW_KEY_1 + static_cast<int>(STAMP_NAMES.size())) {
             int slot = key - GLFW_KEY_1;
             selectSlot(slot == hotbarSlot ? -1 : slot); // pressing the selected number again empties the hand
@@ -2061,7 +2074,8 @@ private:
     void onMouseButton(int button, int action, int) {
         if (screen != Screen::Playing) return; // menus handle their own clicks
         if (!cursorCaptured) {
-            if (action == GLFW_PRESS) setCursorCaptured(true); // first click only grabs the mouse
+            // The first click only grabs the mouse, unless it lands on the tutorial panel.
+            if (action == GLFW_PRESS && !(imguiReady && ImGui::GetIO().WantCaptureMouse)) setCursorCaptured(true);
             return;
         }
         if (button == GLFW_MOUSE_BUTTON_LEFT) {
@@ -2237,13 +2251,16 @@ private:
         if (!imguiReady) return;
         updateUiScale();
         ImGuiIO& io = ImGui::GetIO();
-        if (screen == Screen::Playing) io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+        if (screen == Screen::Playing && (cursorCaptured || !tutorialPanel.active())) io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
         else io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         switch (screen) {
-            case Screen::Playing: drawHudOverlay(); break;
+            case Screen::Playing:
+                drawHudOverlay();
+                if (hudVisible && tutorialPanel.active()) handleTutorialRequest(tutorialPanel.draw(uiScale, tutorialStatus()));
+                break;
             case Screen::Paused: drawPauseMenu(); break;
             case Screen::Settings: drawSettingsMenu(); break;
             case Screen::Inventory: drawInventory(); break;
@@ -2372,7 +2389,10 @@ private:
                 case 1: saveWorldWithMessage(); break;
                 case 2: loadWorldWithMessage(); break;
             }
-            if (menuButton("Settings...")) screen = Screen::Settings;
+            switch (menuButtonPair("Tutorial...", "Settings...")) {
+                case 1: openTutorial(tutorialPanel.lessonIndex()); break;
+                case 2: screen = Screen::Settings; break;
+            }
             ImGui::Dummy(ImVec2(0, px(6)));
             if (menuButton("Quit Game")) glfwSetWindowShouldClose(windowManager->getWindow(), GLFW_TRUE);
             ImGui::Dummy(ImVec2(0, px(10)));
@@ -2621,6 +2641,42 @@ private:
         ImGui::End();
     }
 
+    // --------------------------------------------------------------- tutorial
+
+    // Lessons run in the normal game: the panel takes clicks until the player
+    // clicks the world to look around.
+    void openTutorial(size_t lesson) {
+        tutorialPanel.open(lesson);
+        screen = Screen::Playing;
+        setCursorCaptured(false);
+        loadTutorialScene();
+    }
+
+    void handleTutorialRequest(tutorial::Tutorial::Request request) {
+        if (request == tutorial::Tutorial::Request::LoadScene) loadTutorialScene();
+    }
+
+    // Clears the world and sets up the lesson's rule, cells and camera, paused.
+    void loadTutorialScene() {
+        const tutorial::Lesson& lesson = tutorialPanel.lesson();
+        ruleIndex = lesson.rule;
+        resetChunks();
+        generation = 0;
+        for (const PatternCell& cell : lesson.cells) setCell(glm::ivec3(cell.x, cell.y, cell.z), true);
+        runPass(false);
+        eye = glm::vec3(lesson.eye[0], lesson.eye[1], lesson.eye[2]);
+        tutorial::lookAngles(lesson, yaw, pitch);
+        flying = true;
+        verticalSpeed = 0.0f;
+        simulationRunning = runningBeforePause = false;
+        stepAccumulator = 0.0f;
+        hotbarSlot = -1; // an empty hand keeps the placement outline out of the scene
+    }
+
+    tutorial::Tutorial::Status tutorialStatus() const {
+        return {describeRule(rule()), generation, population, simulationRunning};
+    }
+
     // ------------------------------------------------------------------ frame
 
     void mainLoop() {
@@ -2697,6 +2753,14 @@ private:
             for (const auto& entry : chunkSlots) {
                 glm::vec3 lo(entry.first * CHUNK);
                 boxes[count++] = {glm::vec4(lo, 0.08f), glm::vec4(lo + float(CHUNK), 1.0f)};
+            }
+        }
+        if (hudVisible && tutorialPanel.active()) {
+            for (const tutorial::MarkedCell& mark : tutorialPanel.lesson().marks) {
+                if (count > chunkCapacity) break; // the box buffer holds chunkCapacity + 1 boxes
+                glm::vec3 cell(mark.cell.x, mark.cell.y, mark.cell.z);
+                float colorId = static_cast<float>(tutorial::FIRST_MARK_COLOR_ID + static_cast<int>(mark.mark));
+                boxes[count++] = {glm::vec4(cell - 0.03f, 0.05f), glm::vec4(cell + 1.03f, colorId)}; // outside live blocks
             }
         }
         return count;

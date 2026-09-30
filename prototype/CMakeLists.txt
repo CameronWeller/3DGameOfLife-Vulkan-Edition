@@ -98,6 +98,8 @@ target_link_libraries(gol3d_imgui PUBLIC Vulkan::Headers glfw)
 
 set(GOL3D_SOURCES
     ${GOL_ROOT}/src/main_minimal.cpp
+    ${GOL_ROOT}/src/tutorial/Tutorial.cpp
+    ${GOL_ROOT}/src/tutorial/TutorialLessons.cpp
     ${GOL_ROOT}/src/VulkanContext.cpp
     ${GOL_ROOT}/src/DeviceManager.cpp
     ${GOL_ROOT}/src/WindowManager.cpp
@@ -248,6 +250,15 @@ enable_testing()
 add_executable(life3d_rules_test life3d_rules_test.cpp)
 target_include_directories(life3d_rules_test PRIVATE ${GOL_ROOT}/include)
 add_test(NAME life3d_rules COMMAND life3d_rules_test)
+# Pattern claims made by the tutorial (still lifes, oscillator periods, gliders).
+add_executable(life3d_patterns_test life3d_patterns_test.cpp ${GOL_ROOT}/src/tutorial/TutorialLessons.cpp)
+target_include_directories(life3d_patterns_test PRIVATE ${GOL_ROOT}/include ${GOL_ROOT}/src)
+add_test(NAME life3d_patterns COMMAND life3d_patterns_test)
+# The soup search that found those gliders; built only on request.
+add_executable(life3d_find_patterns EXCLUDE_FROM_ALL tools/find_patterns.cpp)
+target_include_directories(life3d_find_patterns PRIVATE ${GOL_ROOT}/include)
+find_package(Threads REQUIRED)
+target_link_libraries(life3d_find_patterns PRIVATE Threads::Threads)
 # Needs a Vulkan GPU and a display; run with `ctest -L gpu`.
 add_test(NAME life3d_gpu_matches_cpu COMMAND gol3d --verify --seed 7)
 set_tests_properties(life3d_gpu_matches_cpu PROPERTIES LABELS gpu TIMEOUT 120)

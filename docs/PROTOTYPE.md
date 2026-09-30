@@ -23,7 +23,7 @@ click removes. Simulation actions use keys Minecraft leaves unbound.
 | Input | Action |
 | -- | -- |
 | Mouse | Look around. Click the window to grab the mouse. |
-| Esc | Pause menu (world freezes): Back to Game, Stamps & Rules, New World, Save/Load, Settings, Quit |
+| Esc | Pause menu (world freezes): Back to Game, Stamps & Rules, New World, Save/Load, Tutorial, Settings, Quit |
 | E | Stamps & Rules screen: pick a stamp or the empty hand, and switch rules (hover for descriptions) |
 | W A S D | Move |
 | Space | Jump; fly up while flying |
@@ -98,6 +98,34 @@ itself can still grow below it. A block born inside you never traps you; you can
 always move out. A new world spawns you on the ground, facing the rule's seed,
 which rests on the ground.
 
+## Tutorial
+
+Esc, then **Tutorial...**, opens eight short lessons. Each one clears the world,
+places a small pattern, picks a rule and moves the camera; a panel on the right
+explains what to look for. The world keeps running normally: press N to step and
+G to run, and click the world to look around.
+
+| Input | Action |
+| -- | -- |
+| Next >, Left/Right arrows | Next / previous lesson |
+| Replay, Backspace | Reset the lesson's scene |
+| Close, Finish | Close the panel and keep playing in the scene |
+
+1. **Neighbors**: one block with its 26 neighbors outlined.
+2. **Survive and birth**: a Life 5766 blinker slab with every cell outlined by
+   what happens to it next (born, dies, survives).
+3. **Conway's numbers in 3D**: Conway's glider, one layer thick, under B3/S23.
+   It grows without limit.
+4. **Life 5766: a still life**: the 2x2x2 block.
+5. **Life 5766: oscillators**: Conway's blinker and toad, two layers thick
+   (period 2).
+6. **Life 5766: the glider**: Conway's glider, two layers thick (period 4).
+7. **Life 4555**: the block dies there; 4555's own 10-cell glider (period 4).
+8. **Beyond Life**: the block under Crystal, and the non-Life-like rules.
+
+Lesson content lives in `src/tutorial/TutorialLessons.cpp`, the panel in
+`src/tutorial/Tutorial.cpp`, and the patterns in `include/Life3DPatterns.h`.
+
 ## Rules
 
 Every rule is a two-state rule over the 26 cells of the 3x3x3 cube around a cell,
@@ -111,6 +139,15 @@ criteria for a true Game of Life (*Candidates for the Game of Life in Three
 Dimensions*, Complex Systems 1, 1987): random soups settle into still lifes and
 oscillators instead of dying out or exploding, and gliders exist. The game
 defaults to Life 5766.
+
+Life 5766 contains Conway's game. Stack a 2D pattern two layers thick: a live
+cell with n live 2D neighbors then has 2n + 1 live 3D neighbors (n per layer plus
+its twin), and an empty cell in the slab has 2n. S5-7 keeps 2n + 1 in {5, 7}, so
+n is 2 or 3; B6 needs 2n = 6, so n is 3. That is exactly Conway's S23/B3. Cells
+just above or below the slab see one layer's 3x3 window, so the copy stays exact
+while no such window holds exactly 6 cells. Bays' 5766 block, blinker and glider
+are Conway's block, blinker and glider two layers thick. Life 4555 has no such
+copy (B5 is odd), and its glider is a different 10-cell shape.
 
 | Rule | Notation | In words | Behavior |
 | -- | -- | -- | -- |
@@ -168,3 +205,20 @@ Other scripted actions:
 - `--load PATH` opens a save.
 
 Run `gol3d --help` for all options.
+
+`life3d_patterns_test` checks every pattern claim the tutorial makes against the
+CPU reference: still lifes, oscillator periods, glider periods and shifts, that
+doubled Conway patterns follow Conway's 2D game under Life 5766, and what each
+lesson's scene does. Tutorial lessons render headlessly with
+`--menu tutorial:N` (lesson N); `--steps` then advances that lesson's scene:
+
+```bash
+./build/prototype/gol3d --empty --menu tutorial:3 --steps 12 --screenshot lesson3.png
+```
+
+The gliders came from a brute-force soup search, built on request:
+
+```bash
+cmake --build build/prototype --target life3d_find_patterns
+./build/prototype/life3d_find_patterns "Life 4555" 20000
+```

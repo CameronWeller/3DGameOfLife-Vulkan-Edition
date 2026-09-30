@@ -3,7 +3,7 @@
 
 // World geometry for the prototype, drawn as instanced unit cubes.
 //   mode 0: one block per live cell from the instance list built by life3d_chunks.comp
-//   mode 1: box outlines; instance = box * 12 + edge (targeted block, chunk borders)
+//   mode 1: box outlines; instance = box * 12 + edge (targeted block, chunk borders, tutorial marks)
 
 #include "life3d_frame.glsl"
 
@@ -54,8 +54,11 @@ void main() {
         if (axis == 0) { center = vec3(0.5 * (lo.x + hi.x), mix(lo.y, hi.y, side.x), mix(lo.z, hi.z, side.y)); size.x = hi.x - lo.x + lo.w; }
         if (axis == 1) { center = vec3(mix(lo.x, hi.x, side.x), 0.5 * (lo.y + hi.y), mix(lo.z, hi.z, side.y)); size.y = hi.y - lo.y + lo.w; }
         if (axis == 2) { center = vec3(mix(lo.x, hi.x, side.x), mix(lo.y, hi.y, side.y), 0.5 * (lo.z + hi.z)); size.z = hi.z - lo.z + lo.w; }
-        // Color ids: 0 targeted block, 1 chunk border, 2 placement in empty air.
-        fragColor = hi.w < 0.5 ? vec3(0.02) : hi.w < 1.5 ? vec3(1.0, 0.8, 0.15) : vec3(0.95);
+        // Color ids: 0 targeted block, 1 chunk border, 2 placement in empty air,
+        // 3-6 tutorial marks: neighbor, born, dies, survives (src/tutorial/Tutorial.cpp).
+        const vec3 BOX_COLORS[7] = vec3[7](vec3(0.02), vec3(1.0, 0.8, 0.15), vec3(0.95), vec3(1.0, 0.62, 0.05),
+                                           vec3(0.05, 0.75, 0.08), vec3(0.9, 0.05, 0.03), vec3(0.1, 0.35, 1.0));
+        fragColor = BOX_COLORS[clamp(int(hi.w + 0.5), 0, 6)];
         fragLit = 0.0;
         world = center + inPosition * size;
     }
