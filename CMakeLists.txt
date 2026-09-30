@@ -85,6 +85,9 @@ add_shader_clean_target()
 
 # Setup testing
 setup_testing()
+if(BUILD_TESTING)
+    add_subdirectory(tests/standalone)
+endif()
 organize_tests()
 
 # Add smoke test for beta

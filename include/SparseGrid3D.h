@@ -1,6 +1,7 @@
 #pragma once
 
 #include <unordered_set>
+#include <unordered_map>
 #include <vector>
 #include <array>
 #include <cstdint>
@@ -62,7 +63,7 @@ private:
     void getCellCoords(uint64_t key, uint32_t& x, uint32_t& y, uint32_t& z) const;
     bool isValidPosition(uint32_t x, uint32_t y, uint32_t z) const;
     uint32_t countNeighbors(uint32_t x, uint32_t y, uint32_t z) const;
-    bool getWrappedCell(int32_t x, int32_t y, int32_t z) const;
+    bool getWrappedCell(int64_t x, int64_t y, int64_t z) const;
     
     // Optimization: Cache for neighbor counts
     struct NeighborCache {
@@ -70,4 +71,4 @@ private:
         void clear() { counts.clear(); }
     };
     mutable NeighborCache neighborCache;
-}; 
+};

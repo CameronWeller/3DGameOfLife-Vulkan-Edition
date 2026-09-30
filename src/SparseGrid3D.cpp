@@ -2,6 +2,35 @@
 #include <algorithm>
 #include <random>
 
+namespace {
+bool resolveCoordinate(int64_t coordinate, uint32_t extent,
+                       GameRules::BoundaryType boundary, uint32_t& result) {
+    if (extent == 0) return false;
+
+    if (coordinate >= 0 && coordinate < extent) {
+        result = static_cast<uint32_t>(coordinate);
+        return true;
+    }
+
+    switch (boundary) {
+        case GameRules::BoundaryType::TOROIDAL:
+            result = static_cast<uint32_t>((coordinate % extent + extent) % extent);
+            return true;
+        case GameRules::BoundaryType::MIRROR:
+            // Neighbor lookups extend at most one cell beyond an edge.
+            if (coordinate < -1 || coordinate > extent) return false;
+            result = coordinate < 0
+                ? static_cast<uint32_t>(std::min<int64_t>(-coordinate, extent - 1))
+                : static_cast<uint32_t>(std::max<int64_t>(0, 2 * static_cast<int64_t>(extent) - coordinate - 1));
+            return result < extent;
+        case GameRules::BoundaryType::FIXED:
+        case GameRules::BoundaryType::INFINITE:
+            return false;
+    }
+    return false;
+}
+}
+
 SparseGrid3D::SparseGrid3D(uint32_t width, uint32_t height, uint32_t depth)
     : width(width), height(height), depth(depth),
       population(0), generation(0),
@@ -50,11 +79,10 @@ void SparseGrid3D::update() {
                 for (int32_t dx = -1; dx <= 1; dx++) {
                     if (dx == 0 && dy == 0 && dz == 0) continue;
                     
-                    int32_t nx = x + dx;
-                    int32_t ny = y + dy;
-                    int32_t nz = z + dz;
-                    
-                    if (isValidPosition(nx, ny, nz) || boundaryType != GameRules::BoundaryType::INFINITE) {
+                    uint32_t nx, ny, nz;
+                    if (resolveCoordinate(static_cast<int64_t>(x) + dx, width, boundaryType, nx) &&
+                        resolveCoordinate(static_cast<int64_t>(y) + dy, height, boundaryType, ny) &&
+                        resolveCoordinate(static_cast<int64_t>(z) + dz, depth, boundaryType, nz)) {
                         cellsToCheck.insert(getCellKey(nx, ny, nz));
                     }
                 }
@@ -172,7 +200,9 @@ uint32_t SparseGrid3D::countNeighbors(uint32_t x, uint32_t y, uint32_t z) const 
             for (int32_t dx = -1; dx <= 1; dx++) {
                 if (dx == 0 && dy == 0 && dz == 0) continue;
                 
-                if (getWrappedCell(x + dx, y + dy, z + dz)) {
+                if (getWrappedCell(static_cast<int64_t>(x) + dx,
+                                   static_cast<int64_t>(y) + dy,
+                                   static_cast<int64_t>(z) + dz)) {
                     count++;
                 }
             }
@@ -185,30 +215,14 @@ uint32_t SparseGrid3D::countNeighbors(uint32_t x, uint32_t y, uint32_t z) const 
     return count;
 }
 
-bool SparseGrid3D::getWrappedCell(int32_t x, int32_t y, int32_t z) const {
-    switch (boundaryType) {
-        case GameRules::BoundaryType::TOROIDAL:
-            // Wrap coordinates
-            x = (x + width) % width;
-            y = (y + height) % height;
-            z = (z + depth) % depth;
-            return liveCells.count(getCellKey(x, y, z)) > 0;
-            
-        case GameRules::BoundaryType::MIRROR:
-            // Mirror coordinates
-            if (x < 0) x = -x;
-            if (y < 0) y = -y;
-            if (z < 0) z = -z;
-            if (x >= width) x = 2 * width - x - 1;
-            if (y >= height) y = 2 * height - y - 1;
-            if (z >= depth) z = 2 * depth - z - 1;
-            return liveCells.count(getCellKey(x, y, z)) > 0;
-            
-        case GameRules::BoundaryType::FIXED:
-        case GameRules::BoundaryType::INFINITE:
-        default:
-            return false;
+bool SparseGrid3D::getWrappedCell(int64_t x, int64_t y, int64_t z) const {
+    uint32_t resolvedX, resolvedY, resolvedZ;
+    if (!resolveCoordinate(x, width, boundaryType, resolvedX) ||
+        !resolveCoordinate(y, height, boundaryType, resolvedY) ||
+        !resolveCoordinate(z, depth, boundaryType, resolvedZ)) {
+        return false;
     }
+    return liveCells.count(getCellKey(resolvedX, resolvedY, resolvedZ)) > 0;
 }
 
 size_t SparseGrid3D::getMemoryUsage() const {
@@ -225,4 +239,4 @@ size_t SparseGrid3D::getMemoryUsage() const {
     total += sizeof(SparseGrid3D);
     
     return total;
-} 
+}

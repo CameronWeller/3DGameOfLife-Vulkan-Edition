@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <functional>
 #include <vector>
@@ -101,9 +102,13 @@ inline std::vector<RuleSet> getRuleSetsByCategory(const std::string& category) {
 
 // Get rule set by name
 inline const RuleSet* getRuleSetByName(const std::string& name) {
-    for (const auto& rule : getAllRuleSets()) {
-        if (rule.name == name) {
-            return &rule;
+    const RuleSet* const rules[] = {
+        &RULE_5766, &RULE_4555, &RULE_2333, &RULE_3444,
+        &RULE_6777, &RULE_7888, &RULE_4556, &RULE_5667
+    };
+    for (const RuleSet* rule : rules) {
+        if (rule->name == name) {
+            return rule;
         }
     }
     return nullptr;
@@ -134,4 +139,4 @@ inline std::vector<std::string> getAllCategories() {
     return {"Classic", "Growth", "Dense", "Oscillator", "Custom"};
 }
 
-} // namespace GameRules 
+} // namespace GameRules
