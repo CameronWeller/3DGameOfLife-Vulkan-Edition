@@ -24,7 +24,8 @@ click removes. Simulation actions use keys Minecraft leaves unbound.
 | -- | -- |
 | Mouse | Look around. Click the window to grab the mouse. |
 | Esc | Pause menu (world freezes): Back to Game, Stamps & Rules, New World, Save/Load, Settings, Quit |
-| E | Stamps & Rules screen: pick a stamp or the empty hand, and switch rules (hover for descriptions) |
+| Tab | Stamps & Rules screen: pick a stamp or the empty hand, and switch rules (hover for descriptions) |
+| Q / E | Rotate the selected stamp a quarter turn around the surface you place on |
 | W A S D | Move |
 | Space | Jump; fly up while flying |
 | Double-tap Space | Toggle flying (as in creative mode) |
@@ -82,7 +83,7 @@ The user data folder for saves and screenshots:
 - the y = 0 ground;
 - empty air 4 blocks ahead.
 
-A white outline marks the spot when you're not targeting a block. Stamps grow
+A white outline shows where the whole stamp will go, including its rotation. Stamps grow
 away from the surface. A wall placed on the ground stands up across your view.
 Cells that would overlap the player are skipped.
 
@@ -101,7 +102,7 @@ which rests on the ground.
 ## Rules
 
 Every rule is a two-state rule over the 26 cells of the 3x3x3 cube around a cell,
-written as survive/birth neighbor counts. The Stamps & Rules screen (E) and the
+written as survive/birth neighbor counts. The Stamps & Rules screen (Tab) and the
 New World screen spell each rule out in words.
 
 Conway's Life is B3/S23 over 8 neighbors, but those numbers do not carry over to

@@ -1,0 +1,28 @@
+# Builds gol3d from this checkout (used by .github/workflows/release.yml).
+# From packaging/arch: GOL3D_VERSION=0.1.0 makepkg -f
+pkgname=gol3d
+pkgver=${GOL3D_VERSION:-0.1.0}
+pkgrel=1
+pkgdesc="Minecraft-style 3D Game of Life on Vulkan"
+arch=('x86_64' 'aarch64')
+url="https://github.com/CameronWeller/3DGameOfLife-Vulkan-Edition"
+license=('MIT')
+depends=('vulkan-icd-loader' 'gcc-libs' 'glibc' 'hicolor-icon-theme')
+makedepends=('cmake' 'ninja' 'shaderc' 'libx11' 'libxrandr' 'libxinerama' 'libxcursor' 'libxi'
+             'wayland' 'libxkbcommon')
+options=('!debug')
+
+build() {
+    cmake -S "$startdir/../../prototype" -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+        -DGOL3D_BUNDLE_DEPS=ON -DGOL3D_VERSION="$pkgver" -DGOL3D_PACKAGE_PLATFORM="linux-$CARCH"
+    cmake --build build
+}
+
+check() {
+    ctest --test-dir build -LE gpu --output-on-failure
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install build
+}

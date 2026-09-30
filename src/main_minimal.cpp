@@ -84,7 +84,7 @@ glm::ivec3 neighborOffset(int k) { return glm::ivec3(k % 3 - 1, (k / 3) % 3 - 1,
 
 // Scripted input for end-to-end checks, applied in order before the first frame.
 struct ScriptAction {
-    enum Kind { Position, Look, Place, Break, Slot, Resize, Push } kind;
+    enum Kind { Position, Look, Place, Break, Slot, Resize, Push, Rotate } kind;
     glm::vec3 value{0.0f};
 };
 
@@ -124,7 +124,8 @@ void printUsage() {
                  "  --save PATH       save the world to PATH on exit\n"
                  "Scripted input (applied in order, for tests):\n"
                  "  --pos X,Y,Z  --look YAW,PITCH  --slot N (0 = empty hand)  --place  --break  --resize W,H\n"
-                 "  --push DX,DY,DZ   move the player with collision\n";
+                 "  --push DX,DY,DZ   move the player with collision\n"
+                 "  --rotate N        rotate the stamp N quarter turns (like pressing E N times)\n";
 }
 
 glm::vec3 parseVector(const std::string& text, int components) {
@@ -170,6 +171,7 @@ Options parseOptions(int argc, char** argv) {
         else if (arg == "--break") options.script.push_back({ScriptAction::Break});
         else if (arg == "--resize") options.script.push_back({ScriptAction::Resize, parseVector(value(i), 2)});
         else if (arg == "--push") options.script.push_back({ScriptAction::Push, parseVector(value(i), 3)});
+        else if (arg == "--rotate") options.script.push_back({ScriptAction::Rotate, glm::vec3(std::stof(value(i)))});
         else if (arg == "--help" || arg == "-h") { printUsage(); std::exit(0); }
         else throw std::runtime_error("Unknown option: " + arg);
     }
@@ -599,6 +601,7 @@ private:
     bool haveCursorPosition = false;
     double lastCursorX = 0.0, lastCursorY = 0.0;
     int hotbarSlot = 0; // -1 = empty hand: nothing to place, no placement outline
+    int brushRotation = 0; // quarter turns around the placement surface (Q/E)
     bool breakHeld = false, placeHeld = false;
     float breakTimer = 0.0f, placeTimer = 0.0f;
     bool hudVisible = true;
@@ -1791,7 +1794,9 @@ private:
 
     // Cells of the selected stamp. Stamps are centered across the target face and
     // extend away from it along `normal`, so they never overlap the targeted block.
-    std::vector<glm::ivec3> stampCells(Stamp stamp, const glm::ivec3& anchor, const glm::ivec3& normal) {
+    // Q/E rotate them in quarter turns around `normal`. `solid` fills soups
+    // completely (for the placement outline).
+    std::vector<glm::ivec3> stampCells(Stamp stamp, const glm::ivec3& anchor, const glm::ivec3& normal, bool solid = false) {
         int axis = normal.x != 0 ? 0 : normal.y != 0 ? 1 : 2;
         glm::ivec3 u(0), v(0);
         u[(axis + 1) % 3] = 1;
@@ -1802,7 +1807,7 @@ private:
             for (int c = 0; c < along; ++c)
                 for (int b = 0; b < across; ++b)
                     for (int a = 0; a < across; ++a)
-                        if (density >= 1.0f || chance(rng) < density)
+                        if (solid || density >= 1.0f || chance(rng) < density)
                             cells.push_back(anchor + u * (a - across / 2) + v * (b - across / 2) + normal * c);
         };
         switch (stamp) {
@@ -1826,6 +1831,15 @@ private:
                 break;
             case Stamp::Pillar: box(1, 8, 1.0f); break;
             case Stamp::RuleSeed: box(rule().seedSize, rule().seedSize, rule().seedDensity); break;
+        }
+        for (glm::ivec3& cell : cells) {
+            glm::ivec3 d = cell - anchor;
+            for (int turn = 0; turn < brushRotation; ++turn) {
+                int a = d[(axis + 1) % 3], b = d[(axis + 2) % 3];
+                d[(axis + 1) % 3] = -b;
+                d[(axis + 2) % 3] = a;
+            }
+            cell = anchor + d;
         }
         return cells;
     }
@@ -1857,6 +1871,9 @@ private:
             case ScriptAction::Slot:
                 hotbarSlot = std::clamp(static_cast<int>(action.value.x) - 1, -1, static_cast<int>(STAMP_NAMES.size()) - 1);
                 break;
+            case ScriptAction::Rotate:
+                rotateBrush(static_cast<int>(action.value.x));
+                break;
             case ScriptAction::Push:
                 moveWithCollision(action.value);
                 std::cout << "push: feet at " << eye.x << " " << eye.y - EYE_HEIGHT << " " << eye.z << std::endl;
@@ -1868,6 +1885,15 @@ private:
             case ScriptAction::Break: {
                 updateTarget();
                 uint64_t before = population;
+                if (action.kind == ScriptAction::Place && hotbarSlot >= 0 && target.canPlace) {
+                    glm::ivec3 lo(std::numeric_limits<int>::max()), hi(std::numeric_limits<int>::lowest());
+                    for (const glm::ivec3& c : stampCells(static_cast<Stamp>(hotbarSlot), target.place, target.normal, true)) {
+                        lo = glm::min(lo, c);
+                        hi = glm::max(hi, c);
+                    }
+                    std::cout << "stamp bounds (" << lo.x << "," << lo.y << "," << lo.z << ")-(" << hi.x << "," << hi.y
+                              << "," << hi.z << ") rotation " << brushRotation * 90 << std::endl;
+                }
                 if (action.kind == ScriptAction::Place) placeStamp(); else breakBlock();
                 if (refreshPending) runPass(false);
                 std::cout << (action.kind == ScriptAction::Place ? "place " : "break ") << handName()
@@ -1903,6 +1929,17 @@ private:
     }
 
     const char* handName() const { return hotbarSlot < 0 ? "Empty hand" : STAMP_NAMES[hotbarSlot]; }
+
+    std::string handLabel() const {
+        std::string label = handName();
+        if (hotbarSlot >= 0 && brushRotation != 0) label += " (rotated " + std::to_string(brushRotation * 90) + " deg)";
+        return label;
+    }
+
+    void rotateBrush(int quarterTurns) {
+        brushRotation = ((brushRotation + quarterTurns) % 4 + 4) % 4;
+        slotNameUntil = glfwGetTime() + 2.0;
+    }
 
     void notify(const std::string& message) {
         std::cout << message << std::endl;
@@ -1955,7 +1992,7 @@ private:
         }
         if (screen != Screen::Playing) {
             if (action != GLFW_PRESS) return;
-            if (key == GLFW_KEY_ESCAPE || (key == GLFW_KEY_E && screen == Screen::Inventory)) {
+            if (key == GLFW_KEY_ESCAPE || (key == GLFW_KEY_TAB && screen == Screen::Inventory)) {
                 switch (screen) {
                     case Screen::Paused: resumeGame(); break;
                     case Screen::Inventory: screen = Screen::Playing; setCursorCaptured(true); break;
@@ -1987,7 +2024,9 @@ private:
         }
         switch (key) {
             case GLFW_KEY_ESCAPE: openPauseMenu(); break;
-            case GLFW_KEY_E: openInventory(); break;
+            case GLFW_KEY_TAB: openInventory(); break;
+            case GLFW_KEY_Q: rotateBrush(-1); break; // Ctrl+Q (quit) is handled above
+            case GLFW_KEY_E: rotateBrush(1); break;
             case GLFW_KEY_SPACE: {
                 double now = glfwGetTime();
                 if (now - lastSpacePress < DOUBLE_TAP_SECONDS) {
@@ -2113,7 +2152,8 @@ private:
                      "  W A S D  move   Space  jump (fly up)   Left Shift  fly down   Left Ctrl  sprint\n"
                      "  Double-tap Space  toggle flying\n"
                      "  Left click  place the selected stamp   Right click  remove the outlined block\n"
-                     "  E  stamps and rules   1-" << STAMP_NAMES.size() << " / scroll  hotbar (press the selected number again for an empty hand):\n ";
+                     "  Tab  stamps and rules   Q / E  rotate the stamp   1-" << STAMP_NAMES.size()
+                  << " / scroll  hotbar (press the selected number again for an empty hand):\n ";
         for (size_t i = 0; i < STAMP_NAMES.size(); ++i) std::cout << "  " << (i + 1) << " " << STAMP_NAMES[i];
         std::cout << "\n"
                      "  G  run/pause generations   N  single generation   [ ]  slower/faster\n"
@@ -2298,7 +2338,7 @@ private:
         if (remaining > 0.0 && hotbarSlot >= 0) {
             float hotbarScale = std::max(1.0f, std::floor(size.y / 540.0f));
             float slot = 40.0f * hotbarScale;
-            std::string name = handName();
+            std::string name = handLabel();
             ImVec2 textSize = ImGui::CalcTextSize(name.c_str());
             int alpha = static_cast<int>(255.0 * std::min(1.0, remaining / 0.5));
             shadowText(draw, ImVec2((size.x - textSize.x) * 0.5f, size.y - slot - 16.0f * hotbarScale - textSize.y),
@@ -2552,7 +2592,7 @@ private:
             setCursorCaptured(true);
         }
         ImGui::SameLine();
-        if (ImGui::Button("Done (E)", ImVec2(-1, px(20)))) {
+        if (ImGui::Button("Done (Tab)", ImVec2(-1, px(20)))) {
             screen = Screen::Playing;
             setCursorCaptured(true);
         }
@@ -2690,8 +2730,15 @@ private:
         uint32_t count = 0;
         if (hudVisible && target.hit) {
             boxes[count++] = {glm::vec4(glm::vec3(target.block) - 0.004f, 0.03f), glm::vec4(glm::vec3(target.block) + 1.004f, 0.0f)};
-        } else if (hudVisible && target.canPlace && hotbarSlot >= 0) {
-            boxes[count++] = {glm::vec4(glm::vec3(target.place) + 0.02f, 0.03f), glm::vec4(glm::vec3(target.place) + 0.98f, 2.0f)};
+        }
+        if (hudVisible && target.canPlace && hotbarSlot >= 0) {
+            // White outline around the whole (rotated) stamp.
+            glm::ivec3 lo(std::numeric_limits<int>::max()), hi(std::numeric_limits<int>::lowest());
+            for (const glm::ivec3& cell : stampCells(static_cast<Stamp>(hotbarSlot), target.place, target.normal, true)) {
+                lo = glm::min(lo, cell);
+                hi = glm::max(hi, cell);
+            }
+            boxes[count++] = {glm::vec4(glm::vec3(lo) + 0.02f, 0.03f), glm::vec4(glm::vec3(hi) + 0.98f, 2.0f)};
         }
         if (showChunkBorders) {
             for (const auto& entry : chunkSlots) {
