@@ -246,6 +246,13 @@ void VulkanContext::createInstance(const std::vector<const char*>& requiredExten
         }
     }
 
+    // Portability drivers such as MoltenVK on macOS are only listed when the
+    // instance opts in to portability enumeration.
+    if (availableExtensionsMap.count("VK_KHR_portability_enumeration")) {
+        extensions.push_back("VK_KHR_portability_enumeration");
+        createInfo.flags |= 0x00000001; // VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR
+    }
+
     createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
     createInfo.ppEnabledExtensionNames = extensions.data();
 
@@ -267,6 +274,10 @@ void VulkanContext::createInstance(const std::vector<const char*>& requiredExten
     if (result != VK_SUCCESS) {
         throw VulkanError(result, "Failed to create Vulkan instance!");
     }
+#ifdef VOLK_HEADER_VERSION
+    // Builds that load Vulkan at runtime through volk need the instance functions now.
+    volkLoadInstance(vkInstance_);
+#endif
 }
 
 void VulkanContext::populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo) {
@@ -357,10 +368,20 @@ void VulkanContext::pickPhysicalDevice() {
     std::vector<VkPhysicalDevice> devices(deviceCount);
     vkEnumeratePhysicalDevices(vkInstance_, &deviceCount, devices.data());
 
+    // Prefer discrete, then integrated GPUs over software rasterizers such as llvmpipe.
+    auto rank = [](VkPhysicalDevice device) {
+        VkPhysicalDeviceProperties properties;
+        vkGetPhysicalDeviceProperties(device, &properties);
+        switch (properties.deviceType) {
+            case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: return 3;
+            case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return 2;
+            case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU: return 1;
+            default: return 0;
+        }
+    };
     for (const auto& device : devices) {
-        if (isDeviceSuitable(device)) {
+        if (isDeviceSuitable(device) && (physicalDevice_ == VK_NULL_HANDLE || rank(device) > rank(physicalDevice_))) {
             physicalDevice_ = device;
-            break;
         }
     }
 
@@ -451,7 +472,8 @@ void VulkanContext::createLogicalDevice() {
     std::vector<const char*> optionalExtensions = {
         VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
         VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
-        VK_EXT_VALIDATION_CACHE_EXTENSION_NAME
+        VK_EXT_VALIDATION_CACHE_EXTENSION_NAME,
+        "VK_KHR_portability_subset" // must be enabled when a portability driver offers it
     };
     
     for (const auto& ext : optionalExtensions) {

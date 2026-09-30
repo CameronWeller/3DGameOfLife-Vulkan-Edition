@@ -15,13 +15,17 @@ A high-performance 3D implementation of Conway's Game of Life using Vulkan compu
 - ✅ **Code Cleanup**: Organized dependencies and removed obsolete code
 - ⚠️ **Full Engine**: VMA integration issues being addressed
 
-### Quick Test
+### Play the prototype
+`prototype/` builds `gol3d`, a playable, Minecraft-style 3D Game of Life. It has an
+unbounded chunked world, walk/fly-and-build controls with collision, save and
+load, and seven rules. It needs only
+Vulkan, GLFW and GLM, with no vcpkg setup. See [docs/PROTOTYPE.md](docs/PROTOTYPE.md)
+for controls and details.
+
 ```bash
-# Test the working minimal build
-cd build_minimal
-cmake -S . -B . -DCMAKE_TOOLCHAIN_FILE=../vcpkg/scripts/buildsystems/vcpkg.cmake
-cmake --build .
-./3DGameOfLife-Vulkan-Edition_minimal.exe
+cmake -S prototype -B build/prototype -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/prototype
+./build/prototype/gol3d
 ```
 
 ## Overview
