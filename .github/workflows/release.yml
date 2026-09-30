@@ -24,7 +24,7 @@ env:
 jobs:
   version:
     name: Version and shaders
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04 # glslc is packaged from Ubuntu 23.04 on
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -65,12 +65,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build glslc rpm dpkg-dev file pkg-config \
+            build-essential cmake ninja-build rpm dpkg-dev file pkg-config \
             libwayland-dev libxkbcommon-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: spirv
+          path: spirv
       - name: Build
         run: |
           cmake -S prototype -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
-            -DGOL3D_BUNDLE_DEPS=ON -DGOL3D_VERSION="$VERSION" -DGOL3D_PACKAGE_PLATFORM="linux-${{ matrix.arch }}"
+            -DGOL3D_BUNDLE_DEPS=ON -DGOL3D_SHADER_DIR="$PWD/spirv" \
+            -DGOL3D_VERSION="$VERSION" -DGOL3D_PACKAGE_PLATFORM="linux-${{ matrix.arch }}"
           cmake --build build
       - name: Test (CPU)
         run: ctest --test-dir build -LE gpu --output-on-failure

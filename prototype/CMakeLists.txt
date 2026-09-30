@@ -155,14 +155,24 @@ if(GOL3D_SHADER_DIR)
         list(APPEND GOL_SPV ${spv})
     endforeach()
 else()
-    find_program(GLSLC_EXECUTABLE glslc HINTS ENV VULKAN_SDK PATH_SUFFIXES bin REQUIRED)
+    # glslc (shaderc, Vulkan SDK) or glslangValidator (glslang) both work.
+    find_program(GLSLC_EXECUTABLE glslc HINTS ENV VULKAN_SDK PATH_SUFFIXES bin)
+    if(GLSLC_EXECUTABLE)
+        set(GOL_GLSL_COMMAND ${GLSLC_EXECUTABLE} -o)
+    else()
+        find_program(GLSLANG_EXECUTABLE glslangValidator HINTS ENV VULKAN_SDK PATH_SUFFIXES bin)
+        if(NOT GLSLANG_EXECUTABLE)
+            message(FATAL_ERROR "Need glslc or glslangValidator to compile shaders (or set GOL3D_SHADER_DIR).")
+        endif()
+        set(GOL_GLSL_COMMAND ${GLSLANG_EXECUTABLE} -V --target-env vulkan1.0 -o)
+    endif()
     foreach(shader ${GOL_SHADERS})
         set(spv ${GOL_SPV_DIR}/${shader}.spv)
         add_custom_command(OUTPUT ${spv}
             COMMAND ${CMAKE_COMMAND} -E make_directory ${GOL_SPV_DIR}
-            COMMAND ${GLSLC_EXECUTABLE} -o ${spv} ${GOL_ROOT}/shaders/${shader}
+            COMMAND ${GOL_GLSL_COMMAND} ${spv} ${GOL_ROOT}/shaders/${shader}
             DEPENDS ${GOL_ROOT}/shaders/${shader} ${GOL_ROOT}/shaders/life3d_frame.glsl
-            COMMENT "glslc ${shader}")
+            COMMENT "Compiling ${shader}")
         list(APPEND GOL_SPV ${spv})
     endforeach()
 endif()
