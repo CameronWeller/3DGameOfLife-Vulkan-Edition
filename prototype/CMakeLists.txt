@@ -91,7 +91,8 @@ add_library(gol3d_imgui STATIC
     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp)
 target_include_directories(gol3d_imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
-target_compile_definitions(gol3d_imgui PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
+# GLFW_INCLUDE_NONE: nothing here uses OpenGL, so the build needs no GL headers.
+target_compile_definitions(gol3d_imgui PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES GLFW_INCLUDE_NONE)
 target_link_libraries(gol3d_imgui PUBLIC Vulkan::Headers glfw)
 
 # ------------------------------------------------------------------------ game

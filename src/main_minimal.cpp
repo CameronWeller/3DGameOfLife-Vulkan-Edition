@@ -2380,7 +2380,7 @@ private:
         ImVec2 size = ImGui::GetIO().DisplaySize;
         ImVec2 textSize = ImGui::CalcTextSize(toast.c_str());
         int alpha = static_cast<int>(255.0 * std::min(1.0, remaining / 0.5));
-        ImVec2 pos((size.x - textSize.x) * 0.5f, size.y * 0.22f);
+        ImVec2 pos((size.x - textSize.x) * 0.5f, size.y * 0.1f);
         draw->AddRectFilled(ImVec2(pos.x - px(4), pos.y - px(2)), ImVec2(pos.x + textSize.x + px(4), pos.y + textSize.y + px(2)),
                             IM_COL32(0, 0, 0, alpha / 2));
         shadowText(draw, pos, toast, color(255, 255, 160, alpha));
