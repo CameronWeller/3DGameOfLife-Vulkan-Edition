@@ -64,6 +64,22 @@ status.
 They save to `~/.config/gol3d/options.txt` (`%APPDATA%\gol3d` on Windows) and
 load on start. Scripted and test runs ignore the file.
 
+**Updates:** at startup the game asks GitHub's releases API whether a newer
+release exists. You can turn this off with Settings > Check for Updates, and
+Settings > Check Now checks on demand. When an update exists, a message appears
+and the pause menu offers it:
+- **Windows installer:** downloads the new installer, verifies its SHA-256
+  against the digest GitHub publishes, installs it silently and restarts the
+  game.
+- **AppImage:** downloads the new AppImage, verifies it, replaces the file in
+  place, then offers Restart Now. The AppImage also carries zsync update
+  information for AppImageUpdate.
+- **`.deb`, `.rpm`, Arch, `.dmg` and archives:** opens the release page, since
+  the package manager or you install those.
+
+Downloads use the system `curl` and are accepted only from this repository's
+release URLs.
+
 The user data folder for saves and screenshots:
 - Linux: `~/.local/share/gol3d`
 - Windows: `%APPDATA%\gol3d`
@@ -146,10 +162,26 @@ defaults to Life 5766.
 - **Timeouts:** every GPU wait times out after 2 s. On timeout the game exits
   with an error instead of hanging.
 
+## Releases
+
+Every push to `main` runs `.github/workflows/release.yml` and publishes a GitHub
+release, versioned from `VERSION` (major.minor) plus the workflow run number:
+
+| Platform | Packages |
+| -- | -- |
+| Linux x86_64, aarch64 | `.deb`, `.rpm`, `.tar.gz`, AppImage |
+| Arch Linux x86_64 | `.pkg.tar.zst` (built from `packaging/arch/PKGBUILD`) |
+| Windows x64, ARM64 | NSIS installer `.exe`, `.zip` |
+| macOS 11+ (universal) | `.dmg` with MoltenVK bundled; not notarized |
+
+A `SHA256SUMS` file is published alongside. Pull requests build the same
+packages as workflow artifacts without publishing. Locally, `cpack` in the build
+directory makes the packages for the host platform.
+
 ## Testing
 
 ```bash
-ctest --test-dir build/prototype            # CPU rule checks + GPU check
+ctest --test-dir build/prototype            # CPU rule and updater checks + GPU check
 ctest --test-dir build/prototype -LE gpu    # CPU-only
 ```
 
@@ -167,5 +199,7 @@ Other scripted actions:
 - `--push DX,DY,DZ` moves the player through the collision code;
 - `--save PATH` writes the world on exit;
 - `--load PATH` opens a save.
+- `--rotate N` turns the stamp N quarter turns.
+- `--update-feed URL` checks a releases JSON (a `file://` URL works) instead of GitHub.
 
 Run `gol3d --help` for all options.

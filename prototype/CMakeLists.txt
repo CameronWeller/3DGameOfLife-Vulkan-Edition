@@ -102,7 +102,8 @@ set(GOL3D_SOURCES
     ${GOL_ROOT}/src/DeviceManager.cpp
     ${GOL_ROOT}/src/WindowManager.cpp
     ${GOL_ROOT}/src/Logger.cpp
-    ${GOL_ROOT}/src/engine/vulkan/resources/ShaderManager.cpp)
+    ${GOL_ROOT}/src/engine/vulkan/resources/ShaderManager.cpp
+    ${GOL_ROOT}/src/Updater.cpp)
 if(WIN32)
     list(APPEND GOL3D_SOURCES ${GOL_ROOT}/packaging/windows/gol3d.rc)
 elseif(APPLE)
@@ -113,7 +114,10 @@ endif()
 add_executable(gol3d ${GOL3D_SOURCES})
 target_include_directories(gol3d PRIVATE ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${GOL_ROOT}/include)
 target_link_libraries(gol3d PRIVATE glfw glm::glm gol3d_imgui gol3d_volk)
-target_compile_definitions(gol3d PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE)
+target_compile_definitions(gol3d PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE GOL3D_VERSION_STRING="${PROJECT_VERSION}")
+if(WIN32)
+    target_link_libraries(gol3d PRIVATE shell32)
+endif()
 # Every translation unit sees volk's function pointers instead of Vulkan prototypes;
 # the engine sources keep including <vulkan/vulkan.h> unchanged.
 if(MSVC)
@@ -248,6 +252,12 @@ enable_testing()
 add_executable(life3d_rules_test life3d_rules_test.cpp)
 target_include_directories(life3d_rules_test PRIVATE ${GOL_ROOT}/include)
 add_test(NAME life3d_rules COMMAND life3d_rules_test)
+add_executable(updater_test updater_test.cpp ${GOL_ROOT}/src/Updater.cpp)
+target_include_directories(updater_test PRIVATE ${GOL_ROOT}/include)
+if(WIN32)
+    target_link_libraries(updater_test PRIVATE shell32)
+endif()
+add_test(NAME updater COMMAND updater_test)
 # Needs a Vulkan GPU and a display; run with `ctest -L gpu`.
 add_test(NAME life3d_gpu_matches_cpu COMMAND gol3d --verify --seed 7)
 set_tests_properties(life3d_gpu_matches_cpu PROPERTIES LABELS gpu TIMEOUT 120)

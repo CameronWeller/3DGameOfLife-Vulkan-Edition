@@ -40,6 +40,9 @@
 #elif defined(__APPLE__)
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
+#include <unistd.h>
+#else
+#include <unistd.h>
 #endif
 
 #include <GLFW/glfw3.h>
@@ -57,6 +60,7 @@ static_assert(GLM_CONFIG_CLIP_CONTROL & GLM_CLIP_CONTROL_ZO_BIT,
 #include "VulkanContext.h"
 #include "engine/vulkan/resources/ShaderManager.h"
 #include "Life3DRules.h"
+#include "Updater.h"
 
 using namespace VulkanHIP;
 
@@ -103,6 +107,7 @@ struct Options {
     std::string savePath;
     bool fly = false;
     std::string menu; // open a menu at start (for screenshots): pause, settings, inventory, newworld
+    std::string updateFeed; // test hook: releases JSON URL (file:// works) instead of GitHub
     std::vector<ScriptAction> script;
 };
 
@@ -121,6 +126,8 @@ void printUsage() {
                  "  --load PATH       open a saved world (Ctrl+S saves world.life3d in the user data folder)\n"
                  "  --fly             start flying instead of walking\n"
                  "  --menu NAME       open pause, settings, inventory or newworld at start\n"
+                 "  --update-feed URL check this releases JSON for updates (testing)\n"
+                 "  --version         print the version and exit\n"
                  "  --save PATH       save the world to PATH on exit\n"
                  "Scripted input (applied in order, for tests):\n"
                  "  --pos X,Y,Z  --look YAW,PITCH  --slot N (0 = empty hand)  --place  --break  --resize W,H\n"
@@ -163,6 +170,8 @@ Options parseOptions(int argc, char** argv) {
         else if (arg == "--load") options.loadPath = value(i);
         else if (arg == "--fly") options.fly = true;
         else if (arg == "--menu") options.menu = value(i);
+        else if (arg == "--update-feed") options.updateFeed = value(i);
+        else if (arg == "--version") { std::cout << "gol3d " << GOL3D_VERSION_STRING << std::endl; std::exit(0); }
         else if (arg == "--save") options.savePath = value(i);
         else if (arg == "--pos") options.script.push_back({ScriptAction::Position, parseVector(value(i), 3)});
         else if (arg == "--look") options.script.push_back({ScriptAction::Look, parseVector(value(i), 2)});
@@ -350,6 +359,7 @@ struct Settings {
     bool invertY = false;
     int renderDistance = 256; // blocks; fog ends here
     int guiScale = 0;        // 0 = automatic
+    bool checkUpdates = true; // ask GitHub for a newer release at startup
 };
 
 std::filesystem::path settingsPath() {
@@ -379,6 +389,7 @@ Settings loadSettings() {
             else if (key == "invertY") settings.invertY = value == "true";
             else if (key == "renderDistance") settings.renderDistance = std::clamp(std::stoi(value), 64, 512);
             else if (key == "guiScale") settings.guiScale = std::clamp(std::stoi(value), 0, 4);
+            else if (key == "checkUpdates") settings.checkUpdates = value != "false";
         } catch (const std::exception&) {
             // Ignore malformed lines and keep the default.
         }
@@ -392,15 +403,16 @@ void saveSettings(const Settings& settings) {
     std::ofstream out(settingsPath());
     out << "fov:" << settings.fov << "\nsensitivity:" << settings.sensitivity
         << "\ninvertY:" << (settings.invertY ? "true" : "false") << "\nrenderDistance:" << settings.renderDistance
-        << "\nguiScale:" << settings.guiScale << "\n";
+        << "\nguiScale:" << settings.guiScale
+        << "\ncheckUpdates:" << (settings.checkUpdates ? "true" : "false") << "\n";
 }
 
 } // namespace
 
 class LifePrototypeApp {
 public:
-    LifePrototypeApp(Options options, std::filesystem::path shaderDir)
-        : options(std::move(options)), shaderDir(std::move(shaderDir)), rng(this->options.seed) {
+    LifePrototypeApp(Options options, std::filesystem::path shaderDir, std::filesystem::path exeDir)
+        : options(std::move(options)), shaderDir(std::move(shaderDir)), exeDir(std::move(exeDir)), rng(this->options.seed) {
         ruleIndex = this->options.rule;
         simulationRunning = this->options.run;
         showChunkBorders = this->options.chunkBorders;
@@ -414,6 +426,9 @@ public:
     ~LifePrototypeApp() {
         cleanup();
     }
+
+    // Set when an AppImage was updated in place and the player chose to restart.
+    std::filesystem::path restartPath;
 
     int run() {
         initWindow();
@@ -433,6 +448,11 @@ public:
         else if (options.menu == "inventory") openInventory();
         else if (options.menu == "newworld") { openPauseMenu(); openNewWorldScreen(); }
         else if (!options.menu.empty()) throw std::runtime_error("Unknown --menu " + options.menu);
+        if (!options.updateFeed.empty() || (persistSettings && settings.checkUpdates)) {
+            updater = std::make_unique<gol3d::Updater>(GOL3D_VERSION_STRING, exeDir,
+                                                       options.updateFeed.empty() ? gol3d::RELEASES_API_LATEST : options.updateFeed);
+            updater->checkAsync();
+        }
         mainLoop();
         if (persistSettings) saveSettings(settings);
         if (!options.savePath.empty() && !saveWorld(options.savePath)) return 1;
@@ -498,6 +518,7 @@ private:
 
     Options options;
     std::filesystem::path shaderDir;
+    std::filesystem::path exeDir;
     std::mt19937 rng;
 
     WindowManager* windowManager = nullptr;
@@ -623,6 +644,8 @@ private:
     double toastUntil = 0.0;
     bool showDebug = false;
     bool f3UsedInCombo = false;
+    std::unique_ptr<gol3d::Updater> updater;
+    bool updateAnnounced = false;
     int newWorldRule = 0;
     int newWorldSeed = 0;
     bool newWorldEmpty = false;
@@ -2289,6 +2312,10 @@ private:
             case Screen::Inventory: drawInventory(); break;
             case Screen::NewWorld: drawNewWorldMenu(); break;
         }
+        if (updater && !updateAnnounced && updater->state() == gol3d::Updater::State::Available) {
+            updateAnnounced = true;
+            notify("Update available: 3D Life " + updater->release().version + ". Press Esc for details.");
+        }
         drawToast();
         ImGui::Render();
     }
@@ -2415,6 +2442,7 @@ private:
             if (menuButton("Settings...")) screen = Screen::Settings;
             ImGui::Dummy(ImVec2(0, px(6)));
             if (menuButton("Quit Game")) glfwSetWindowShouldClose(windowManager->getWindow(), GLFW_TRUE);
+            drawUpdatePanel();
             ImGui::Dummy(ImVec2(0, px(10)));
             std::ostringstream status;
             status << rule().name << " " << describeRule(rule()) << "  |  generation " << generation << "  |  "
@@ -2422,6 +2450,52 @@ private:
             centeredText(status.str(), color(200, 200, 200));
         }
         ImGui::End();
+    }
+
+    // Update status and actions under the pause menu buttons.
+    void drawUpdatePanel() {
+        if (!updater) return;
+        using State = gol3d::Updater::State;
+        State state = updater->state();
+        gol3d::ReleaseInfo release = updater->release();
+        ImGui::Dummy(ImVec2(0, px(8)));
+        switch (state) {
+            case State::Available: {
+                centeredText("Update available: 3D Life " + release.version + " (you have " + updater->currentVersion() + ")",
+                             color(255, 255, 160));
+                bool installs = updater->method() != gol3d::InstallMethod::OpenPage;
+                if (installs && menuButton("Download and Install")) updater->installAsync();
+                if (menuButton(installs ? "Release Notes" : "Open Download Page")) gol3d::openInBrowser(release.pageUrl);
+                break;
+            }
+            case State::Downloading:
+                centeredText("Downloading and verifying 3D Life " + release.version + "...", color(255, 255, 160));
+                break;
+            case State::Ready:
+                if (updater->method() == gol3d::InstallMethod::AppImage) {
+                    centeredText("Updated to " + release.version + ". Restart to use it.", color(160, 255, 160));
+                    if (menuButton("Restart Now")) {
+                        restartPath = updater->appImagePath();
+                        glfwSetWindowShouldClose(windowManager->getWindow(), GLFW_TRUE);
+                    }
+                } else {
+                    centeredText("3D Life " + release.version + " is downloaded and verified.", color(160, 255, 160));
+                    if (menuButton("Install and Restart") && updater->launchInstaller()) {
+                        glfwSetWindowShouldClose(windowManager->getWindow(), GLFW_TRUE);
+                    }
+                }
+                break;
+            case State::Failed:
+                centeredText(updater->error(), color(255, 170, 150));
+                if (menuButton("Open Download Page")) gol3d::openInBrowser(gol3d::RELEASES_PAGE);
+                break;
+            case State::UpToDate:
+                centeredText("3D Life " + updater->currentVersion() + " is up to date.", color(160, 160, 160));
+                break;
+            case State::Checking:
+            case State::Idle:
+                break;
+        }
     }
 
     // One Minecraft-style option: a slider or toggle in a two-column grid.
@@ -2474,6 +2548,15 @@ private:
                 });
             row([&] { optionToggle(0, "HUD", hudVisible); },
                 [&] { optionToggle(1, "Chunk Borders", showChunkBorders); });
+            row([&] { changed |= optionToggle(0, "Check for Updates", settings.checkUpdates); },
+                [&] {
+                    optionCell(1);
+                    if (ImGui::Button("Check Now", ImVec2(px(OPTION_WIDTH), px(20)))) {
+                        if (!updater) updater = std::make_unique<gol3d::Updater>(GOL3D_VERSION_STRING, exeDir);
+                        updateAnnounced = false;
+                        updater->checkAsync();
+                    }
+                });
             row([&] {
                     bool wantFullscreen = fullscreen;
                     if (optionToggle(0, "Fullscreen", wantFullscreen)) toggleFullscreen();
@@ -3011,8 +3094,21 @@ int main(int argc, char** argv) {
         Options options = parseOptions(argc, argv);
         std::filesystem::path exeDir = executableDirectory(argv[0]);
         initVulkanLoader(exeDir);
-        LifePrototypeApp app(options, findShaderDirectory(exeDir));
-        return app.run();
+        std::filesystem::path restart;
+        int code = 0;
+        {
+            LifePrototypeApp app(options, findShaderDirectory(exeDir), exeDir);
+            code = app.run();
+            restart = app.restartPath;
+        }
+#if !defined(_WIN32)
+        if (!restart.empty()) {
+            // An updated AppImage replaced this one in place; start it.
+            execl(restart.c_str(), restart.c_str(), static_cast<char*>(nullptr));
+            std::cerr << "Could not restart " << restart << std::endl;
+        }
+#endif
+        return code;
     } catch (const std::exception& e) {
         std::cerr << "Fatal error: " << e.what() << std::endl;
 #if defined(_WIN32)
