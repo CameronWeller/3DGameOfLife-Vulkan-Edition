@@ -10,7 +10,7 @@ jobs:
   build-windows:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Install Vulkan SDK
       uses: lukka/run-vcpkg@v11
@@ -35,7 +35,7 @@ jobs:
         ./benchmarks/ComputeShaderBenchmark --benchmark_format=json > benchmark_results.json
     
     - name: Upload Test Results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: windows-test-results
         path: ${{github.workspace}}/build/Testing
@@ -43,7 +43,7 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Install Dependencies
       run: |
@@ -67,7 +67,7 @@ jobs:
         ./benchmarks/ComputeShaderBenchmark --benchmark_format=json > benchmark_results.json
     
     - name: Upload Test Results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: linux-test-results
         path: ${{github.workspace}}/build/Testing
@@ -76,16 +76,16 @@ jobs:
     needs: [build-windows, build-linux]
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Download Windows Artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: windows-test-results
         path: windows-results
     
     - name: Download Linux Artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: linux-test-results
         path: linux-results
@@ -98,7 +98,7 @@ jobs:
         tar -czf release.tar.gz release/
     
     - name: Upload Release Package
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: release-package
         path: release.tar.gz 

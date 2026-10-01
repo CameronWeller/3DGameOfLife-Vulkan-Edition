@@ -1,12 +1,15 @@
-# Contributing to Vulkan HIP Engine
+# Contributing to 3D Game of Life: Vulkan Edition
 
-We love your input! We want to make contributing to Vulkan HIP Engine as easy and transparent as possible, whether it's:
+We love your input! We want to make contributing to this project as easy and transparent as possible, whether it's:
 
 - Reporting a bug
 - Discussing the current state of the code
 - Submitting a fix
 - Proposing new features
 - Becoming a maintainer
+
+The [README](README.md#contributing) covers building, testing, where the code lives and good first
+contributions.
 
 ## We Develop with GitHub
 We use GitHub to host code, to track issues and feature requests, as well as accept pull requests.
@@ -24,8 +27,8 @@ Pull requests are the best way to propose changes to the codebase. We actively w
 ## Any contributions you make will be under the MIT Software License
 In short, when you submit code changes, your submissions are understood to be under the same [MIT License](http://choosealicense.com/licenses/mit/) that covers the project. Feel free to contact the maintainers if that's a concern.
 
-## Report bugs using GitHub's [issue tracker](https://github.com/yourusername/vulkan-hip-engine/issues)
-We use GitHub issues to track public bugs. Report a bug by [opening a new issue](https://github.com/yourusername/vulkan-hip-engine/issues/new); it's that easy!
+## Report bugs using GitHub's [issue tracker](https://github.com/CameronWeller/3DGameOfLife-Vulkan-Edition/issues)
+We use GitHub issues to track public bugs. Report a bug by [opening a new issue](https://github.com/CameronWeller/3DGameOfLife-Vulkan-Edition/issues/new); it's that easy!
 
 ## Write bug reports with detail, background, and sample code
 
