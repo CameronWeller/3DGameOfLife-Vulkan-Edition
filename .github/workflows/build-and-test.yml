@@ -29,7 +29,7 @@ jobs:
         .\vcpkg\bootstrap-vcpkg.bat
         
     - name: Cache vcpkg
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           vcpkg
@@ -54,7 +54,7 @@ jobs:
       continue-on-error: true
       
     - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: windows-minimal-optimizer
         path: |
@@ -93,7 +93,7 @@ jobs:
         ./vcpkg/bootstrap-vcpkg.sh
         
     - name: Cache vcpkg
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           vcpkg
@@ -117,7 +117,7 @@ jobs:
         timeout 10s ./minimal_overnight_optimizer 1 || true
         
     - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: linux-minimal-optimizer
         path: |
@@ -145,7 +145,7 @@ jobs:
         ./vcpkg/bootstrap-vcpkg.sh
         
     - name: Cache vcpkg
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           vcpkg
@@ -169,7 +169,7 @@ jobs:
         timeout 10s ./minimal_overnight_optimizer 1 || true
         
     - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: macos-minimal-optimizer
         path: |
@@ -184,7 +184,7 @@ jobs:
     
     steps:
     - name: Download All Artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       
     - name: Validate Cross-Platform Builds
       run: |
@@ -257,7 +257,7 @@ jobs:
         
     - name: Upload Release Package
       if: github.ref == 'refs/heads/main'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ux-mirror-optimization-release
         path: ux-mirror-optimization-release.tar.gz 
