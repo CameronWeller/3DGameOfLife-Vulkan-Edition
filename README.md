@@ -174,7 +174,7 @@ Press the selected number again to empty your hand. Reach is 6 blocks. What you 
 block you're looking at, or on the ground, or in the air 4 blocks ahead, in that order. A white outline shows
 where it will go.
 
-| Stamps and rules (<kbd>E</kbd>) | Pause menu (<kbd>Esc</kbd>) |
+| Stamps and rules (<kbd>Tab</kbd>) | Pause menu (<kbd>Esc</kbd>) |
 | -- | -- |
 | ![The Stamps and Rules screen, with each rule explained in words](docs/media/menu-inventory.png) | ![The pause menu](docs/media/menu-pause.png) |
 
@@ -206,7 +206,8 @@ Simulation actions live on keys Minecraft leaves unbound.
 | Left click | Place the selected stamp (hold to repeat) |
 | Right click | Remove the outlined block (hold to repeat) |
 | <kbd>1</kbd>–<kbd>8</kbd>, scroll wheel | Select a hotbar stamp; press the selected number again for an empty hand |
-| <kbd>E</kbd> | Stamps & Rules screen |
+| <kbd>Q</kbd> / <kbd>E</kbd> | Rotate the selected stamp a quarter turn |
+| <kbd>Tab</kbd> | Stamps & Rules screen |
 
 ### Simulation
 
