@@ -13,18 +13,14 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Setup vcpkg
-      uses: microsoft/setup-vcpkg@v1
-      with:
-        vcpkg-root: ${{ github.workspace }}/vcpkg
-    
+    # GitHub's Windows runners ship vcpkg at $env:VCPKG_INSTALLATION_ROOT.
     - name: Install dependencies
       run: |
-        vcpkg install --triplet x64-windows
+        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet x64-windows
     
     - name: Configure CMake
       run: |
-        cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake -DBUILD_TESTING=ON
+        cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DBUILD_TESTING=ON
     
     - name: Build
       run: |
