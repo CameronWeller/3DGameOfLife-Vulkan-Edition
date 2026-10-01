@@ -12,7 +12,7 @@ namespace VulkanHIP::tutorial {
 namespace {
 
 // The swapchain is sRGB, so colors are given in linear space (see
-// applyMinecraftStyle in main_minimal.cpp).
+// applyMenuStyle in main_minimal.cpp).
 ImVec4 srgb(float r, float g, float b, float a = 1.0f) {
     return ImVec4(std::pow(r, 2.2f), std::pow(g, 2.2f), std::pow(b, 2.2f), a);
 }
@@ -74,7 +74,7 @@ Tutorial::Request Tutorial::draw(float scale, const Status& status) {
         ImGui::SameLine(ImGui::GetContentRegionMax().x - closeWidth);
         if (ImGui::SmallButton(closeLabel)) request = Request::Close;
 
-        ImGui::PushStyleColor(ImGuiCol_Text, srgb(1.0f, 1.0f, 0.63f));
+        ImGui::PushStyleColor(ImGuiCol_Text, srgb(0.37f, 0.9f, 0.66f)); // the menu accent
         ImGui::TextUnformatted(current.title.c_str());
         ImGui::PopStyleColor();
         ImGui::Separator();
@@ -99,7 +99,7 @@ Tutorial::Request Tutorial::draw(float scale, const Status& status) {
             ImGui::TextUnformatted(entry.text.c_str());
         }
         ImGui::Dummy(ImVec2(0.0f, 2.0f * scale));
-        ImGui::PushStyleColor(ImGuiCol_Text, srgb(0.6f, 1.0f, 0.6f));
+        ImGui::PushStyleColor(ImGuiCol_Text, srgb(0.6f, 0.8f, 1.0f));
         ImGui::TextUnformatted(("Try: " + current.tryThis).c_str());
         ImGui::PopStyleColor();
         ImGui::PopTextWrapPos();
@@ -110,7 +110,7 @@ Tutorial::Request Tutorial::draw(float scale, const Status& status) {
                             static_cast<unsigned long long>(status.population));
 
         const float spacing = ImGui::GetStyle().ItemSpacing.x;
-        const ImVec2 button((ImGui::GetContentRegionAvail().x - 2.0f * spacing) / 3.0f, 20.0f * scale);
+        const ImVec2 button((ImGui::GetContentRegionAvail().x - 2.0f * spacing) / 3.0f, ImGui::GetFrameHeight());
         ImGui::BeginDisabled(index == 0);
         if (ImGui::Button("< Back", button)) request = go(index - 1);
         ImGui::EndDisabled();

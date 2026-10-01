@@ -60,6 +60,8 @@ static_assert(GLM_CONFIG_CLIP_CONTROL & GLM_CLIP_CONTROL_ZO_BIT,
 #include "VulkanContext.h"
 #include "engine/vulkan/resources/ShaderManager.h"
 #include "Life3DRules.h"
+#include "Life3DPatterns.h"
+#include "MenuFont.h"
 #include "Updater.h"
 #include "tutorial/Tutorial.h"
 
@@ -89,7 +91,7 @@ glm::ivec3 neighborOffset(int k) { return glm::ivec3(k % 3 - 1, (k / 3) % 3 - 1,
 
 // Scripted input for end-to-end checks, applied in order before the first frame.
 struct ScriptAction {
-    enum Kind { Position, Look, Place, Break, Slot, Resize, Push, Rotate } kind;
+    enum Kind { Position, Look, Place, Break, Slot, Resize, Push, Rotate, Tilt } kind;
     glm::vec3 value{0.0f};
 };
 
@@ -133,7 +135,8 @@ void printUsage() {
                  "Scripted input (applied in order, for tests):\n"
                  "  --pos X,Y,Z  --look YAW,PITCH  --slot N (0 = empty hand)  --place  --break  --resize W,H\n"
                  "  --push DX,DY,DZ   move the player with collision\n"
-                 "  --rotate N        rotate the stamp N quarter turns (like pressing E N times)\n";
+                 "  --rotate N        rotate the stamp N quarter turns (like pressing E N times)\n"
+                 "  --tilt N          tilt the stamp N quarter turns around x (like pressing C N times)\n";
 }
 
 glm::vec3 parseVector(const std::string& text, int components) {
@@ -182,6 +185,7 @@ Options parseOptions(int argc, char** argv) {
         else if (arg == "--resize") options.script.push_back({ScriptAction::Resize, parseVector(value(i), 2)});
         else if (arg == "--push") options.script.push_back({ScriptAction::Push, parseVector(value(i), 3)});
         else if (arg == "--rotate") options.script.push_back({ScriptAction::Rotate, glm::vec3(std::stof(value(i)))});
+        else if (arg == "--tilt") options.script.push_back({ScriptAction::Tilt, glm::vec3(std::stof(value(i)))});
         else if (arg == "--help" || arg == "-h") { printUsage(); std::exit(0); }
         else throw std::runtime_error("Unknown option: " + arg);
     }
@@ -337,10 +341,10 @@ std::string timestampedScreenshotName() {
 }
 
 // Hotbar stamps; their order matches the icons in shaders/life3d_screen.frag.
-enum class Stamp { Cell, Block, Plus, SmallSoup, BigSoup, Wall, Pillar, RuleSeed };
-constexpr std::array<const char*, 8> STAMP_NAMES = {
-    "Cell", "Block 2x2x2", "Plus", "Soup 8^3", "Soup 16^3", "Wall 5x5", "Pillar 8", "Rule seed"};
-constexpr std::array<const char*, 8> STAMP_DESCRIPTIONS = {
+enum class Stamp { Cell, Block, Plus, SmallSoup, BigSoup, Wall, Pillar, RuleSeed, Glider };
+constexpr std::array<const char*, 9> STAMP_NAMES = {
+    "Cell", "Block 2x2x2", "Plus", "Soup 8^3", "Soup 16^3", "Wall 5x5", "Pillar 8", "Rule seed", "Glider"};
+constexpr std::array<const char*, 9> STAMP_DESCRIPTIONS = {
     "One live cell.",
     "A solid 2x2x2 cube.",
     "A 3D cross of seven cells.",
@@ -348,10 +352,12 @@ constexpr std::array<const char*, 8> STAMP_DESCRIPTIONS = {
     "A 16x16x16 random soup at the rule's density.",
     "A solid 5x5 wall. On the ground it stands upright.",
     "A line of 8 cells growing away from the surface.",
-    "The current rule's own starting soup."};
+    "The current rule's own starting soup.",
+    "Bays' glider (Life 4555's under that rule, Life 5766's otherwise). It lies flat on the ground and stands "
+    "up on a wall; Q/E pick its heading, Z/C tilt it to climb or dive."};
 // Same 5x5 bitmaps as ICONS in shaders/life3d_screen.frag (bit 24 = top-left).
-constexpr std::array<uint32_t, 8> STAMP_ICONS = {
-    0x0001000u, 0x00739C0u, 0x0023880u, 0x0051120u, 0x165E9B6u, 0x1FFFFFFu, 0x0421084u, 0x1555555u};
+constexpr std::array<uint32_t, 9> STAMP_ICONS = {
+    0x0001000u, 0x00739C0u, 0x0023880u, 0x0051120u, 0x165E9B6u, 0x1FFFFFFu, 0x0421084u, 0x1555555u, 0x00209C0u};
 
 // Player-adjustable options, stored as "key:value" lines like Minecraft's options.txt.
 struct Settings {
@@ -629,6 +635,7 @@ private:
     double lastCursorX = 0.0, lastCursorY = 0.0;
     int hotbarSlot = 0; // -1 = empty hand: nothing to place, no placement outline
     int brushRotation = 0; // quarter turns around the placement surface (Q/E)
+    int brushTilt = 0;     // quarter turns around the world x axis (Z/C), applied after brushRotation
     bool breakHeld = false, placeHeld = false;
     float breakTimer = 0.0f, placeTimer = 0.0f;
     bool hudVisible = true;
@@ -644,6 +651,7 @@ private:
     bool runningBeforePause = false;
     bool imguiReady = false;
     float uiScale = 0.0f;
+    ImFont* titleFont = nullptr; // larger Karla for card titles
     ImGuiStyle baseStyle;
     double slotNameUntil = 0.0;
     std::string toast;
@@ -1826,8 +1834,9 @@ private:
 
     // Cells of the selected stamp. Stamps are centered across the target face and
     // extend away from it along `normal`, so they never overlap the targeted block.
-    // Q/E rotate them in quarter turns around `normal`. `solid` fills soups
-    // completely (for the placement outline).
+    // Q/E rotate them in quarter turns around `normal`, then Z/C tilt them in
+    // quarter turns around the world x axis. `solid` fills soups completely (for
+    // the placement outline).
     std::vector<glm::ivec3> stampCells(Stamp stamp, const glm::ivec3& anchor, const glm::ivec3& normal, bool solid = false) {
         int axis = normal.x != 0 ? 0 : normal.y != 0 ? 1 : 2;
         glm::ivec3 u(0), v(0);
@@ -1863,6 +1872,13 @@ private:
                 break;
             case Stamp::Pillar: box(1, 8, 1.0f); break;
             case Stamp::RuleSeed: box(rule().seedSize, rule().seedSize, rule().seedDensity); break;
+            case Stamp::Glider: {
+                // Pattern x and z lie across the surface, pattern y grows away from it,
+                // so the glider slides along the surface it is placed on.
+                const Pattern glider = std::string(rule().name) == "Life 4555" ? life4555Glider() : life5766Glider();
+                for (const PatternCell& c : glider) cells.push_back(anchor + u * (c.x - 1) + v * (c.z - 1) + normal * c.y);
+                break;
+            }
         }
         for (glm::ivec3& cell : cells) {
             glm::ivec3 d = cell - anchor;
@@ -1871,6 +1887,7 @@ private:
                 d[(axis + 1) % 3] = -b;
                 d[(axis + 2) % 3] = a;
             }
+            for (int turn = 0; turn < brushTilt; ++turn) d = glm::ivec3(d.x, -d.z, d.y);
             cell = anchor + d;
         }
         return cells;
@@ -1906,6 +1923,9 @@ private:
             case ScriptAction::Rotate:
                 rotateBrush(static_cast<int>(action.value.x));
                 break;
+            case ScriptAction::Tilt:
+                tiltBrush(static_cast<int>(action.value.x));
+                break;
             case ScriptAction::Push:
                 moveWithCollision(action.value);
                 std::cout << "push: feet at " << eye.x << " " << eye.y - EYE_HEIGHT << " " << eye.z << std::endl;
@@ -1924,7 +1944,8 @@ private:
                         hi = glm::max(hi, c);
                     }
                     std::cout << "stamp bounds (" << lo.x << "," << lo.y << "," << lo.z << ")-(" << hi.x << "," << hi.y
-                              << "," << hi.z << ") rotation " << brushRotation * 90 << std::endl;
+                              << "," << hi.z << ") rotation " << brushRotation * 90 << " tilt " << brushTilt * 90
+                              << std::endl;
                 }
                 if (action.kind == ScriptAction::Place) placeStamp(); else breakBlock();
                 if (refreshPending) runPass(false);
@@ -1965,11 +1986,17 @@ private:
     std::string handLabel() const {
         std::string label = handName();
         if (hotbarSlot >= 0 && brushRotation != 0) label += " (rotated " + std::to_string(brushRotation * 90) + " deg)";
+        if (hotbarSlot >= 0 && brushTilt != 0) label += " (tilted " + std::to_string(brushTilt * 90) + " deg)";
         return label;
     }
 
     void rotateBrush(int quarterTurns) {
         brushRotation = ((brushRotation + quarterTurns) % 4 + 4) % 4;
+        slotNameUntil = glfwGetTime() + 2.0;
+    }
+
+    void tiltBrush(int quarterTurns) {
+        brushTilt = ((brushTilt + quarterTurns) % 4 + 4) % 4;
         slotNameUntil = glfwGetTime() + 2.0;
     }
 
@@ -2063,6 +2090,8 @@ private:
             case GLFW_KEY_TAB: openInventory(); break;
             case GLFW_KEY_Q: rotateBrush(-1); break; // Ctrl+Q (quit) is handled above
             case GLFW_KEY_E: rotateBrush(1); break;
+            case GLFW_KEY_Z: tiltBrush(-1); break;
+            case GLFW_KEY_C: tiltBrush(1); break;
             case GLFW_KEY_SPACE: {
                 double now = glfwGetTime();
                 if (now - lastSpacePress < DOUBLE_TAP_SECONDS) {
@@ -2189,7 +2218,7 @@ private:
                      "  W A S D  move   Space  jump (fly up)   Left Shift  fly down   Left Ctrl  sprint\n"
                      "  Double-tap Space  toggle flying\n"
                      "  Left click  place the selected stamp   Right click  remove the outlined block\n"
-                     "  Tab  stamps and rules   Q / E  rotate the stamp   1-" << STAMP_NAMES.size()
+                     "  Tab  stamps and rules   Q / E  rotate the stamp   Z / C  tilt it around x   1-" << STAMP_NAMES.size()
                   << " / scroll  hotbar (press the selected number again for an empty hand):\n ";
         for (size_t i = 0; i < STAMP_NAMES.size(); ++i) std::cout << "  " << (i + 1) << " " << STAMP_NAMES[i];
         std::cout << "\n"
@@ -2213,7 +2242,7 @@ private:
         ImGuiIO& io = ImGui::GetIO();
         io.IniFilename = nullptr;
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-        applyMinecraftStyle();
+        applyMenuStyle();
         baseStyle = ImGui::GetStyle();
         // Installed after the game's GLFW callbacks, which ImGui then chains to.
         ImGui_ImplGlfw_InitForVulkan(windowManager->getWindow(), true);
@@ -2245,39 +2274,53 @@ private:
         auto channel = [](int v) { return static_cast<int>(std::lround(255.0f * toLinear(static_cast<float>(v) / 255.0f))); };
         return IM_COL32(channel(r), channel(g), channel(b), a);
     }
+    static ImU32 accentColor(int a = 255) { return color(94, 230, 168, a); }
 
-    // Flat gray buttons with a blue hover, white text, square corners.
-    static void applyMinecraftStyle() {
+    // 3D Life's own menu look: dark translucent cards with rounded corners, a mint
+    // accent (the color of live cells in the docs), and the Karla font.
+    static void applyMenuStyle() {
         ImGuiStyle& style = ImGui::GetStyle();
         ImGui::StyleColorsDark(&style);
-        style.WindowRounding = style.FrameRounding = style.GrabRounding = style.ScrollbarRounding = 0.0f;
-        style.PopupRounding = style.ChildRounding = style.TabRounding = 0.0f;
-        style.WindowBorderSize = 0.0f;
-        style.FrameBorderSize = 1.0f;
-        style.WindowPadding = ImVec2(8, 8);
-        style.FramePadding = ImVec2(6, 4);
-        style.ItemSpacing = ImVec2(4, 4);
-        style.GrabMinSize = 8.0f;
+        style.WindowRounding = 12.0f;
+        style.ChildRounding = style.PopupRounding = 8.0f;
+        style.FrameRounding = style.GrabRounding = style.ScrollbarRounding = style.TabRounding = 6.0f;
+        style.WindowBorderSize = style.ChildBorderSize = style.PopupBorderSize = 1.0f;
+        style.FrameBorderSize = 0.0f;
+        style.WindowPadding = ImVec2(18, 16);
+        style.FramePadding = ImVec2(10, 5);
+        style.ItemSpacing = ImVec2(8, 6);
+        style.ItemInnerSpacing = ImVec2(6, 4);
+        style.GrabMinSize = 10.0f;
+        style.ScrollbarSize = 10.0f;
+        auto rgb = [](int r, int g, int b, float a = 1.0f) { return ImVec4(r / 255.0f, g / 255.0f, b / 255.0f, a); };
+        const ImVec4 accent = rgb(94, 230, 168);
         ImVec4* c = style.Colors;
-        c[ImGuiCol_Text] = ImVec4(1, 1, 1, 1);
-        c[ImGuiCol_TextDisabled] = ImVec4(0.63f, 0.63f, 0.63f, 1);
-        c[ImGuiCol_WindowBg] = ImVec4(0, 0, 0, 0.55f);
-        c[ImGuiCol_ChildBg] = ImVec4(0.78f, 0.78f, 0.78f, 0.0f);
-        c[ImGuiCol_PopupBg] = ImVec4(0.12f, 0.12f, 0.12f, 0.96f);
-        c[ImGuiCol_Border] = ImVec4(0, 0, 0, 1);
-        c[ImGuiCol_Button] = ImVec4(0.44f, 0.44f, 0.44f, 1);
-        c[ImGuiCol_ButtonHovered] = ImVec4(0.49f, 0.53f, 0.78f, 1);
-        c[ImGuiCol_ButtonActive] = ImVec4(0.38f, 0.42f, 0.66f, 1);
-        c[ImGuiCol_FrameBg] = ImVec4(0.18f, 0.18f, 0.18f, 1);
-        c[ImGuiCol_FrameBgHovered] = ImVec4(0.26f, 0.27f, 0.38f, 1);
-        c[ImGuiCol_FrameBgActive] = ImVec4(0.30f, 0.32f, 0.46f, 1);
-        c[ImGuiCol_SliderGrab] = ImVec4(0.75f, 0.75f, 0.75f, 1);
-        c[ImGuiCol_SliderGrabActive] = ImVec4(1, 1, 1, 1);
-        c[ImGuiCol_CheckMark] = ImVec4(1, 1, 1, 1);
-        c[ImGuiCol_Header] = ImVec4(0.44f, 0.44f, 0.44f, 1);
-        c[ImGuiCol_HeaderHovered] = ImVec4(0.49f, 0.53f, 0.78f, 1);
-        c[ImGuiCol_HeaderActive] = ImVec4(0.38f, 0.42f, 0.66f, 1);
-        c[ImGuiCol_Separator] = ImVec4(0.5f, 0.5f, 0.5f, 1);
+        c[ImGuiCol_Text] = rgb(232, 237, 245);
+        c[ImGuiCol_TextDisabled] = rgb(138, 149, 170);
+        c[ImGuiCol_WindowBg] = rgb(14, 18, 28, 0.94f);
+        c[ImGuiCol_ChildBg] = rgb(255, 255, 255, 0.03f);
+        c[ImGuiCol_PopupBg] = rgb(20, 26, 40, 0.98f);
+        c[ImGuiCol_Border] = rgb(120, 140, 180, 0.22f);
+        c[ImGuiCol_BorderShadow] = rgb(0, 0, 0, 0.0f);
+        c[ImGuiCol_Button] = rgb(36, 44, 62);
+        c[ImGuiCol_ButtonHovered] = rgb(50, 62, 88);
+        c[ImGuiCol_ButtonActive] = rgb(62, 78, 110);
+        c[ImGuiCol_FrameBg] = rgb(40, 49, 70);
+        c[ImGuiCol_FrameBgHovered] = rgb(52, 63, 90);
+        c[ImGuiCol_FrameBgActive] = rgb(62, 76, 108);
+        c[ImGuiCol_SliderGrab] = accent;
+        c[ImGuiCol_SliderGrabActive] = rgb(150, 245, 200);
+        c[ImGuiCol_CheckMark] = accent;
+        c[ImGuiCol_Header] = rgb(94, 230, 168, 0.18f);
+        c[ImGuiCol_HeaderHovered] = rgb(94, 230, 168, 0.28f);
+        c[ImGuiCol_HeaderActive] = rgb(94, 230, 168, 0.40f);
+        c[ImGuiCol_Separator] = rgb(120, 140, 180, 0.22f);
+        c[ImGuiCol_ScrollbarBg] = rgb(0, 0, 0, 0.0f);
+        c[ImGuiCol_ScrollbarGrab] = rgb(60, 72, 100);
+        c[ImGuiCol_ScrollbarGrabHovered] = rgb(76, 90, 124);
+        c[ImGuiCol_ScrollbarGrabActive] = rgb(90, 106, 144);
+        c[ImGuiCol_TextSelectedBg] = rgb(94, 230, 168, 0.35f);
+        c[ImGuiCol_NavCursor] = accent;
         for (int i = 0; i < ImGuiCol_COUNT; ++i) {
             c[i] = ImVec4(toLinear(c[i].x), toLinear(c[i].y), toLinear(c[i].z), c[i].w);
         }
@@ -2288,7 +2331,7 @@ private:
         return std::max(1.0f, std::round(static_cast<float>(swapchainExtent.height) / 500.0f));
     }
 
-    // Rebuilds the pixel font at the GUI scale so text stays crisp.
+    // Rebuilds the fonts at the GUI scale so text stays crisp.
     void updateUiScale() {
         float scale = effectiveUiScale();
         if (scale == uiScale) return;
@@ -2299,10 +2342,11 @@ private:
         ImGuiIO& io = ImGui::GetIO();
         io.Fonts->Clear();
         ImFontConfig font;
-        font.SizePixels = 13.0f * scale;
-        font.OversampleH = font.OversampleV = 1;
-        font.PixelSnapH = true;
-        io.Fonts->AddFontDefault(&font);
+        font.FontDataOwnedByAtlas = false; // the TTF lives in the executable (MenuFont.h)
+        font.OversampleH = 2;
+        void* ttf = const_cast<unsigned char*>(MENU_FONT_TTF);
+        io.Fonts->AddFontFromMemoryTTF(ttf, MENU_FONT_TTF_SIZE, 15.0f * scale, &font);
+        titleFont = io.Fonts->AddFontFromMemoryTTF(ttf, MENU_FONT_TTF_SIZE, 22.0f * scale, &font);
         ImGui::GetStyle() = baseStyle;
         ImGui::GetStyle().ScaleAllSizes(scale);
         uiScale = scale;
@@ -2337,9 +2381,9 @@ private:
         ImGui::Render();
     }
 
-    // Text with a drop shadow, like Minecraft's HUD.
+    // Text with a soft shadow so it reads over bright sky and blocks.
     void shadowText(ImDrawList* draw, ImVec2 pos, const std::string& text, ImU32 textColor = IM_COL32(255, 255, 255, 255)) {
-        ImU32 shadow = color(40, 40, 40, (textColor >> IM_COL32_A_SHIFT) & 0xFF);
+        ImU32 shadow = color(0, 0, 0, ((textColor >> IM_COL32_A_SHIFT) & 0xFF) * 3 / 5);
         draw->AddText(ImVec2(pos.x + px(1), pos.y + px(1)), shadow, text.c_str());
         draw->AddText(pos, textColor, text.c_str());
     }
@@ -2369,12 +2413,16 @@ private:
             if (target.hit) lines.push_back("Targeted block: " + std::to_string(target.block.x) + " " +
                                             std::to_string(target.block.y) + " " + std::to_string(target.block.z));
         }
+        // One rounded panel behind all lines, with an accent bar on the left.
+        float width = 0.0f;
+        for (const std::string& text : lines) width = std::max(width, ImGui::CalcTextSize(text.c_str()).x);
+        ImVec2 min(px(6), px(6));
+        ImVec2 max(min.x + width + px(16), min.y + line * static_cast<float>(lines.size()) + px(8));
+        draw->AddRectFilled(min, max, color(14, 18, 28, 170), px(6));
+        draw->AddRectFilled(min, ImVec2(min.x + px(3), max.y), accentColor(), px(6), ImDrawFlags_RoundCornersLeft);
         for (size_t i = 0; i < lines.size(); ++i) {
-            ImVec2 pos(px(4), px(4) + line * static_cast<float>(i));
-            ImVec2 textSize = ImGui::CalcTextSize(lines[i].c_str());
-            draw->AddRectFilled(ImVec2(pos.x - px(2), pos.y), ImVec2(pos.x + textSize.x + px(2), pos.y + line),
-                                IM_COL32(0, 0, 0, 90));
-            shadowText(draw, pos, lines[i]);
+            ImVec2 pos(min.x + px(10), min.y + px(4) + line * static_cast<float>(i));
+            draw->AddText(pos, i == 0 ? IM_COL32(255, 255, 255, 255) : color(200, 210, 225), lines[i].c_str());
         }
 
         // Selected stamp name above the hotbar, fading out (hotbar metrics match life3d_screen.frag).
@@ -2390,6 +2438,7 @@ private:
         }
     }
 
+    // A rounded message pill near the top of the screen.
     void drawToast() {
         double remaining = toastUntil - glfwGetTime();
         if (remaining <= 0.0 || toast.empty()) return;
@@ -2398,119 +2447,200 @@ private:
         ImVec2 textSize = ImGui::CalcTextSize(toast.c_str());
         int alpha = static_cast<int>(255.0 * std::min(1.0, remaining / 0.5));
         ImVec2 pos((size.x - textSize.x) * 0.5f, size.y * 0.1f);
-        draw->AddRectFilled(ImVec2(pos.x - px(4), pos.y - px(2)), ImVec2(pos.x + textSize.x + px(4), pos.y + textSize.y + px(2)),
-                            IM_COL32(0, 0, 0, alpha / 2));
-        shadowText(draw, pos, toast, color(255, 255, 160, alpha));
+        ImVec2 min(pos.x - px(14), pos.y - px(6)), max(pos.x + textSize.x + px(14), pos.y + textSize.y + px(6));
+        float radius = (max.y - min.y) * 0.5f;
+        draw->AddRectFilled(min, max, color(14, 18, 28, alpha * 9 / 10), radius);
+        draw->AddRect(min, max, accentColor(alpha * 2 / 3), radius, 0, px(1));
+        draw->AddText(pos, IM_COL32(255, 255, 255, alpha), toast.c_str());
     }
 
-    // A full-window, dimmed menu background.
-    bool beginMenuScreen(const char* id, float dim = 0.55f) {
+    // ------------------------------------------------------- menu building blocks
+
+    // Dims the world, then opens a card of the given width centered on screen.
+    // Always pair with ImGui::End().
+    bool beginCard(const char* id, float width) {
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(viewport->Pos);
         ImGui::SetNextWindowSize(viewport->Size);
-        ImGui::SetNextWindowBgAlpha(dim);
+        ImGui::SetNextWindowBgAlpha(0.5f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::Begin((std::string(id) + "-backdrop").c_str(), nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                         ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav);
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+        ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSizeConstraints(ImVec2(px(width), 0.0f), ImVec2(px(width), viewport->Size.y - px(24)));
         return ImGui::Begin(id, nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                                             ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus);
+                                             ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize);
     }
 
-    void centeredText(const std::string& text, ImU32 textColor = IM_COL32(255, 255, 255, 255)) {
-        float width = ImGui::CalcTextSize(text.c_str()).x;
-        ImGui::SetCursorPosX((ImGui::GetWindowWidth() - width) * 0.5f);
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(textColor));
-        ImGui::TextUnformatted(text.c_str());
+    // The 3D Life mark (Conway's glider in the accent color), a title, and an
+    // optional muted subtitle on the right.
+    void cardHeader(const char* title, const char* subtitle = nullptr) {
+        ImFont* font = titleFont ? titleFont : ImGui::GetFont();
+        float height = font->FontSize;
+        float cell = std::floor(height / 3.4f);
+        ImVec2 at = ImGui::GetCursorScreenPos();
+        float top = at.y + std::floor((height - 3.0f * cell) * 0.5f);
+        static constexpr int GLIDER[5][2] = {{1, 0}, {2, 1}, {0, 2}, {1, 2}, {2, 2}};
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        for (const auto& [x, y] : GLIDER) {
+            ImVec2 min(at.x + x * cell, top + y * cell);
+            draw->AddRectFilled(ImVec2(min.x + px(1), min.y + px(1)), ImVec2(min.x + cell - px(1), min.y + cell - px(1)),
+                                accentColor(), px(1.5f));
+        }
+        ImGui::Dummy(ImVec2(3.0f * cell + px(6), height));
+        ImGui::SameLine();
+        ImGui::PushFont(font);
+        ImGui::TextUnformatted(title);
+        ImGui::PopFont();
+        if (subtitle) {
+            ImVec2 size = ImGui::CalcTextSize(subtitle);
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - size.x);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (height - size.y) * 0.5f);
+            ImGui::TextDisabled("%s", subtitle);
+        }
+        ImGui::Dummy(ImVec2(0, px(2)));
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, px(2)));
+    }
+
+    // A small accent-colored heading inside a card.
+    void sectionLabel(const char* text) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(accentColor()));
+        ImGui::TextUnformatted(text);
         ImGui::PopStyleColor();
     }
 
-    // Minecraft-like menu geometry (buttons 20 high, 4 apart), a bit wider than
-    // Minecraft's 200 because the menu font is wider. Scaled by the GUI scale.
-    static constexpr float MENU_WIDTH = 260.0f;
-    static constexpr float HALF_WIDTH = (MENU_WIDTH - 4.0f) / 2.0f;
-    static constexpr float TEXT_WIDTH = 440.0f;
-
-    bool menuButton(const char* label, float width = MENU_WIDTH, float xOffset = 0.0f) {
-        ImGui::SetCursorPosX((ImGui::GetWindowWidth() - px(MENU_WIDTH)) * 0.5f + px(xOffset));
-        return ImGui::Button(label, ImVec2(px(width), px(20.0f)));
+    // Wrapped text in a given color (sRGB).
+    void note(const std::string& text, ImU32 textColor) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(textColor));
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(text.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
     }
 
-    // Two half-width buttons side by side; returns 1 or 2 for the one clicked.
-    int menuButtonPair(const char* left, const char* right) {
-        int clicked = 0;
-        float y = ImGui::GetCursorPosY();
-        if (menuButton(left, HALF_WIDTH)) clicked = 1;
-        ImGui::SetCursorPosY(y);
-        if (menuButton(right, HALF_WIDTH, HALF_WIDTH + 4.0f)) clicked = 2;
+    void mutedText(const std::string& text) { note(text, color(138, 149, 170)); }
+
+    float buttonHeight() const { return ImGui::GetFrameHeight() + px(6); }
+
+    void pushAccentButton() {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::ColorConvertU32ToFloat4(accentColor()));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::ColorConvertU32ToFloat4(color(130, 240, 192)));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::ColorConvertU32ToFloat4(color(70, 200, 140)));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(color(10, 30, 22)));
+    }
+
+    enum class ButtonKind { Normal, Primary, Danger };
+
+    // A full-width button with its label on the left and an optional key hint on
+    // the right. Primary buttons are filled with the accent color.
+    bool menuItem(const char* label, const char* hint = nullptr, ButtonKind kind = ButtonKind::Normal) {
+        if (kind == ButtonKind::Primary) pushAccentButton();
+        if (kind == ButtonKind::Danger) {
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::ColorConvertU32ToFloat4(color(150, 56, 64)));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::ColorConvertU32ToFloat4(color(180, 66, 74)));
+        }
+        ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(kind == ButtonKind::Primary ? 0.5f : 0.0f, 0.5f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(px(12), ImGui::GetStyle().FramePadding.y));
+        ImVec2 at = ImGui::GetCursorScreenPos();
+        float width = ImGui::GetContentRegionAvail().x;
+        bool clicked = ImGui::Button(label, ImVec2(width, buttonHeight()));
+        ImGui::PopStyleVar(2);
+        if (kind == ButtonKind::Primary) ImGui::PopStyleColor(4);
+        if (kind == ButtonKind::Danger) ImGui::PopStyleColor(2);
+        if (hint) {
+            ImVec2 size = ImGui::CalcTextSize(hint);
+            ImU32 hintColor = kind == ButtonKind::Primary ? color(10, 30, 22, 170) : ImGui::GetColorU32(ImGuiCol_TextDisabled);
+            ImGui::GetWindowDrawList()->AddText(ImVec2(at.x + width - size.x - px(12), at.y + (buttonHeight() - size.y) * 0.5f),
+                                                hintColor, hint);
+        }
         return clicked;
     }
 
+    // Two buttons sharing a row; returns 1 or 2 for the one clicked.
+    int buttonPair(const char* left, const char* right, ButtonKind rightKind = ButtonKind::Normal) {
+        float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+        int clicked = 0;
+        if (ImGui::Button(left, ImVec2(half, buttonHeight()))) clicked = 1;
+        ImGui::SameLine();
+        if (rightKind == ButtonKind::Primary) pushAccentButton();
+        if (ImGui::Button(right, ImVec2(half, buttonHeight()))) clicked = 2;
+        if (rightKind == ButtonKind::Primary) ImGui::PopStyleColor(4);
+        return clicked;
+    }
+
+    // ------------------------------------------------------------------ screens
+
     void drawPauseMenu() {
-        if (beginMenuScreen("##pause")) {
-            ImGui::SetCursorPosY(ImGui::GetWindowHeight() * 0.25f - px(24));
-            centeredText("Game Menu");
-            ImGui::Dummy(ImVec2(0, px(10)));
-            if (menuButton("Back to Game")) resumeGame();
-            switch (menuButtonPair("Stamps & Rules", "New World...")) {
-                case 1: screen = Screen::Inventory; break;
-                case 2: openNewWorldScreen(); break;
-            }
-            switch (menuButtonPair("Save World", "Load World")) {
-                case 1: saveWorldWithMessage(); break;
-                case 2: loadWorldWithMessage(); break;
-            }
-            switch (menuButtonPair("Tutorial...", "Settings...")) {
-                case 1: openTutorial(tutorialPanel.lessonIndex()); break;
-                case 2: screen = Screen::Settings; break;
-            }
-            ImGui::Dummy(ImVec2(0, px(6)));
-            if (menuButton("Quit Game")) glfwSetWindowShouldClose(windowManager->getWindow(), GLFW_TRUE);
-            drawUpdatePanel();
-            ImGui::Dummy(ImVec2(0, px(10)));
+        if (beginCard("##pause", 300)) {
+            cardHeader("3D Life", "Paused");
             std::ostringstream status;
-            status << rule().name << " " << describeRule(rule()) << "  |  generation " << generation << "  |  "
-                   << population << " alive";
-            centeredText(status.str(), color(200, 200, 200));
+            status << rule().name << "  |  gen " << generation << "  |  " << population << " alive";
+            mutedText(status.str());
+            ImGui::Dummy(ImVec2(0, px(4)));
+            if (menuItem("Resume", "Esc", ButtonKind::Primary)) resumeGame();
+            ImGui::Dummy(ImVec2(0, px(4)));
+            if (menuItem("Stamps & Rules", "Tab")) screen = Screen::Inventory;
+            if (menuItem("Tutorial")) openTutorial(tutorialPanel.lessonIndex());
+            if (menuItem("New World...")) openNewWorldScreen();
+            if (menuItem("Save World", "Ctrl+S")) saveWorldWithMessage();
+            if (menuItem("Load World", "Ctrl+O")) loadWorldWithMessage();
+            if (menuItem("Settings")) screen = Screen::Settings;
+            ImGui::Dummy(ImVec2(0, px(2)));
+            ImGui::Separator();
+            ImGui::Dummy(ImVec2(0, px(2)));
+            if (menuItem("Quit", "Ctrl+Q", ButtonKind::Danger)) glfwSetWindowShouldClose(windowManager->getWindow(), GLFW_TRUE);
+            drawUpdatePanel();
         }
         ImGui::End();
     }
 
-    // Update status and actions under the pause menu buttons.
+    // Update status and actions at the bottom of the pause menu.
     void drawUpdatePanel() {
         if (!updater) return;
         using State = gol3d::Updater::State;
         State state = updater->state();
+        if (state == State::Checking || state == State::Idle) return;
         gol3d::ReleaseInfo release = updater->release();
-        ImGui::Dummy(ImVec2(0, px(8)));
+        ImGui::Dummy(ImVec2(0, px(2)));
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, px(2)));
         switch (state) {
             case State::Available: {
-                centeredText("Update available: 3D Life " + release.version + " (you have " + updater->currentVersion() + ")",
-                             color(255, 255, 160));
+                note("Update available: 3D Life " + release.version + " (you have " + updater->currentVersion() + ")",
+                     color(255, 236, 150));
                 bool installs = updater->method() != gol3d::InstallMethod::OpenPage;
-                if (installs && menuButton("Download and Install")) updater->installAsync();
-                if (menuButton(installs ? "Release Notes" : "Open Download Page")) gol3d::openInBrowser(release.pageUrl);
+                if (installs && menuItem("Download and Install", nullptr, ButtonKind::Primary)) updater->installAsync();
+                if (menuItem(installs ? "Release Notes" : "Open Download Page")) gol3d::openInBrowser(release.pageUrl);
                 break;
             }
             case State::Downloading:
-                centeredText("Downloading and verifying 3D Life " + release.version + "...", color(255, 255, 160));
+                note("Downloading and verifying 3D Life " + release.version + "...", color(255, 236, 150));
                 break;
             case State::Ready:
                 if (updater->method() == gol3d::InstallMethod::AppImage) {
-                    centeredText("Updated to " + release.version + ". Restart to use it.", color(160, 255, 160));
-                    if (menuButton("Restart Now")) {
+                    note("Updated to " + release.version + ". Restart to use it.", accentColor());
+                    if (menuItem("Restart Now", nullptr, ButtonKind::Primary)) {
                         restartPath = updater->appImagePath();
                         glfwSetWindowShouldClose(windowManager->getWindow(), GLFW_TRUE);
                     }
                 } else {
-                    centeredText("3D Life " + release.version + " is downloaded and verified.", color(160, 255, 160));
-                    if (menuButton("Install and Restart") && updater->launchInstaller()) {
+                    note("3D Life " + release.version + " is downloaded and verified.", accentColor());
+                    if (menuItem("Install and Restart", nullptr, ButtonKind::Primary) && updater->launchInstaller()) {
                         glfwSetWindowShouldClose(windowManager->getWindow(), GLFW_TRUE);
                     }
                 }
                 break;
             case State::Failed:
-                centeredText(updater->error(), color(255, 170, 150));
-                if (menuButton("Open Download Page")) gol3d::openInBrowser(gol3d::RELEASES_PAGE);
+                note(updater->error(), color(255, 160, 150));
+                if (menuItem("Open Download Page")) gol3d::openInBrowser(gol3d::RELEASES_PAGE);
                 break;
             case State::UpToDate:
-                centeredText("3D Life " + updater->currentVersion() + " is up to date.", color(160, 160, 160));
+                mutedText("3D Life " + updater->currentVersion() + " is up to date.");
                 break;
             case State::Checking:
             case State::Idle:
@@ -2518,84 +2648,81 @@ private:
         }
     }
 
-    // One Minecraft-style option: a slider or toggle in a two-column grid.
-    static constexpr float OPTION_WIDTH = 180.0f;
-    void optionCell(int index) {
-        float column = index % 2 == 0 ? -OPTION_WIDTH / 2 - 3.0f : OPTION_WIDTH / 2 + 3.0f; // from the center
-        ImGui::SetCursorPosX(ImGui::GetWindowWidth() * 0.5f + px(column - OPTION_WIDTH / 2));
+    // Settings rows: a label column and a control column that fills the rest.
+    void optionSection(const char* name, bool first = false) {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        if (!first) ImGui::Dummy(ImVec2(0, px(4)));
+        sectionLabel(name);
     }
 
-    bool optionToggle(int index, const char* name, bool& value) {
-        optionCell(index);
-        std::string label = std::string(name) + ": " + (value ? "ON" : "OFF") + "##" + name;
-        if (ImGui::Button(label.c_str(), ImVec2(px(OPTION_WIDTH), px(20)))) {
-            value = !value;
-            return true;
-        }
-        return false;
+    void optionRow(const char* label) {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(label);
+        ImGui::TableSetColumnIndex(1);
+        ImGui::SetNextItemWidth(-FLT_MIN);
     }
 
     void drawSettingsMenu() {
-        if (beginMenuScreen("##settings", 0.82f)) {
-            ImGui::SetCursorPosY(px(20));
-            centeredText("Settings");
-            ImGui::Dummy(ImVec2(0, px(10)));
-            ImGui::PushItemWidth(px(OPTION_WIDTH));
-            bool changed = false;
-            auto row = [&](auto&& left, auto&& right) {
-                float y = ImGui::GetCursorPosY();
-                left();
-                ImGui::SetCursorPosY(y);
-                right();
-                ImGui::Dummy(ImVec2(0, px(2)));
-            };
-            row([&] { optionCell(0); changed |= ImGui::SliderFloat("##fov", &settings.fov, 30.0f, 110.0f, "FOV: %.0f"); },
-                [&] { optionCell(1); changed |= ImGui::SliderInt("##render", &settings.renderDistance, 64, 512, "Render Distance: %d"); });
-            row([&] { optionCell(0); changed |= ImGui::SliderInt("##sens", &settings.sensitivity, 10, 300, "Sensitivity: %d%%"); },
-                [&] { changed |= optionToggle(1, "Invert Mouse", settings.invertY); });
-            row([&] {
-                    optionCell(0);
-                    const char* format = settings.guiScale == 0 ? "GUI Scale: Auto" : "GUI Scale: %d";
-                    changed |= ImGui::SliderInt("##gui", &settings.guiScale, 0, 4, format);
-                },
-                [&] {
-                    optionCell(1);
-                    int speed = static_cast<int>(speedIndex);
-                    std::string format = "Speed: " + formatSpeed(SPEEDS[speedIndex]) + " gen/s";
-                    if (ImGui::SliderInt("##speed", &speed, 0, static_cast<int>(SPEEDS.size()) - 1, format.c_str())) {
-                        speedIndex = static_cast<size_t>(speed);
-                    }
-                });
-            row([&] { optionToggle(0, "HUD", hudVisible); },
-                [&] { optionToggle(1, "Chunk Borders", showChunkBorders); });
-            row([&] { changed |= optionToggle(0, "Check for Updates", settings.checkUpdates); },
-                [&] {
-                    optionCell(1);
-                    if (ImGui::Button("Check Now", ImVec2(px(OPTION_WIDTH), px(20)))) {
-                        if (!updater) updater = std::make_unique<gol3d::Updater>(GOL3D_VERSION_STRING, exeDir);
-                        updateAnnounced = false;
-                        updater->checkAsync();
-                    }
-                });
-            row([&] {
-                    bool wantFullscreen = fullscreen;
-                    if (optionToggle(0, "Fullscreen", wantFullscreen)) toggleFullscreen();
-                },
-                [&] {
-                    optionCell(1);
-                    if (ImGui::Button("Reset to Defaults", ImVec2(px(OPTION_WIDTH), px(20)))) {
-                        settings = Settings{};
-                        changed = true;
-                    }
-                });
-            ImGui::PopItemWidth();
-            (void)changed;
-            ImGui::Dummy(ImVec2(0, px(10)));
-            if (menuButton("Done")) {
-                if (persistSettings) saveSettings(settings);
-                screen = Screen::Paused;
+        if (beginCard("##settings", 440)) {
+            cardHeader("Settings");
+            if (ImGui::BeginTable("##options", 2)) {
+                ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, px(150));
+                ImGui::TableSetupColumn("control", ImGuiTableColumnFlags_WidthStretch);
+
+                optionSection("View", true);
+                optionRow("Field of view");
+                ImGui::SliderFloat("##fov", &settings.fov, 30.0f, 110.0f, "%.0f");
+                optionRow("Render distance");
+                ImGui::SliderInt("##render", &settings.renderDistance, 64, 512, "%d blocks");
+                optionRow("Fullscreen");
+                bool wantFullscreen = fullscreen;
+                if (ImGui::Checkbox("##fullscreen", &wantFullscreen)) toggleFullscreen();
+
+                optionSection("Mouse");
+                optionRow("Sensitivity");
+                ImGui::SliderInt("##sens", &settings.sensitivity, 10, 300, "%d%%");
+                optionRow("Invert vertical");
+                ImGui::Checkbox("##invert", &settings.invertY);
+
+                optionSection("Interface");
+                optionRow("GUI scale");
+                ImGui::SliderInt("##gui", &settings.guiScale, 0, 4, settings.guiScale == 0 ? "Auto" : "%dx");
+                optionRow("Show HUD");
+                ImGui::Checkbox("##hud", &hudVisible);
+                optionRow("Chunk borders");
+                ImGui::Checkbox("##borders", &showChunkBorders);
+
+                optionSection("Simulation");
+                optionRow("Speed");
+                int speed = static_cast<int>(speedIndex);
+                std::string format = formatSpeed(SPEEDS[speedIndex]) + " gen/s";
+                if (ImGui::SliderInt("##speed", &speed, 0, static_cast<int>(SPEEDS.size()) - 1, format.c_str())) {
+                    speedIndex = static_cast<size_t>(speed);
+                }
+
+                optionSection("Updates");
+                optionRow("Check at startup");
+                ImGui::Checkbox("##updates", &settings.checkUpdates);
+                ImGui::SameLine();
+                if (ImGui::Button("Check now")) {
+                    if (!updater) updater = std::make_unique<gol3d::Updater>(GOL3D_VERSION_STRING, exeDir);
+                    updateAnnounced = false;
+                    updater->checkAsync();
+                }
+                ImGui::EndTable();
             }
-            if (persistSettings) centeredText("Saved to " + settingsPath().string(), color(160, 160, 160));
+            ImGui::Dummy(ImVec2(0, px(6)));
+            switch (buttonPair("Reset to Defaults", "Done", ButtonKind::Primary)) {
+                case 1: settings = Settings{}; break;
+                case 2:
+                    if (persistSettings) saveSettings(settings);
+                    screen = Screen::Paused;
+                    break;
+            }
+            if (persistSettings) mutedText("Saved to " + settingsPath().string());
         }
         ImGui::End();
     }
@@ -2617,148 +2744,138 @@ private:
     }
 
     void drawInventory() {
-        const ImGuiViewport* viewport = ImGui::GetMainViewport();
-        ImGui::SetNextWindowPos(viewport->Pos);
-        ImGui::SetNextWindowSize(viewport->Size);
-        ImGui::SetNextWindowBgAlpha(0.35f);
-        ImGui::Begin("##inventory-dim", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                                                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs);
-        ImGui::End();
+        if (beginCard("##inventory", 470)) {
+            cardHeader("Stamps & Rules", "Tab to close");
+            sectionLabel("Stamps");
+            mutedText("Left click places, right click removes. Q/E rotate, Z/C tilt around x.");
+            ImDrawList* draw = ImGui::GetWindowDrawList();
+            const int tiles = static_cast<int>(STAMP_NAMES.size()) + 1;
+            const float gap = px(6);
+            const float tile = std::floor((ImGui::GetContentRegionAvail().x - gap * (tiles - 1)) / tiles);
+            for (int i = -1; i < static_cast<int>(STAMP_NAMES.size()); ++i) {
+                if (i != -1) ImGui::SameLine(0, gap);
+                ImGui::PushID(i);
+                ImVec2 min = ImGui::GetCursorScreenPos();
+                ImVec2 max(min.x + tile, min.y + tile);
+                bool clicked = ImGui::InvisibleButton("tile", ImVec2(tile, tile));
+                bool hovered = ImGui::IsItemHovered();
+                bool selected = i == hotbarSlot;
+                draw->AddRectFilled(min, max, ImGui::GetColorU32(hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg), px(6));
+                if (selected) {
+                    draw->AddRectFilled(min, max, accentColor(40), px(6));
+                    draw->AddRect(min, max, accentColor(), px(6), 0, px(2));
+                }
+                if (i >= 0) {
+                    drawStampIcon(draw, min, tile, i, accentColor());
+                } else { // empty hand: a slashed circle
+                    ImVec2 center(min.x + tile * 0.5f, min.y + tile * 0.5f);
+                    float radius = tile * 0.22f;
+                    ImU32 muted = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+                    draw->AddCircle(center, radius, muted, 0, px(1.5f));
+                    draw->AddLine(ImVec2(center.x - radius * 0.7f, center.y + radius * 0.7f),
+                                  ImVec2(center.x + radius * 0.7f, center.y - radius * 0.7f), muted, px(1.5f));
+                }
+                if (hovered) {
+                    ImGui::SetTooltip("%s%s\n%s", i >= 0 ? (std::to_string(i + 1) + ". ").c_str() : "",
+                                      i >= 0 ? STAMP_NAMES[i] : "Empty hand",
+                                      i >= 0 ? STAMP_DESCRIPTIONS[i] : "Nothing to place and no placement outline.");
+                }
+                if (clicked) selectSlot(i);
+                ImGui::PopID();
+            }
+            note(hotbarSlot >= 0 ? std::string(STAMP_NAMES[hotbarSlot]) + ": " + STAMP_DESCRIPTIONS[hotbarSlot]
+                                 : std::string("Empty hand: nothing to place."),
+                 IM_COL32(255, 255, 255, 255));
 
-        ImVec2 panel(px(420), px(380));
-        ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x + (viewport->Size.x - panel.x) * 0.5f,
-                                       viewport->Pos.y + (viewport->Size.y - panel.y) * 0.5f));
-        ImGui::SetNextWindowSize(panel);
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(color(198, 198, 198)));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(color(64, 64, 64)));
-        ImGui::Begin("##inventory", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                                                 ImGuiWindowFlags_NoSavedSettings);
-        ImGui::TextUnformatted("Stamps (left click places, right click removes)");
-        ImDrawList* draw = ImGui::GetWindowDrawList();
-        const float tile = px(36);
-        for (int i = -1; i < static_cast<int>(STAMP_NAMES.size()); ++i) {
-            if (i != -1) ImGui::SameLine(0, px(2));
-            ImGui::PushID(i);
-            ImVec2 min = ImGui::GetCursorScreenPos();
-            bool clicked = ImGui::InvisibleButton("tile", ImVec2(tile, tile));
-            bool hovered = ImGui::IsItemHovered();
-            bool selected = i == hotbarSlot;
-            draw->AddRectFilled(min, ImVec2(min.x + tile, min.y + tile),
-                                hovered ? color(150, 155, 200) : color(139, 139, 139));
-            draw->AddRect(min, ImVec2(min.x + tile, min.y + tile), selected ? color(255, 255, 255) : color(55, 55, 55),
-                          0.0f, 0, selected ? px(2) : px(1));
-            if (i >= 0) drawStampIcon(draw, min, tile, i, color(90, 200, 110));
-            else draw->AddText(ImVec2(min.x + tile * 0.3f, min.y + tile * 0.25f), color(60, 60, 60), "--");
-            if (hovered) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
-                ImGui::SetTooltip("%s%s\n%s", i >= 0 ? (std::to_string(i + 1) + ". ").c_str() : "",
-                                  i >= 0 ? STAMP_NAMES[i] : "Empty hand",
-                                  i >= 0 ? STAMP_DESCRIPTIONS[i] : "Nothing to place and no placement outline.");
-                ImGui::PopStyleColor();
+            ImGui::Dummy(ImVec2(0, px(6)));
+            sectionLabel("Rule");
+            mutedText("Switching rules keeps the current cells.");
+            float listHeight = ImGui::GetTextLineHeightWithSpacing() * static_cast<float>(lifeRules().size()) +
+                               ImGui::GetStyle().WindowPadding.y * 2.0f;
+            ImGui::BeginChild("##rules", ImVec2(0, listHeight), ImGuiChildFlags_Borders);
+            for (size_t r = 0; r < lifeRules().size(); ++r) {
+                const LifeRule& candidate = lifeRules()[r];
+                std::string notation = describeRule(candidate);
+                ImGui::PushID(static_cast<int>(r));
+                if (ImGui::Selectable(candidate.name, r == ruleIndex)) {
+                    ruleIndex = r;
+                    notify(std::string("Rule: ") + candidate.name + " " + notation);
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetNextWindowSize(ImVec2(px(320), 0));
+                    ImGui::BeginTooltip();
+                    ImGui::TextWrapped("%s", explainRule(candidate).c_str());
+                    ImGui::Spacing();
+                    ImGui::TextWrapped("%s", candidate.description);
+                    ImGui::EndTooltip();
+                }
+                ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::CalcTextSize(notation.c_str()).x);
+                ImGui::TextDisabled("%s", notation.c_str());
+                ImGui::PopID();
             }
-            if (clicked) selectSlot(i);
-            ImGui::PopID();
-        }
-        ImGui::TextUnformatted(hotbarSlot >= 0 ? STAMP_DESCRIPTIONS[hotbarSlot] : "Empty hand: nothing to place.");
-
-        ImGui::Separator();
-        ImGui::TextUnformatted("Rule (keeps the current cells)");
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(color(25, 25, 25)));
-        ImGui::BeginChild("##rules", ImVec2(0, px(118)), ImGuiChildFlags_Borders);
-        for (size_t r = 0; r < lifeRules().size(); ++r) {
-            const LifeRule& candidate = lifeRules()[r];
-            std::string label = std::string(candidate.name) + "   " + describeRule(candidate);
-            if (ImGui::Selectable(label.c_str(), r == ruleIndex)) {
-                ruleIndex = r;
-                notify(std::string("Rule: ") + candidate.name + " " + describeRule(candidate));
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
-                ImGui::SetNextWindowSize(ImVec2(px(300), 0));
-                ImGui::BeginTooltip();
-                ImGui::TextWrapped("%s", explainRule(candidate).c_str());
-                ImGui::Spacing();
-                ImGui::TextWrapped("%s", candidate.description);
-                ImGui::EndTooltip();
-                ImGui::PopStyleColor();
+            ImGui::EndChild();
+            note(std::string(rule().name) + ": " + explainRule(rule()), IM_COL32(255, 255, 255, 255));
+            mutedText(rule().description);
+            ImGui::Dummy(ImVec2(0, px(6)));
+            switch (buttonPair("New World with This Rule", "Done", ButtonKind::Primary)) {
+                case 1:
+                    newWorld(true);
+                    notify(std::string("New world: ") + rule().name);
+                    screen = Screen::Playing;
+                    setCursorCaptured(true);
+                    break;
+                case 2:
+                    screen = Screen::Playing;
+                    setCursorCaptured(true);
+                    break;
             }
         }
-        ImGui::EndChild();
-        ImGui::PopStyleColor();
-        ImGui::TextWrapped("%s: %s", rule().name, explainRule(rule()).c_str());
-        ImGui::TextWrapped("%s", rule().description);
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
-        if (ImGui::Button("New world with this rule", ImVec2(px(230), px(20)))) {
-            newWorld(true);
-            notify(std::string("New world: ") + rule().name);
-            screen = Screen::Playing;
-            setCursorCaptured(true);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Done (Tab)", ImVec2(-1, px(20)))) {
-            screen = Screen::Playing;
-            setCursorCaptured(true);
-        }
-        ImGui::PopStyleColor();
         ImGui::End();
-        ImGui::PopStyleColor(2);
     }
 
     void drawNewWorldMenu() {
-        if (beginMenuScreen("##newworld", 0.82f)) {
-            ImGui::SetCursorPosY(px(16));
-            centeredText("Create New World");
-            ImGui::Dummy(ImVec2(0, px(10)));
-            float left = (ImGui::GetWindowWidth() - px(MENU_WIDTH)) * 0.5f;
-            ImGui::SetCursorPosX(left);
-            ImGui::TextUnformatted("Rule");
-            ImGui::SetCursorPosX(left);
-            ImGui::PushItemWidth(px(MENU_WIDTH));
-            if (ImGui::BeginCombo("##rule", lifeRules()[newWorldRule].name)) {
-                for (int r = 0; r < static_cast<int>(lifeRules().size()); ++r) {
-                    if (ImGui::Selectable(lifeRules()[r].name, r == newWorldRule)) newWorldRule = r;
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetNextWindowSize(ImVec2(px(300), 0));
-                        ImGui::BeginTooltip();
-                        ImGui::TextWrapped("%s", explainRule(lifeRules()[r]).c_str());
-                        ImGui::EndTooltip();
+        if (beginCard("##newworld", 440)) {
+            cardHeader("New World");
+            if (ImGui::BeginTable("##newworld-options", 2)) {
+                ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, px(100));
+                ImGui::TableSetupColumn("control", ImGuiTableColumnFlags_WidthStretch);
+                optionRow("Rule");
+                if (ImGui::BeginCombo("##rule", lifeRules()[newWorldRule].name)) {
+                    for (int r = 0; r < static_cast<int>(lifeRules().size()); ++r) {
+                        if (ImGui::Selectable(lifeRules()[r].name, r == newWorldRule)) newWorldRule = r;
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetNextWindowSize(ImVec2(px(300), 0));
+                            ImGui::BeginTooltip();
+                            ImGui::TextWrapped("%s", explainRule(lifeRules()[r]).c_str());
+                            ImGui::EndTooltip();
+                        }
                     }
+                    ImGui::EndCombo();
                 }
-                ImGui::EndCombo();
+                optionRow("Seed");
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - px(80));
+                ImGui::InputInt("##seed", &newWorldSeed, 0);
+                ImGui::SameLine();
+                if (ImGui::Button("Random", ImVec2(-FLT_MIN, 0))) newWorldSeed = static_cast<int>(rng() & 0x7FFFFFFF);
+                optionRow("Start with");
+                if (ImGui::RadioButton("Rule's seed soup", !newWorldEmpty)) newWorldEmpty = false;
+                ImGui::SameLine();
+                if (ImGui::RadioButton("Empty world", newWorldEmpty)) newWorldEmpty = true;
+                ImGui::EndTable();
             }
-            ImGui::SetCursorPosX(left);
-            // The rule text uses a wider column than the controls so it stays short.
-            float textLeft = (ImGui::GetWindowWidth() - px(TEXT_WIDTH)) * 0.5f;
-            ImGui::SetCursorPosX(textLeft);
-            ImGui::PushTextWrapPos(textLeft + px(TEXT_WIDTH));
-            ImGui::TextUnformatted(explainRule(lifeRules()[newWorldRule]).c_str());
-            ImGui::SetCursorPosX(textLeft);
-            ImGui::TextDisabled("%s", lifeRules()[newWorldRule].description);
-            ImGui::PopTextWrapPos();
             ImGui::Dummy(ImVec2(0, px(4)));
-            ImGui::SetCursorPosX(left);
-            ImGui::TextUnformatted("Seed");
-            ImGui::SetCursorPosX(left);
-            ImGui::PushItemWidth(px(MENU_WIDTH - 64.0f));
-            ImGui::InputInt("##seed", &newWorldSeed, 0);
-            ImGui::PopItemWidth();
-            ImGui::SameLine();
-            if (ImGui::Button("Random", ImVec2(px(60), 0))) newWorldSeed = static_cast<int>(rng() & 0x7FFFFFFF);
-            ImGui::PopItemWidth();
-            ImGui::Dummy(ImVec2(0, px(4)));
-            ImGui::SetCursorPosX(left);
-            std::string emptyLabel = std::string("Start: ") + (newWorldEmpty ? "Empty world" : "Rule's seed soup");
-            if (ImGui::Button(emptyLabel.c_str(), ImVec2(px(MENU_WIDTH), px(20)))) newWorldEmpty = !newWorldEmpty;
-            ImGui::Dummy(ImVec2(0, px(10)));
-            switch (menuButtonPair("Create New World", "Cancel")) {
-                case 1:
+            note(explainRule(lifeRules()[newWorldRule]), IM_COL32(255, 255, 255, 255));
+            mutedText(lifeRules()[newWorldRule].description);
+            ImGui::Dummy(ImVec2(0, px(6)));
+            switch (buttonPair("Cancel", "Create World", ButtonKind::Primary)) {
+                case 1: screen = Screen::Paused; break;
+                case 2:
                     ruleIndex = static_cast<size_t>(newWorldRule);
                     rng.seed(static_cast<uint32_t>(newWorldSeed));
                     newWorld(!newWorldEmpty);
                     notify(std::string("New world: ") + rule().name + (newWorldEmpty ? " (empty)" : ""));
                     resumeGame();
                     break;
-                case 2: screen = Screen::Paused; break;
             }
         }
         ImGui::End();

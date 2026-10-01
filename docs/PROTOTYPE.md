@@ -26,6 +26,7 @@ click removes. Simulation actions use keys Minecraft leaves unbound.
 | Esc | Pause menu (world freezes): Back to Game, Stamps & Rules, New World, Save/Load, Tutorial, Settings, Quit |
 | Tab | Stamps & Rules screen: pick a stamp or the empty hand, and switch rules (hover for descriptions) |
 | Q / E | Rotate the selected stamp a quarter turn around the surface you place on |
+| Z / C | Tilt the selected stamp a quarter turn around the world x axis (Z climbs, C dives for a glider) |
 | W A S D | Move |
 | Space | Jump; fly up while flying |
 | Double-tap Space | Toggle flying (as in creative mode) |
@@ -33,7 +34,7 @@ click removes. Simulation actions use keys Minecraft leaves unbound.
 | Left Ctrl | Sprint |
 | Left click | Place the selected hotbar stamp (hold to repeat) |
 | Right click | Remove the outlined block (hold to repeat) |
-| 1-8, scroll wheel | Select a hotbar stamp. Pressing the selected number again empties your hand: nothing is placed and no placement outline is shown. |
+| 1-9, scroll wheel | Select a hotbar stamp. Pressing the selected number again empties your hand: nothing is placed and no placement outline is shown. |
 | G | Run or pause generations |
 | N | Advance one generation (hold to repeat) |
 | [ and ] (or - and +) | Slower / faster: 0.5 to 60 generations per second (starts at 1) |
@@ -93,13 +94,16 @@ The user data folder for saves and screenshots:
 - 5x5 wall
 - 8-block pillar
 - The current rule's seed soup
+- Glider: Bays' glider (Life 4555's under Life 4555, Life 5766's otherwise). It
+  lies flat on the ground and stands up on a wall; Q/E set its heading and Z/C
+  tilt it so it climbs or dives.
 
 **Targeting:** reach is 6 blocks. What you place goes on the first of these:
 - the face of the block you target;
 - the y = 0 ground;
 - empty air 4 blocks ahead.
 
-A white outline shows where the whole stamp will go, including its rotation. Stamps grow
+A white outline shows where the whole stamp will go, including its rotation and tilt. Stamps grow
 away from the surface. A wall placed on the ground stands up across your view.
 Cells that would overlap the player are skipped.
 
@@ -237,6 +241,7 @@ Other scripted actions:
 - `--save PATH` writes the world on exit;
 - `--load PATH` opens a save.
 - `--rotate N` turns the stamp N quarter turns.
+- `--tilt N` tilts the stamp N quarter turns around x.
 - `--update-feed URL` checks a releases JSON (a `file://` URL works) instead of GitHub.
 
 Run `gol3d --help` for all options.

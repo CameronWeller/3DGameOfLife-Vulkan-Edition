@@ -3,7 +3,11 @@
 
 Drives the real game (build/prototype/gol3d) with its scripted-input flags: every
 frame is one short run that advances N generations, places the camera and saves a
-screenshot. Needs a display, a Vulkan driver, Pillow and ffmpeg.
+screenshot. Needs a Vulkan driver, Pillow and ffmpeg.
+
+When gamescope is installed, the script re-runs itself inside one headless
+gamescope session, so no game window opens on your desktop or takes focus. Set
+GOL3D_CAPTURE_VISIBLE=1 to use your own display instead.
 
     cmake -S prototype -B build/prototype -G Ninja -DCMAKE_BUILD_TYPE=Release
     cmake --build build/prototype
@@ -11,7 +15,9 @@ screenshot. Needs a display, a Vulkan driver, Pillow and ffmpeg.
 """
 
 import math
+import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -95,6 +101,37 @@ def encode_gif(frames_dir, pattern, out, fps, width, hold_last=0, colors=64):
             str(out),
         ],
         check=True,
+    )
+    print(f"wrote {out.relative_to(ROOT)} ({out.stat().st_size // 1024} KiB)")
+
+
+def encode_gif_pillow(paths, out, fps, width, hold_last=0, colors=64):
+    """GIF via Pillow with one shared palette. Used where ffmpeg's palette filters
+    drop frames (seen with the glider clip on ffmpeg 7)."""
+    frames = []
+    for path in paths:
+        image = Image.open(path).convert("RGB")
+        frames.append(
+            image.resize(
+                (width, round(image.height * width / image.width)), Image.LANCZOS
+            )
+        )
+    # Build the shared palette from a strip of sampled frames so every shade is covered.
+    samples = frames[:: max(1, len(frames) // 6)]
+    strip = Image.new("RGB", (frames[0].width, frames[0].height * len(samples)))
+    for i, frame in enumerate(samples):
+        strip.paste(frame, (0, i * frame.height))
+    palette = strip.quantize(colors=colors)
+    frames = [f.quantize(palette=palette, dither=Image.Dither.NONE) for f in frames]
+    durations = [1000 // fps] * len(frames)
+    durations[-1] += int(hold_last * 1000)
+    frames[0].save(
+        out,
+        save_all=True,
+        append_images=frames[1:],
+        duration=durations,
+        loop=0,
+        optimize=True,
     )
     print(f"wrote {out.relative_to(ROOT)} ({out.stat().st_size // 1024} KiB)")
 
@@ -223,6 +260,106 @@ def sandbox(tmp):
     )
 
 
+def write_save(path, rule_index, cells):
+    """A world in the game's save format ("L3D1"; see saveWorld in src/main_minimal.cpp)."""
+    header = struct.pack(
+        "<4sIQ3fffQ", b"L3D1", rule_index, 0, 0, 2, 0, 0, 0, len(cells)
+    )
+    path.write_bytes(header + b"".join(struct.pack("<3i", *c) for c in cells))
+
+
+def glider(tmp):
+    """Bays' Life 5766 glider: Conway's glider, two layers thick (include/Life3DPatterns.h)."""
+    conway = [(1, 0), (2, 1), (0, 2), (1, 2), (2, 2)]
+    world = tmp / "glider.life3d"
+    write_save(world, 0, [(x, y, z) for y in (0, 1) for x, z in conway])
+    frames = 25  # six periods: the glider moves (+1, 0, +1) every 4 generations
+    camera = orbit_camera((4.5, 0.5, 4.5), 6.5, 7, math.radians(-60))
+    for i in range(frames):
+        path = tmp / f"glider_{i:03d}.png"
+        shoot(
+            path,
+            (800, 450),
+            "--load",
+            world,
+            "--steps",
+            i,
+            "--fly",
+            "--slot",
+            0,
+            *camera,
+        )
+        image = crop_hotbar(Image.open(path))
+        label(image, f"Life 5766 glider   generation {i}")
+        image.save(path)
+    paths = [tmp / f"glider_{i:03d}.png" for i in range(frames)]
+    encode_gif_pillow(
+        paths, OUT / "glider-life5766.gif", 5, 560, hold_last=1, colors=192
+    )
+
+
+def climb(tmp):
+    """The Glider stamp tilted with Z: it slides sideways while it climbs."""
+    world = tmp / "climb.life3d"
+    place = [
+        "--rule",
+        "1",
+        "--empty",
+        "--fly",
+        "--pos",
+        "0.5,4.5,4",
+        "--look",
+        "-90,-70",
+    ]
+    place += [
+        "--slot",
+        "9",
+        "--tilt",
+        "-1",
+        "--place",
+        "--frames",
+        "1",
+        "--save",
+        str(world),
+    ]
+    subprocess.run(
+        [str(GAME), "--resize", "320,180", *place], check=True, capture_output=True
+    )
+    frames = (
+        33  # eight periods: the tilted glider moves (+1, +1, 0) every 4 generations
+    )
+    camera = orbit_camera((4, 4, 1.5), 15, 6, math.radians(90))
+    for i in range(frames):
+        path = tmp / f"climb_{i:03d}.png"
+        shoot(
+            path,
+            (800, 450),
+            "--load",
+            world,
+            "--steps",
+            i,
+            "--fly",
+            "--slot",
+            0,
+            *camera,
+        )
+        image = crop_hotbar(Image.open(path))
+        label(image, f"Glider stamp tilted with Z   generation {i}")
+        image.save(path)
+    paths = [tmp / f"climb_{i:03d}.png" for i in range(frames)]
+    encode_gif_pillow(paths, OUT / "glider-climb.gif", 5, 560, hold_last=1, colors=192)
+
+
+def tutorial():
+    """Tutorial lesson 2: every cell outlined by what happens to it next."""
+    path = OUT / "tutorial-survive-birth.png"
+    shoot(path, (1280, 720), "--empty", "--menu", "tutorial:2")
+    Image.open(path).convert("RGB").resize((960, 540), Image.LANCZOS).save(
+        path, optimize=True
+    )
+    print(f"wrote {path.relative_to(ROOT)}")
+
+
 def menus():
     for name in ("inventory", "pause", "settings"):
         path = OUT / f"menu-{name}.png"
@@ -233,13 +370,49 @@ def menus():
         print(f"wrote {path.relative_to(ROOT)}")
 
 
+def run_headless_if_possible():
+    """Re-exec this script inside a headless gamescope so game windows stay off-screen."""
+    if os.environ.get("GOL3D_CAPTURE_NESTED") or os.environ.get(
+        "GOL3D_CAPTURE_VISIBLE"
+    ):
+        return
+    gamescope = shutil.which("gamescope")
+    if not gamescope:
+        print("gamescope not found: game windows will open on this display")
+        return
+    env = dict(os.environ, GOL3D_CAPTURE_NESTED="1")
+    cmd = [
+        gamescope,
+        "--backend",
+        "headless",
+        "-W",
+        "1280",
+        "-H",
+        "720",
+        "--",
+        sys.executable,
+        __file__,
+        *sys.argv[1:],
+    ]
+    sys.exit(subprocess.run(cmd, env=env).returncode)
+
+
 def main():
     if not GAME.exists():
         sys.exit(f"Build the game first: {GAME} not found")
+    run_headless_if_possible()
     if not shutil.which("ffmpeg"):
         sys.exit("ffmpeg is required")
     OUT.mkdir(parents=True, exist_ok=True)
-    wanted = set(sys.argv[1:]) or {"hero", "rules", "sandbox", "menus"}
+    wanted = set(sys.argv[1:]) or {
+        "hero",
+        "rules",
+        "sandbox",
+        "glider",
+        "climb",
+        "tutorial",
+        "menus",
+    }
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
         if "hero" in wanted:
@@ -248,6 +421,12 @@ def main():
             rules_grid(tmp)
         if "sandbox" in wanted:
             sandbox(tmp)
+        if "glider" in wanted:
+            glider(tmp)
+        if "climb" in wanted:
+            climb(tmp)
+    if "tutorial" in wanted:
+        tutorial()
     if "menus" in wanted:
         menus()
 

@@ -6,7 +6,7 @@ pkgrel=1
 pkgdesc="Minecraft-style 3D Game of Life on Vulkan"
 arch=('x86_64' 'aarch64')
 url="https://github.com/CameronWeller/3DGameOfLife-Vulkan-Edition"
-license=('MIT')
+license=('MIT' 'OFL-1.1')
 depends=('vulkan-icd-loader' 'gcc-libs' 'glibc' 'hicolor-icon-theme')
 makedepends=('cmake' 'ninja' 'shaderc' 'libx11' 'libxrandr' 'libxinerama' 'libxcursor' 'libxi'
              'wayland' 'libxkbcommon')

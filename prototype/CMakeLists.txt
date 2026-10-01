@@ -110,9 +110,23 @@ if(WIN32)
     list(APPEND GOL3D_SOURCES ${GOL_ROOT}/packaging/windows/gol3d.rc)
 elseif(APPLE)
     set(GOL3D_ICNS ${GOL_ROOT}/packaging/icons/gol3d.icns)
-    set_source_files_properties(${GOL3D_ICNS} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
-    list(APPEND GOL3D_SOURCES ${GOL3D_ICNS})
+    set(GOL3D_FONT_LICENSE ${GOL_ROOT}/packaging/licenses/Karla-OFL.txt)
+    set_source_files_properties(${GOL3D_ICNS} ${GOL3D_FONT_LICENSE} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    list(APPEND GOL3D_SOURCES ${GOL3D_ICNS} ${GOL3D_FONT_LICENSE})
 endif()
+# Menu font: Karla (SIL Open Font License 1.1) from Dear ImGui's misc/fonts,
+# embedded in the binary so every package finds it.
+set(GOL3D_MENU_FONT ${imgui_SOURCE_DIR}/misc/fonts/Karla-Regular.ttf)
+file(READ ${GOL3D_MENU_FONT} GOL3D_MENU_FONT_HEX HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," GOL3D_MENU_FONT_BYTES "${GOL3D_MENU_FONT_HEX}")
+file(CONFIGURE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/MenuFont.cpp CONTENT
+"// Generated from Karla-Regular.ttf by prototype/CMakeLists.txt. Do not edit.
+#include \"MenuFont.h\"
+const unsigned char MENU_FONT_TTF[] = {@GOL3D_MENU_FONT_BYTES@};
+const int MENU_FONT_TTF_SIZE = static_cast<int>(sizeof(MENU_FONT_TTF));
+" @ONLY)
+list(APPEND GOL3D_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/generated/MenuFont.cpp)
+
 add_executable(gol3d ${GOL3D_SOURCES})
 target_include_directories(gol3d PRIVATE ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${GOL_ROOT}/include)
 target_link_libraries(gol3d PRIVATE glfw glm::glm gol3d_imgui gol3d_volk)
@@ -208,6 +222,7 @@ elseif(WIN32)
     install(FILES ${GOL_SPV} DESTINATION shaders)
     install(FILES ${GOL_ROOT}/docs/PROTOTYPE.md DESTINATION . RENAME README.md)
     install(FILES ${GOL_ROOT}/LICENSE DESTINATION . RENAME LICENSE.txt)
+    install(FILES ${GOL_ROOT}/packaging/licenses/Karla-OFL.txt DESTINATION .)
 else()
     install(TARGETS gol3d RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(FILES ${GOL_SPV} DESTINATION ${CMAKE_INSTALL_DATADIR}/gol3d/shaders)
@@ -215,6 +230,7 @@ else()
     install(FILES ${GOL_ROOT}/packaging/icons/gol3d.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps)
     install(FILES ${GOL_ROOT}/docs/PROTOTYPE.md DESTINATION ${CMAKE_INSTALL_DOCDIR} RENAME README.md)
     install(FILES ${GOL_ROOT}/LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR})
+    install(FILES ${GOL_ROOT}/packaging/licenses/Karla-OFL.txt DESTINATION ${CMAKE_INSTALL_DOCDIR})
 endif()
 
 # ----------------------------------------------------------------------- CPack
