@@ -5,6 +5,7 @@
 //
 //   cmake --build build/prototype --target life3d_find_patterns
 //   ./build/prototype/life3d_find_patterns "Life 5766" 20000
+//   ./build/prototype/life3d_find_patterns S4-5/B5 20000     (any rule, in S/B notation)
 //
 // Stepping is sparse (a hash map of neighbor counts) with the same survive/birth
 // masks as stepLifeReference; life3d_patterns_test verifies what it finds with
@@ -162,11 +163,39 @@ void classify(const Cells& object) {
     }
 }
 
+// Parses "S4-5/B5" or "S13-26/B13-14,17-19" into neighbor-count masks.
+bool parseNotation(const std::string& text, uint32_t& survive, uint32_t& birth) {
+    auto parseCounts = [](const std::string& list, uint32_t& mask) {
+        mask = 0;
+        size_t pos = 0;
+        while (pos < list.size()) {
+            size_t end = list.find(',', pos);
+            if (end == std::string::npos) end = list.size();
+            const std::string item = list.substr(pos, end - pos);
+            const size_t dash = item.find('-');
+            try {
+                const int first = std::stoi(item.substr(0, dash));
+                const int last = dash == std::string::npos ? first : std::stoi(item.substr(dash + 1));
+                if (first < 0 || last > 26 || first > last) return false;
+                for (int n = first; n <= last; ++n) mask |= 1u << n;
+            } catch (...) {
+                return false;
+            }
+            pos = end + 1;
+        }
+        return true;
+    };
+    const size_t slash = text.find('/');
+    if (text.size() < 4 || text[0] != 'S' || slash == std::string::npos || text.compare(slash + 1, 1, "B") != 0)
+        return false;
+    return parseCounts(text.substr(1, slash - 1), survive) && parseCounts(text.substr(slash + 2), birth) && birth;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: %s \"RULE NAME\" SOUPS\n", argv[0]);
+        std::fprintf(stderr, "usage: %s \"RULE NAME\"|S../B.. SOUPS\n", argv[0]);
         return 2;
     }
     const std::string name = argv[1];
@@ -174,6 +203,7 @@ int main(int argc, char** argv) {
     for (const VulkanHIP::LifeRule& rule : VulkanHIP::lifeRules()) {
         if (name == rule.name) surviveMask = rule.surviveMask, birthMask = rule.birthMask;
     }
+    if (!birthMask && !parseNotation(name, surviveMask, birthMask)) surviveMask = birthMask = 0;
     if (!birthMask) {
         std::fprintf(stderr, "unknown rule %s\n", name.c_str());
         return 2;
