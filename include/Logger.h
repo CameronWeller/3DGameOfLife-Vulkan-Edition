@@ -32,6 +32,10 @@ public:
         
         try {
             if (!logFile_.is_open()) {
+                if (fileLoggingDisabled_) {
+                    std::cerr << "[" << getLevelString(level) << "] " << message << std::endl;
+                    return;
+                }
                 initLogFile();
             }
 
@@ -81,8 +85,19 @@ public:
     }
 
 protected:
+    // Runs during static initialization, so it must not throw. Installed apps often
+    // start in a read-only directory; fall back to the temp directory, then stderr.
     Logger() : currentLogLevel_(LogLevel::Info) {
-        initLogFile();
+        try {
+            initLogFile();
+        } catch (const std::exception&) {
+            try {
+                logDirectory_ = (std::filesystem::temp_directory_path() / "vulkan_hip_logs").string();
+                initLogFile();
+            } catch (const std::exception&) {
+                fileLoggingDisabled_ = true;
+            }
+        }
     }
 
     ~Logger() {
@@ -164,6 +179,7 @@ private:
     std::mutex mutex_;
     std::atomic<LogLevel> currentLogLevel_;
     std::string logDirectory_ = "logs";
+    bool fileLoggingDisabled_ = false;
 };
 
 } // namespace VulkanHIP 

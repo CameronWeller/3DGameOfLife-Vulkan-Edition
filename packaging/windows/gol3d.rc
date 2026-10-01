@@ -1,0 +1,2 @@
+// Application icon for gol3d.exe (Explorer, taskbar, installer shortcuts).
+IDI_ICON1 ICON "../icons/gol3d.ico"

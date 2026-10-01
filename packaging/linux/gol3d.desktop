@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=3D Life
+GenericName=3D Game of Life
+Comment=Minecraft-style 3D Game of Life on Vulkan
+Exec=gol3d
+Icon=gol3d
+Terminal=false
+Categories=Game;Simulation;
+Keywords=life;cellular;automaton;voxel;conway;

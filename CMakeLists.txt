@@ -54,6 +54,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 target_link_libraries(${PROJECT_NAME}_beta PRIVATE
     ${PROJECT_NAME}_lib
 )
+# The beta app (src/main_minimal.cpp) needs Vulkan's 0..1 depth range from GLM
+target_compile_definitions(${PROJECT_NAME}_beta PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE)
 
 # Apply common settings to main executable (must be before precompiled headers)
 apply_common_settings(${PROJECT_NAME})

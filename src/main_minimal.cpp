@@ -1,536 +1,794 @@
-// Minimal Vulkan Application - Uses only confirmed working components
-#include <iostream>
-#include <stdexcept>
-#include <memory>
-#include <chrono>
-#include <thread>
-#include <GLFW/glfw3.h>  // Add GLFW header for extension functions
+// 3D Game of Life - playable Vulkan prototype with a Minecraft-style world.
+//
+// The world is unbounded and stored as 16^3-cell chunks that exist only where
+// life is (or is about to be). shaders/life3d_chunks.comp steps every active
+// chunk, appends live cells to an instance list, and reports per-chunk
+// population plus which neighbor chunks border cells touch; the CPU then
+// allocates and frees chunks to follow the pattern. Cells are drawn as blocks
+// with an indirect instanced draw. Controls follow Minecraft's defaults; see
+// printControls().
+//
+// Build with GLM_FORCE_DEPTH_ZERO_TO_ONE defined for the whole target (a
+// precompiled header may include GLM before this file).
+
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <random>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
-// GLM for 3D math
+#if defined(_WIN32)
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <dlfcn.h>
+#include <mach-o/dyld.h>
+#endif
+
+#include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
 
-// Only include headers we know exist
+static_assert(GLM_CONFIG_CLIP_CONTROL & GLM_CLIP_CONTROL_ZO_BIT,
+              "Define GLM_FORCE_DEPTH_ZERO_TO_ONE for this target: Vulkan depth is 0..1");
+
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_vulkan.h"
+
 #include "WindowManager.h"
 #include "VulkanContext.h"
-#include "DeviceManager.h"
-// #include "VulkanMemoryManager.h"  // Temporarily disabled due to VMA linking issues
-#include "Logger.h"
-#include "Camera.h"
-
-// Add Vulkan rendering components
-// #include "vulkan/resources/VulkanSwapChain.h"  // Disabled - incomplete implementation
 #include "engine/vulkan/resources/ShaderManager.h"
-#include "SimplePatternLoader.h"
+#include "Life3DRules.h"
 
 using namespace VulkanHIP;
 
-class MinimalVulkanApp {
+namespace {
+
+constexpr int CHUNK = 16;
+constexpr uint32_t CHUNK_CELLS = CHUNK * CHUNK * CHUNK;
+constexpr uint32_t NO_CHUNK = 0xFFFFFFFFu;
+constexpr uint32_t MAX_INSTANCES = 1u << 20; // drawn blocks; more are simulated but not drawn
+constexpr uint64_t GPU_TIMEOUT_NS = 2'000'000'000; // treat a longer wait as a lost device
+
+struct IVec3Hash {
+    size_t operator()(const glm::ivec3& v) const {
+        return (size_t(uint32_t(v.x)) * 73856093u) ^ (size_t(uint32_t(v.y)) * 19349663u) ^
+               (size_t(uint32_t(v.z)) * 83492791u);
+    }
+};
+
+glm::ivec3 chunkOf(const glm::ivec3& cell) { return cell >> 4; } // floor division by 16
+uint32_t localIndex(const glm::ivec3& cell) {
+    glm::ivec3 l = cell & (CHUNK - 1);
+    return static_cast<uint32_t>((l.z * CHUNK + l.y) * CHUNK + l.x);
+}
+glm::ivec3 neighborOffset(int k) { return glm::ivec3(k % 3 - 1, (k / 3) % 3 - 1, k / 9 - 1); }
+
+// Scripted input for end-to-end checks, applied in order before the first frame.
+struct ScriptAction {
+    enum Kind { Position, Look, Place, Break, Slot, Resize, Push } kind;
+    glm::vec3 value{0.0f};
+};
+
+struct Options {
+    size_t rule = 0; // Life 5766, the closest 3D analog of Conway's Life
+    uint32_t seed = std::random_device{}();
+    uint32_t chunkCapacity = 2048;
+    bool empty = false;
+    bool run = false;
+    bool chunkBorders = false;
+    uint32_t warmupSteps = 0;
+    std::string screenshotPath;
+    uint32_t exitAfterFrames = 0;
+    bool verify = false;
+    std::string loadPath;
+    std::string savePath;
+    bool fly = false;
+    std::string menu; // open a menu at start (for screenshots): pause, settings, inventory, newworld
+    std::vector<ScriptAction> script;
+};
+
+void printUsage() {
+    std::cout << "Usage: gol3d [options]\n"
+                 "  --rule N          starting rule 1-" << lifeRules().size() << " (default 1, Life 5766)\n"
+                 "  --seed N          random seed for soups\n"
+                 "  --chunks N        chunk budget, 64-16000 (default 2048; 16^3 cells each)\n"
+                 "  --empty           start with an empty world\n"
+                 "  --run             start with the simulation running\n"
+                 "  --steps N         advance N generations before the first frame\n"
+                 "  --borders         show chunk borders (F3+G in game)\n"
+                 "  --screenshot PATH save a PNG of the last frame (implies --frames 3)\n"
+                 "  --frames N        exit after N frames\n"
+                 "  --verify          check the GPU against the CPU reference and exit\n"
+                 "  --load PATH       open a saved world (Ctrl+S saves world.life3d in the user data folder)\n"
+                 "  --fly             start flying instead of walking\n"
+                 "  --menu NAME       open pause, settings, inventory or newworld at start\n"
+                 "  --save PATH       save the world to PATH on exit\n"
+                 "Scripted input (applied in order, for tests):\n"
+                 "  --pos X,Y,Z  --look YAW,PITCH  --slot N (0 = empty hand)  --place  --break  --resize W,H\n"
+                 "  --push DX,DY,DZ   move the player with collision\n";
+}
+
+glm::vec3 parseVector(const std::string& text, int components) {
+    glm::vec3 v(0.0f);
+    std::stringstream stream(text);
+    std::string part;
+    int i = 0;
+    while (std::getline(stream, part, ',') && i < 3) v[i++] = std::stof(part);
+    if (i != components) throw std::runtime_error("Expected " + std::to_string(components) + " comma-separated numbers: " + text);
+    return v;
+}
+
+Options parseOptions(int argc, char** argv) {
+    Options options;
+    auto value = [&](int& i) -> std::string {
+        if (i + 1 >= argc) throw std::runtime_error(std::string("Missing value for ") + argv[i]);
+        return argv[++i];
+    };
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--rule") {
+            size_t rule = std::stoul(value(i));
+            if (rule < 1 || rule > lifeRules().size()) throw std::runtime_error("--rule is out of range");
+            options.rule = rule - 1;
+        }
+        else if (arg == "--seed") options.seed = static_cast<uint32_t>(std::stoul(value(i)));
+        else if (arg == "--chunks") options.chunkCapacity = std::clamp<uint32_t>(std::stoul(value(i)), 64, 16000);
+        else if (arg == "--empty") options.empty = true;
+        else if (arg == "--run") options.run = true;
+        else if (arg == "--borders") options.chunkBorders = true;
+        else if (arg == "--steps") options.warmupSteps = static_cast<uint32_t>(std::stoul(value(i)));
+        else if (arg == "--screenshot") options.screenshotPath = value(i);
+        else if (arg == "--frames") options.exitAfterFrames = static_cast<uint32_t>(std::stoul(value(i)));
+        else if (arg == "--verify") options.verify = true;
+        else if (arg == "--load") options.loadPath = value(i);
+        else if (arg == "--fly") options.fly = true;
+        else if (arg == "--menu") options.menu = value(i);
+        else if (arg == "--save") options.savePath = value(i);
+        else if (arg == "--pos") options.script.push_back({ScriptAction::Position, parseVector(value(i), 3)});
+        else if (arg == "--look") options.script.push_back({ScriptAction::Look, parseVector(value(i), 2)});
+        else if (arg == "--slot") options.script.push_back({ScriptAction::Slot, glm::vec3(std::stof(value(i)))});
+        else if (arg == "--place") options.script.push_back({ScriptAction::Place});
+        else if (arg == "--break") options.script.push_back({ScriptAction::Break});
+        else if (arg == "--resize") options.script.push_back({ScriptAction::Resize, parseVector(value(i), 2)});
+        else if (arg == "--push") options.script.push_back({ScriptAction::Push, parseVector(value(i), 3)});
+        else if (arg == "--help" || arg == "-h") { printUsage(); std::exit(0); }
+        else throw std::runtime_error("Unknown option: " + arg);
+    }
+    if (!options.screenshotPath.empty() && options.exitAfterFrames == 0) options.exitAfterFrames = 3;
+    return options;
+}
+
+std::filesystem::path executableDirectory(const char* argv0) {
+    std::error_code ec;
+    std::filesystem::path exe;
+#if defined(_WIN32)
+    wchar_t buffer[MAX_PATH];
+    DWORD length = GetModuleFileNameW(nullptr, buffer, MAX_PATH);
+    if (length > 0 && length < MAX_PATH) exe = std::filesystem::path(std::wstring(buffer, length));
+#elif defined(__APPLE__)
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::string buffer(size, '\0');
+    if (_NSGetExecutablePath(buffer.data(), &size) == 0) exe = std::filesystem::canonical(buffer.c_str(), ec);
+#else
+    exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+#endif
+    if (exe.empty()) exe = std::filesystem::absolute(argv0, ec);
+    return exe.parent_path();
+}
+
+// Compiled shaders sit next to the executable in a build or Windows install,
+// in share/gol3d on Linux, and in Resources inside the macOS app bundle.
+std::filesystem::path findShaderDirectory(const std::filesystem::path& exeDir) {
+    std::error_code ec;
+    for (const std::filesystem::path& dir : {exeDir / "shaders", exeDir / ".." / "share" / "gol3d" / "shaders",
+                                             exeDir / ".." / "Resources" / "shaders"}) {
+        if (std::filesystem::exists(dir / "life3d_chunks.comp.spv", ec)) return dir;
+    }
+    return "shaders";
+}
+
+// Vulkan is opened at runtime (volk), so one binary starts on any machine with a
+// Vulkan driver. On macOS the app bundle carries MoltenVK.
+void initVulkanLoader([[maybe_unused]] const std::filesystem::path& exeDir) {
+    bool loaded = false;
+#if defined(__APPLE__)
+    for (const std::filesystem::path& candidate : {exeDir / ".." / "Frameworks" / "libMoltenVK.dylib", exeDir / "libMoltenVK.dylib"}) {
+        if (void* library = dlopen(candidate.c_str(), RTLD_NOW | RTLD_LOCAL)) {
+            auto getProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(library, "vkGetInstanceProcAddr"));
+            if (getProcAddr) {
+                volkInitializeCustom(getProcAddr);
+                loaded = true;
+                break;
+            }
+        }
+    }
+#endif
+    if (!loaded && volkInitialize() != VK_SUCCESS) {
+        throw std::runtime_error("Vulkan is not available. Install a GPU driver with Vulkan support "
+                                 "(on Linux also the Vulkan loader, e.g. libvulkan1 or vulkan-icd-loader).");
+    }
+#if GLFW_VERSION_MAJOR > 3 || (GLFW_VERSION_MAJOR == 3 && GLFW_VERSION_MINOR >= 4)
+    glfwInitVulkanLoader(vkGetInstanceProcAddr); // GLFW uses the same loader for surfaces
+#endif
+}
+
+uint32_t crc32(const uint8_t* data, size_t size) {
+    static const std::array<uint32_t, 256> table = [] {
+        std::array<uint32_t, 256> t{};
+        for (uint32_t n = 0; n < 256; ++n) {
+            uint32_t c = n;
+            for (int k = 0; k < 8; ++k) c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+            t[n] = c;
+        }
+        return t;
+    }();
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < size; ++i) crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+    return ~crc;
+}
+
+// Minimal RGB PNG writer using stored (uncompressed) deflate blocks.
+bool writePng(const std::string& path, uint32_t width, uint32_t height, const std::vector<uint8_t>& rgb) {
+    std::vector<uint8_t> raw;
+    raw.reserve((width * 3 + 1) * height);
+    for (uint32_t y = 0; y < height; ++y) {
+        raw.push_back(0);
+        raw.insert(raw.end(), rgb.begin() + y * width * 3, rgb.begin() + (y + 1) * width * 3);
+    }
+    std::vector<uint8_t> zlib = {0x78, 0x01};
+    size_t pos = 0;
+    do {
+        size_t len = std::min<size_t>(65535, raw.size() - pos);
+        zlib.push_back(pos + len == raw.size() ? 1 : 0);
+        zlib.push_back(len & 0xFF);
+        zlib.push_back((len >> 8) & 0xFF);
+        zlib.push_back(~len & 0xFF);
+        zlib.push_back((~len >> 8) & 0xFF);
+        zlib.insert(zlib.end(), raw.begin() + pos, raw.begin() + pos + len);
+        pos += len;
+    } while (pos < raw.size());
+    uint32_t a = 1, b = 0;
+    for (uint8_t v : raw) { a = (a + v) % 65521; b = (b + a) % 65521; }
+    for (int shift : {24, 16, 8, 0}) zlib.push_back(((b << 16 | a) >> shift) & 0xFF);
+
+    std::ofstream out(path, std::ios::binary);
+    if (!out) return false;
+    auto be32 = [&](uint32_t v) {
+        const char bytes[4] = {char(v >> 24), char(v >> 16), char(v >> 8), char(v)};
+        out.write(bytes, 4);
+    };
+    auto chunk = [&](const char* type, const std::vector<uint8_t>& data) {
+        std::vector<uint8_t> typed(type, type + 4);
+        typed.insert(typed.end(), data.begin(), data.end());
+        be32(static_cast<uint32_t>(data.size()));
+        out.write(reinterpret_cast<const char*>(typed.data()), typed.size());
+        be32(crc32(typed.data(), typed.size()));
+    };
+    out.write("\x89PNG\r\n\x1a\n", 8);
+    std::vector<uint8_t> header;
+    for (uint32_t v : {width, height}) for (int shift : {24, 16, 8, 0}) header.push_back((v >> shift) & 0xFF);
+    header.insert(header.end(), {8, 2, 0, 0, 0}); // 8-bit RGB
+    chunk("IHDR", header);
+    chunk("IDAT", zlib);
+    chunk("IEND", {});
+    return static_cast<bool>(out);
+}
+
+// Per-user folder for saves and screenshots; installed apps may start in a
+// read-only working directory.
+std::filesystem::path userDataDirectory() {
+    const char* home = std::getenv("HOME");
+    std::filesystem::path base;
+#if defined(_WIN32)
+    const char* appData = std::getenv("APPDATA");
+    base = appData && *appData ? std::filesystem::path(appData) : std::filesystem::path(".");
+#elif defined(__APPLE__)
+    base = std::filesystem::path(home ? home : ".") / "Library" / "Application Support";
+#else
+    const char* xdg = std::getenv("XDG_DATA_HOME");
+    base = xdg && *xdg ? std::filesystem::path(xdg) : std::filesystem::path(home ? home : ".") / ".local" / "share";
+#endif
+    std::filesystem::path dir = base / "gol3d";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    return dir;
+}
+
+std::string timestampedScreenshotName() {
+    std::time_t now = std::time(nullptr);
+    std::ostringstream name;
+    name << "life3d-" << std::put_time(std::localtime(&now), "%Y%m%d-%H%M%S") << ".png";
+    std::filesystem::path dir = userDataDirectory() / "screenshots";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    return (dir / name.str()).string();
+}
+
+// Hotbar stamps; their order matches the icons in shaders/life3d_screen.frag.
+enum class Stamp { Cell, Block, Plus, SmallSoup, BigSoup, Wall, Pillar, RuleSeed };
+constexpr std::array<const char*, 8> STAMP_NAMES = {
+    "Cell", "Block 2x2x2", "Plus", "Soup 8^3", "Soup 16^3", "Wall 5x5", "Pillar 8", "Rule seed"};
+constexpr std::array<const char*, 8> STAMP_DESCRIPTIONS = {
+    "One live cell.",
+    "A solid 2x2x2 cube.",
+    "A 3D cross of seven cells.",
+    "An 8x8x8 random soup at the rule's density.",
+    "A 16x16x16 random soup at the rule's density.",
+    "A solid 5x5 wall. On the ground it stands upright.",
+    "A line of 8 cells growing away from the surface.",
+    "The current rule's own starting soup."};
+// Same 5x5 bitmaps as ICONS in shaders/life3d_screen.frag (bit 24 = top-left).
+constexpr std::array<uint32_t, 8> STAMP_ICONS = {
+    0x0001000u, 0x00739C0u, 0x0023880u, 0x0051120u, 0x165E9B6u, 0x1FFFFFFu, 0x0421084u, 0x1555555u};
+
+// Player-adjustable options, stored as "key:value" lines like Minecraft's options.txt.
+struct Settings {
+    float fov = 70.0f;       // degrees, vertical
+    int sensitivity = 100;   // percent of 0.15 degrees per pixel
+    bool invertY = false;
+    int renderDistance = 256; // blocks; fog ends here
+    int guiScale = 0;        // 0 = automatic
+};
+
+std::filesystem::path settingsPath() {
+#if defined(_WIN32)
+    const char* appData = std::getenv("APPDATA");
+    std::filesystem::path base = appData && *appData ? std::filesystem::path(appData) : std::filesystem::path(".");
+#else
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
+    const char* home = std::getenv("HOME");
+    std::filesystem::path base = xdg && *xdg ? std::filesystem::path(xdg)
+                                             : std::filesystem::path(home ? home : ".") / ".config";
+#endif
+    return base / "gol3d" / "options.txt";
+}
+
+Settings loadSettings() {
+    Settings settings;
+    std::ifstream in(settingsPath());
+    std::string line;
+    while (std::getline(in, line)) {
+        size_t colon = line.find(':');
+        if (colon == std::string::npos) continue;
+        std::string key = line.substr(0, colon), value = line.substr(colon + 1);
+        try {
+            if (key == "fov") settings.fov = std::clamp(std::stof(value), 30.0f, 110.0f);
+            else if (key == "sensitivity") settings.sensitivity = std::clamp(std::stoi(value), 10, 300);
+            else if (key == "invertY") settings.invertY = value == "true";
+            else if (key == "renderDistance") settings.renderDistance = std::clamp(std::stoi(value), 64, 512);
+            else if (key == "guiScale") settings.guiScale = std::clamp(std::stoi(value), 0, 4);
+        } catch (const std::exception&) {
+            // Ignore malformed lines and keep the default.
+        }
+    }
+    return settings;
+}
+
+void saveSettings(const Settings& settings) {
+    std::error_code ec;
+    std::filesystem::create_directories(settingsPath().parent_path(), ec);
+    std::ofstream out(settingsPath());
+    out << "fov:" << settings.fov << "\nsensitivity:" << settings.sensitivity
+        << "\ninvertY:" << (settings.invertY ? "true" : "false") << "\nrenderDistance:" << settings.renderDistance
+        << "\nguiScale:" << settings.guiScale << "\n";
+}
+
+} // namespace
+
+class LifePrototypeApp {
 public:
-    MinimalVulkanApp() {
-        std::cout << "Starting Minimal Vulkan Application" << std::endl;
+    LifePrototypeApp(Options options, std::filesystem::path shaderDir)
+        : options(std::move(options)), shaderDir(std::move(shaderDir)), rng(this->options.seed) {
+        ruleIndex = this->options.rule;
+        simulationRunning = this->options.run;
+        showChunkBorders = this->options.chunkBorders;
+        chunkCapacity = this->options.chunkCapacity;
+        // Scripted and test runs use defaults so results do not depend on the player's options.
+        persistSettings = this->options.script.empty() && this->options.screenshotPath.empty() &&
+                          !this->options.verify && this->options.menu.empty();
+        if (persistSettings) settings = loadSettings();
     }
 
-    ~MinimalVulkanApp() {
+    ~LifePrototypeApp() {
         cleanup();
     }
 
-    void run() {
-        try {
-            initWindow();
-            initVulkan();
-            initRendering();
-            mainLoop();
-        }
-        catch (const std::exception& e) {
-            std::cerr << "Application error: " << e.what() << std::endl;
-            throw;
-        }
+    int run() {
+        initWindow();
+        initVulkan();
+        initRendering();
+        if (options.verify) return verifyAgainstReference() ? 0 : 1;
+        initImGui();
+        newWorld(!options.empty);
+        if (!options.loadPath.empty() && !loadWorld(options.loadPath)) return 1;
+        flying = options.fly;
+        for (uint32_t i = 0; i < options.warmupSteps; ++i) runPass(true);
+        for (const ScriptAction& action : options.script) applyScriptAction(action);
+        printControls();
+        setCursorCaptured(options.script.empty() && options.screenshotPath.empty() && options.menu.empty());
+        if (options.menu == "pause") openPauseMenu();
+        else if (options.menu == "settings") { openPauseMenu(); screen = Screen::Settings; }
+        else if (options.menu == "inventory") openInventory();
+        else if (options.menu == "newworld") { openPauseMenu(); openNewWorldScreen(); }
+        else if (!options.menu.empty()) throw std::runtime_error("Unknown --menu " + options.menu);
+        mainLoop();
+        if (persistSettings) saveSettings(settings);
+        if (!options.savePath.empty() && !saveWorld(options.savePath)) return 1;
+        return 0;
     }
 
 private:
-    // Use references to singletons instead of unique_ptr
+    struct Vertex {
+        glm::vec3 pos;
+        glm::vec3 normal;
+    };
+
+    // Matches the std140 Frame block in shaders/life3d_frame.glsl.
+    struct FrameUniforms {
+        glm::mat4 viewProj;
+        glm::mat4 invViewProj;
+        glm::vec4 camera;
+        glm::vec4 viewport;
+        glm::ivec4 hotbar;
+        glm::vec4 fog;
+    };
+
+    // Matches the push constants in shaders/life3d_chunks.comp.
+    struct PassConstants {
+        uint32_t activeCount;
+        uint32_t surviveMask;
+        uint32_t birthMask;
+        uint32_t applyRule;
+        uint32_t maxInstances;
+    };
+
+    struct Box {
+        glm::vec4 min; // w = edge thickness
+        glm::vec4 max; // w = color id (0 target, 1 chunk border, 2 air placement)
+    };
+
+    // What the crosshair points at within reach.
+    struct Target {
+        bool hit = false;       // a live block is targeted
+        glm::ivec3 block{0};    // the targeted block
+        bool canPlace = false;
+        glm::ivec3 place{0};    // where a stamp's anchor goes
+        glm::ivec3 normal{0, 1, 0}; // direction stamps grow into
+    };
+
+    static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+    static constexpr std::array<float, 8> SPEEDS = {0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 15.0f, 30.0f, 60.0f};
+    // Minecraft scale: 1 cell = 1 block, creative flight at 10.92 blocks/s, sprint doubles it.
+    static constexpr float FLY_SPEED = 10.92f;
+    static constexpr float REACH = 6.0f;
+    static constexpr float AIR_PLACE_DISTANCE = 4.0f;
+    // Walking (Minecraft values in blocks and seconds).
+    static constexpr float WALK_SPEED = 4.317f;
+    static constexpr float SPRINT_SPEED = 5.612f;
+    static constexpr float GRAVITY = 32.0f;
+    static constexpr float JUMP_SPEED = 8.9f; // clears a 1.25-block jump
+    static constexpr float TERMINAL_SPEED = 78.4f;
+    static constexpr float DOUBLE_TAP_SECONDS = 0.3f;
+    static std::string saveFilePath() { return (userDataDirectory() / "world.life3d").string(); }
+    static constexpr float MOUSE_DEGREES_PER_PIXEL = 0.15f; // at 100% sensitivity
+    static constexpr float BREAK_REPEAT = 0.25f;
+    static constexpr float PLACE_REPEAT = 0.20f;
+
+    Options options;
+    std::filesystem::path shaderDir;
+    std::mt19937 rng;
+
     WindowManager* windowManager = nullptr;
     VulkanContext* vulkanContext = nullptr;
-    // std::unique_ptr<VulkanMemoryManager> memoryManager;  // Temporarily disabled
-    
-    // Camera for 3D rendering
-    std::unique_ptr<Camera> camera;
-    
-    // Rendering components - simplified inline swapchain
+    VkDevice device = VK_NULL_HANDLE;
     std::unique_ptr<ShaderManager> shaderManager;
+
+    // Swapchain and targets
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
     std::vector<VkImage> swapchainImages;
     std::vector<VkImageView> swapchainImageViews;
     std::vector<VkFramebuffer> framebuffers;
-    VkFormat swapchainImageFormat;
-    VkExtent2D swapchainExtent;
-    VkRenderPass renderPass = VK_NULL_HANDLE;
-    VkPipeline graphicsPipeline = VK_NULL_HANDLE;
-    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-    std::vector<VkCommandBuffer> commandBuffers;
-    
-    // Depth buffer
+    VkFormat swapchainImageFormat = VK_FORMAT_UNDEFINED;
+    VkExtent2D swapchainExtent{};
+    bool captureSupported = false;
     VkImage depthImage = VK_NULL_HANDLE;
     VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
     VkImageView depthImageView = VK_NULL_HANDLE;
-    VkFormat depthFormat;
-    
-    // 3D rendering support
-    struct UniformBufferObject {
-        glm::mat4 model;
-        glm::mat4 view;
-        glm::mat4 proj;
-    };
-    
-    struct Vertex {
-        glm::vec3 pos;
-        glm::vec3 color;
-    };
-    
+    VkFormat depthFormat = VK_FORMAT_UNDEFINED;
+    VkRenderPass renderPass = VK_NULL_HANDLE;
+    bool framebufferResized = false;
+
+    // Rendering: all pipelines share one layout and one descriptor set per frame.
+    VkDescriptorSetLayout frameSetLayout = VK_NULL_HANDLE;
+    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+    VkPipeline worldPipeline = VK_NULL_HANDLE;
+    VkPipeline skyPipeline = VK_NULL_HANDLE;
+    VkPipeline gridPipeline = VK_NULL_HANDLE;
+    VkPipeline hudPipeline = VK_NULL_HANDLE;
+    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> frameSets{};
+    std::vector<Vertex> cubeVertices;
     VkBuffer vertexBuffer = VK_NULL_HANDLE;
     VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
-    std::vector<VkBuffer> uniformBuffers;
-    std::vector<VkDeviceMemory> uniformBuffersMemory;
-    std::vector<void*> uniformBuffersMapped;
-    VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
-    std::vector<VkDescriptorSet> descriptorSets;
-    
-    // Frame synchronization - Fixed approach with per-frame semaphores
-    static const int MAX_FRAMES_IN_FLIGHT = 2;
-    std::vector<VkSemaphore> imageAvailableSemaphores;
+    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> uniformBuffers{};
+    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> uniformBuffersMemory{};
+    std::array<void*, MAX_FRAMES_IN_FLIGHT> uniformBuffersMapped{};
+    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> boxBuffers{};
+    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> boxBuffersMemory{};
+    std::array<Box*, MAX_FRAMES_IN_FLIGHT> boxBuffersMapped{};
+
+    // Frame synchronization. Render-finished semaphores are per swapchain image
+    // because presentation may still hold them after the frame fence signals.
+    std::array<VkCommandBuffer, MAX_FRAMES_IN_FLIGHT> commandBuffers{};
+    std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> imageAvailableSemaphores{};
+    std::array<VkFence, MAX_FRAMES_IN_FLIGHT> inFlightFences{};
     std::vector<VkSemaphore> renderFinishedSemaphores;
-    std::vector<VkFence> inFlightFences;
-    
-    // Track which images are in flight to avoid reusing semaphores
-    std::vector<VkFence> imagesInFlight;
-    
     size_t currentFrame = 0;
-    
-    // Timing and rotation
-    std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
-    float rotationSpeed = 45.0f; // degrees per second
-    
-    // Performance tracking
-    std::chrono::steady_clock::time_point lastFrameTime = std::chrono::steady_clock::now();
-    std::chrono::steady_clock::time_point lastStepTime = std::chrono::steady_clock::now();
-    float frameTime = 0.0f;
-    float stepTime = 0.0f;
-    uint32_t frameCount = 0;
-    float fpsUpdateInterval = 1.0f; // Update FPS display every second
-    float fpsTimer = 0.0f;
-    
-    // Mouse control
-    bool firstMouse = true;
-    float lastX = 640.0f, lastY = 360.0f;
-    bool mouseControlEnabled = false;
-    
-    // Game of Life simulation state - Conservative defaults for 60 FPS on midrange GPU
-    static constexpr uint32_t GRID_WIDTH = 32;
-    static constexpr uint32_t GRID_HEIGHT = 32;
-    static constexpr uint32_t GRID_DEPTH = 32;
-    bool simulationRunning = false;
-    float simulationSpeed = 1.0f; // steps per second
-    float timeSinceLastStep = 0.0f;
-    uint64_t generation = 0;
-    
-    // Canonical rule structure
-    struct GameRule {
-        uint32_t ruleSet;      // 0: Classic, 1: HighLife, 2: Day & Night, 3: Custom, 4: 5766, 5: 4555
-        uint32_t surviveMin;    // Minimum neighbors for survival
-        uint32_t surviveMax;    // Maximum neighbors for survival
-        uint32_t birthCount;    // Exact neighbor count for birth (for custom rules)
-        
-        GameRule() : ruleSet(0), surviveMin(4), surviveMax(6), birthCount(4) {} // Default: Classic 3D
-    } currentRule;
-    
-    // Compute shader resources
-    VkPipeline computePipeline = VK_NULL_HANDLE;
+
+    // Chunk pool. cellBuffers ping-pong between generations; the tables are
+    // indexed by slot and rewritten by the CPU between passes.
+    uint32_t chunkCapacity = 2048;
+    std::array<VkBuffer, 2> cellBuffers{};
+    std::array<VkDeviceMemory, 2> cellMemory{};
+    std::array<uint32_t*, 2> cellsMapped{};
+    uint32_t currentCells = 0;
+    VkBuffer neighborBuffer = VK_NULL_HANDLE, activeBuffer = VK_NULL_HANDLE, originBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory neighborMemory = VK_NULL_HANDLE, activeMemory = VK_NULL_HANDLE, originMemory = VK_NULL_HANDLE;
+    uint32_t* neighborsMapped = nullptr;
+    uint32_t* activeMapped = nullptr;
+    glm::ivec4* originsMapped = nullptr;
+    VkBuffer statsBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory statsMemory = VK_NULL_HANDLE;
+    glm::uvec2* statsMapped = nullptr;
+    VkBuffer instanceBuffer = VK_NULL_HANDLE, indirectBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory instanceMemory = VK_NULL_HANDLE, indirectMemory = VK_NULL_HANDLE;
+
+    std::unordered_map<glm::ivec3, uint32_t, IVec3Hash> chunkSlots;
+    std::vector<glm::ivec3> slotChunk;
+    std::vector<uint32_t> freeSlots;
+    std::vector<uint32_t> activeSlots;
+    bool tablesDirty = true;
+    bool chunkLimitHit = false;
+    bool pausedAtLimit = false; // pause once per world when the chunk budget runs out
+    bool refreshPending = false;
+
+    VkDescriptorSetLayout computeSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout computePipelineLayout = VK_NULL_HANDLE;
-    VkDescriptorSetLayout computeDescriptorSetLayout = VK_NULL_HANDLE;
+    VkPipeline computePipeline = VK_NULL_HANDLE;
     VkDescriptorPool computeDescriptorPool = VK_NULL_HANDLE;
-    VkDescriptorSet computeDescriptorSet = VK_NULL_HANDLE;
-    VkBuffer stateBuffer = VK_NULL_HANDLE;
-    VkBuffer nextStateBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory stateBufferMemory = VK_NULL_HANDLE;
-    VkDeviceMemory nextStateBufferMemory = VK_NULL_HANDLE;
-    void* stateBufferMapped = nullptr;
-    void* nextStateBufferMapped = nullptr;
-    bool buffersSwapped = false; // Track if we've swapped buffers
+    std::array<VkDescriptorSet, 2> computeSets{}; // [which cell buffer is current]
     VkCommandBuffer computeCommandBuffer = VK_NULL_HANDLE;
     VkFence computeFence = VK_NULL_HANDLE;
-    
-    // UI state
-    bool showUI = true;
-    std::unique_ptr<class VulkanImGui> imgui;
-    
-    // Cube geometry data - using triangulated vertices for proper rendering (very small cube)
-    const std::vector<Vertex> cubeVertices = {
-        // Front face (red) - 2 triangles
-        {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}}, // bottom-left
-        {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}}, // bottom-right
-        {{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}}, // top-right
-        {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}}, // bottom-left
-        {{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}}, // top-right
-        {{-0.5f,  0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}}, // top-left
-        
-        // Back face (green) - 2 triangles
-        {{-0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}}, // bottom-left
-        {{ 0.5f,  0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}}, // top-right
-        {{ 0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}}, // bottom-right
-        {{-0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}}, // bottom-left
-        {{-0.5f,  0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}}, // top-left
-        {{ 0.5f,  0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}}, // top-right
-        
-        // Top face (blue) - 2 triangles
-        {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}}, // back-left
-        {{ 0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}}, // front-right
-        {{-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}}, // front-left
-        {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}}, // back-left
-        {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}}, // back-right
-        {{ 0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}}, // front-right
-        
-        // Bottom face (yellow) - 2 triangles
-        {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 0.0f}}, // back-left
-        {{-0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 0.0f}}, // front-left
-        {{ 0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 0.0f}}, // front-right
-        {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 0.0f}}, // back-left
-        {{ 0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 0.0f}}, // front-right
-        {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 0.0f}}, // back-right
-        
-        // Left face (magenta) - 2 triangles
-        {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 1.0f}}, // back-bottom
-        {{-0.5f,  0.5f,  0.5f}, {1.0f, 0.0f, 1.0f}}, // front-top
-        {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 1.0f}}, // front-bottom
-        {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 1.0f}}, // back-bottom
-        {{-0.5f,  0.5f, -0.5f}, {1.0f, 0.0f, 1.0f}}, // back-top
-        {{-0.5f,  0.5f,  0.5f}, {1.0f, 0.0f, 1.0f}}, // front-top
-        
-        // Right face (cyan) - 2 triangles
-        {{ 0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 1.0f}}, // back-bottom
-        {{ 0.5f, -0.5f,  0.5f}, {0.0f, 1.0f, 1.0f}}, // front-bottom
-        {{ 0.5f,  0.5f,  0.5f}, {0.0f, 1.0f, 1.0f}}, // front-top
-        {{ 0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 1.0f}}, // back-bottom
-        {{ 0.5f,  0.5f,  0.5f}, {0.0f, 1.0f, 1.0f}}, // front-top
-        {{ 0.5f,  0.5f, -0.5f}, {0.0f, 1.0f, 1.0f}}  // back-top
-    };
-    
-    // Mouse callback helper
-    static void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
-        if (!window) return;
-        
-        MinimalVulkanApp* app = reinterpret_cast<MinimalVulkanApp*>(glfwGetWindowUserPointer(window));
-        if (app && app->camera) {
-            try {
-                app->processMouseMovement(xpos, ypos);
-            } catch (const std::exception& e) {
-                std::cerr << "Error in mouse callback: " << e.what() << std::endl;
-            } catch (...) {
-                std::cerr << "Unknown error in mouse callback" << std::endl;
-            }
-        }
-    }
-    
-    static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-        if (!window) return;
-        
-        MinimalVulkanApp* app = reinterpret_cast<MinimalVulkanApp*>(glfwGetWindowUserPointer(window));
-        if (app) {
-            try {
-                app->processKeyInput(key, action);
-            } catch (const std::exception& e) {
-                std::cerr << "Error in key callback: " << e.what() << std::endl;
-            } catch (...) {
-                std::cerr << "Unknown error in key callback" << std::endl;
-            }
-        }
-    }
-    
-    // Add mouse button callback to handle clicks safely
-    static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
-        if (!window) return;
-        
-        MinimalVulkanApp* app = reinterpret_cast<MinimalVulkanApp*>(glfwGetWindowUserPointer(window));
-        if (app) {
-            try {
-                app->processMouseButton(button, action, mods);
-            } catch (const std::exception& e) {
-                std::cerr << "Error in mouse button callback: " << e.what() << std::endl;
-            } catch (...) {
-                std::cerr << "Unknown error in mouse button callback" << std::endl;
-            }
-        }
-    }
-    
-    static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
-        if (!window) return;
-        
-        MinimalVulkanApp* app = reinterpret_cast<MinimalVulkanApp*>(glfwGetWindowUserPointer(window));
-        if (app && app->camera) {
-            try {
-                app->camera->processMouseScroll(static_cast<float>(yoffset));
-            } catch (const std::exception& e) {
-                std::cerr << "Error in scroll callback: " << e.what() << std::endl;
-            } catch (...) {
-                std::cerr << "Unknown error in scroll callback" << std::endl;
-            }
-        }
-    }
-    
-    void processMouseMovement(double xpos, double ypos) {
-        // Multiple layers of safety checks
-        if (!camera) {
-            std::cerr << "Warning: processMouseMovement called with null camera" << std::endl;
-            return;
-        }
-        
-        if (!mouseControlEnabled) return;
-        
-        // Validate input parameters
-        if (std::isnan(xpos) || std::isnan(ypos) || std::isinf(xpos) || std::isinf(ypos)) {
-            std::cerr << "Warning: Invalid mouse position: " << xpos << ", " << ypos << std::endl;
-            return;
-        }
-        
-        if (firstMouse) {
-            lastX = xpos;
-            lastY = ypos;
-            firstMouse = false;
-            return; // Skip processing on first mouse movement
-        }
 
-        float xoffset = xpos - lastX;
-        float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
+    // Simulation
+    size_t ruleIndex = 0;
+    bool simulationRunning = false;
+    size_t speedIndex = 1; // SPEEDS[1]: one generation per second
+    float stepAccumulator = 0.0f;
+    uint64_t generation = 0;
+    uint64_t population = 0;
 
-        // Clamp offsets to reasonable values to prevent extreme movements
-        const float maxOffset = 1000.0f;
-        xoffset = std::clamp(xoffset, -maxOffset, maxOffset);
-        yoffset = std::clamp(yoffset, -maxOffset, yoffset);
+    // Player (creative flight)
+    glm::vec3 eye{0.0f};
+    float yaw = 0.0f;   // degrees, 0 looks along +x
+    float pitch = 0.0f; // degrees, positive looks up
+    Target target;
 
-        lastX = xpos;
-        lastY = ypos;
+    // Input
+    bool cursorCaptured = false;
+    bool haveCursorPosition = false;
+    double lastCursorX = 0.0, lastCursorY = 0.0;
+    int hotbarSlot = 0; // -1 = empty hand: nothing to place, no placement outline
+    bool breakHeld = false, placeHeld = false;
+    float breakTimer = 0.0f, placeTimer = 0.0f;
+    bool hudVisible = true;
+    bool showChunkBorders = false;
+    bool fullscreen = false;
 
-        try {
-            camera->processMouseMovement(xoffset, yoffset);
-        } catch (const std::exception& e) {
-            std::cerr << "Error in mouse movement processing: " << e.what() << std::endl;
-            mouseControlEnabled = false; // Disable on error to prevent further crashes
-        } catch (...) {
-            std::cerr << "Unknown error in mouse movement processing" << std::endl;
-            mouseControlEnabled = false; // Disable on error to prevent further crashes
-        }
+    // Menus (Dear ImGui). Pause, Settings and New World freeze the world like
+    // Minecraft's single-player pause; the inventory does not.
+    enum class Screen { Playing, Paused, Settings, Inventory, NewWorld };
+    Screen screen = Screen::Playing;
+    Settings settings;
+    bool persistSettings = false;
+    bool runningBeforePause = false;
+    bool imguiReady = false;
+    float uiScale = 0.0f;
+    ImGuiStyle baseStyle;
+    double slotNameUntil = 0.0;
+    std::string toast;
+    double toastUntil = 0.0;
+    bool showDebug = false;
+    bool f3UsedInCombo = false;
+    int newWorldRule = 0;
+    int newWorldSeed = 0;
+    bool newWorldEmpty = false;
+    bool flying = false;          // double-tap Space toggles, as in creative mode
+    bool onGround = false;
+    float verticalSpeed = 0.0f;
+    double lastSpacePress = -1.0;
+    int windowedX = 100, windowedY = 100, windowedWidth = 1280, windowedHeight = 800;
+
+    // Screenshots
+    std::string pendingScreenshot;
+    VkBuffer captureBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory captureMemory = VK_NULL_HANDLE;
+
+    // HUD / timing
+    std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
+    float hudTimer = 0.0f;
+    uint32_t hudFrames = 0;
+    float fps = 0.0f;
+    uint64_t framesRendered = 0;
+
+    const LifeRule& rule() const { return lifeRules()[ruleIndex]; }
+
+    void waitFence(VkFence fence, const char* what) {
+        VkResult result = vkWaitForFences(device, 1, &fence, VK_TRUE, GPU_TIMEOUT_NS);
+        if (result == VK_TIMEOUT) throw std::runtime_error(std::string("GPU did not finish ") + what + " within 2 s");
+        if (result != VK_SUCCESS) throw std::runtime_error(std::string("Lost the GPU while waiting for ") + what);
     }
-    
-    void processKeyInput(int key, int action) {
-        if (action == GLFW_PRESS) {
-            switch (key) {
-                case GLFW_KEY_ESCAPE:
-                    // Toggle mouse control
-                    mouseControlEnabled = !mouseControlEnabled;
-                    if (mouseControlEnabled) {
-                        glfwSetInputMode(windowManager->getWindow(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-                        firstMouse = true;
-                        std::cout << "Mouse control enabled. Press ESC to toggle." << std::endl;
-                    } else {
-                        glfwSetInputMode(windowManager->getWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-                        std::cout << "Mouse control disabled. Press ESC to toggle." << std::endl;
-                    }
-                    break;
-                case GLFW_KEY_R:
-                    // Reset camera position
-                    camera->setPosition(glm::vec3(0.0f, 0.0f, 3.0f));
-                    std::cout << "Camera reset to default position" << std::endl;
-                    break;
-                case GLFW_KEY_1:
-                    camera->setMode(VulkanHIP::CameraMode::Fly);
-                    std::cout << "Camera mode: Fly" << std::endl;
-                    break;
-                case GLFW_KEY_2:
-                    camera->setMode(VulkanHIP::CameraMode::Orbit);
-                    std::cout << "Camera mode: Orbit" << std::endl;
-                    break;
-                case GLFW_KEY_SPACE:
-                    simulationRunning = !simulationRunning;
-                    std::cout << "Simulation: " << (simulationRunning ? "Running" : "Paused") << std::endl;
-                    break;
-                case GLFW_KEY_N:
-                    // Step one generation manually
-                    if (!simulationRunning) {
-                        stepSimulation();
-                    }
-                    break;
-                case GLFW_KEY_C:
-                    // Reset grid with current pattern
-                    initializeGrid();
-                    std::cout << "Grid reset" << std::endl;
-                    break;
-            }
-        }
-    }
-    
-    void processMouseButton(int button, int action, int mods) {
-        // Handle mouse button clicks safely
-        // For now, just log the click for debugging
-        if (action == GLFW_PRESS) {
-            switch (button) {
-                case GLFW_MOUSE_BUTTON_LEFT:
-                    std::cout << "Left mouse button pressed" << std::endl;
-                    break;
-                case GLFW_MOUSE_BUTTON_RIGHT:
-                    std::cout << "Right mouse button pressed" << std::endl;
-                    break;
-                case GLFW_MOUSE_BUTTON_MIDDLE:
-                    std::cout << "Middle mouse button pressed" << std::endl;
-                    break;
-            }
-        }
-    }
-    
+
+    // ------------------------------------------------------------------ setup
+
     void initWindow() {
-        std::cout << "Initializing window..." << std::endl;
-        
-        // Get singleton instance
         windowManager = &WindowManager::getInstance();
-        
-        // Initialize window
         WindowManager::WindowConfig config{};
-        config.width = 1280;
-        config.height = 720;
-        config.title = "Vulkan HIP Engine - Minimal Build";
-        
+        config.width = windowedWidth;
+        config.height = windowedHeight;
+        config.title = "3D Game of Life";
         windowManager->init(config);
-        
-        std::cout << "Window created: " << config.width << "x" << config.height << std::endl;
-        
-        // Initialize camera FIRST
-        camera = std::make_unique<Camera>(windowManager->getWindow(), 45.0f, 0.1f, 100.0f);
-        camera->setPosition(glm::vec3(0.0f, 0.0f, 3.0f));   // Simple: 3 units back along Z-axis
-        camera->setMode(VulkanHIP::CameraMode::Fly);
-        
-        std::cout << "Camera initialized" << std::endl;
-        
-        // Set up input callbacks AFTER camera is initialized
-        glfwSetWindowUserPointer(windowManager->getWindow(), this);
-        
-        // Add some delay to ensure everything is set up
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        
-        glfwSetCursorPosCallback(windowManager->getWindow(), mouseCallback);
-        glfwSetKeyCallback(windowManager->getWindow(), keyCallback);
-        glfwSetMouseButtonCallback(windowManager->getWindow(), mouseButtonCallback);
-        glfwSetScrollCallback(windowManager->getWindow(), scrollCallback);
-        
-        // Disable mouse cursor by default to prevent clicking issues
-        glfwSetInputMode(windowManager->getWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-        
-        std::cout << "Input callbacks set up" << std::endl;
-        std::cout << "Controls:" << std::endl;
-        std::cout << "  ESC - Toggle mouse look" << std::endl;
-        std::cout << "  WASD - Move camera (forward/back/left/right)" << std::endl;
-        std::cout << "  Space/Ctrl - Move up/down" << std::endl;
-        std::cout << "  Mouse Wheel - Zoom in/out" << std::endl;
-        std::cout << "  R - Reset camera" << std::endl;
-        std::cout << "  1 - Fly mode, 2 - Orbit mode" << std::endl;
-        std::cout << "  SPACE - Play/pause simulation" << std::endl;
-        std::cout << "  N - Step simulation (when paused)" << std::endl;
+
+        GLFWwindow* window = windowManager->getWindow();
+        glfwSetWindowUserPointer(window, this);
+        glfwSetFramebufferSizeCallback(window, [](GLFWwindow* w, int, int) {
+            static_cast<LifePrototypeApp*>(glfwGetWindowUserPointer(w))->framebufferResized = true;
+        });
+        glfwSetKeyCallback(window, [](GLFWwindow* w, int key, int, int action, int mods) {
+            static_cast<LifePrototypeApp*>(glfwGetWindowUserPointer(w))->onKey(key, action, mods);
+        });
+        glfwSetMouseButtonCallback(window, [](GLFWwindow* w, int button, int action, int mods) {
+            static_cast<LifePrototypeApp*>(glfwGetWindowUserPointer(w))->onMouseButton(button, action, mods);
+        });
+        glfwSetCursorPosCallback(window, [](GLFWwindow* w, double x, double y) {
+            static_cast<LifePrototypeApp*>(glfwGetWindowUserPointer(w))->onCursorMove(x, y);
+        });
+        glfwSetScrollCallback(window, [](GLFWwindow* w, double, double yoffset) {
+            static_cast<LifePrototypeApp*>(glfwGetWindowUserPointer(w))->onScroll(yoffset);
+        });
+        glfwSetWindowFocusCallback(window, [](GLFWwindow* w, int focused) {
+            auto* app = static_cast<LifePrototypeApp*>(glfwGetWindowUserPointer(w));
+            // Like Minecraft, losing focus mid-game opens the pause menu.
+            if (!focused && app->screen == Screen::Playing && app->cursorCaptured) app->openPauseMenu();
+        });
+        if (glfwRawMouseMotionSupported()) glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
     }
-    
+
     void initVulkan() {
-        std::cout << "Initializing Vulkan..." << std::endl;
-        
-        // Get singleton instance
         vulkanContext = &VulkanContext::getInstance();
-        
-        // Get required GLFW extensions for surface support
         uint32_t glfwExtensionCount = 0;
         const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-        
-        std::vector<const char*> extensions;
-        for (uint32_t i = 0; i < glfwExtensionCount; i++) {
-            extensions.push_back(glfwExtensions[i]);
-            std::cout << "Adding required extension: " << glfwExtensions[i] << std::endl;
-        }
-        
+        std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
         vulkanContext->init(extensions);
-        
-        // Skip memory manager for now
-        // memoryManager = std::make_unique<VulkanMemoryManager>(
-        //     vulkanContext->getDevice(),
-        //     vulkanContext->getPhysicalDevice()
-        // );
-        
-        std::cout << "Vulkan initialization complete" << std::endl;
+        device = vulkanContext->getDevice();
+
+        VkPhysicalDeviceProperties properties;
+        vkGetPhysicalDeviceProperties(vulkanContext->getPhysicalDevice(), &properties);
+        std::cout << "GPU: " << properties.deviceName << std::endl;
     }
-    
+
     void initRendering() {
-        std::cout << "Initializing rendering..." << std::endl;
-        
-        // Create swapchain manually
+        shaderManager = std::make_unique<ShaderManager>(vulkanContext);
         createSwapchain();
         createImageViews();
+        depthFormat = findDepthFormat();
         createDepthResources();
         createRenderPass();
-        
-        // Create descriptor set layout
-        createDescriptorSetLayout();
-        
-        // Create shader manager
-        shaderManager = std::make_unique<ShaderManager>(vulkanContext);
-        
-        // Create graphics pipeline
-        createGraphicsPipeline();
-        
-        // Create framebuffers
         createFramebuffers();
-        
-        // Create vertex buffer
+        createPerImageSemaphores();
+
+        createWorldBuffers();
         createVertexBuffer();
-        
-        // Create uniform buffers
-        createUniformBuffers();
-        
-        // Create descriptor pool and sets
-        createDescriptorPool();
-        createDescriptorSets();
-        
-        // Create command buffers
+        createFrameBuffers();
+        createFrameSetLayout();
+        createGraphicsPipelines();
+        createFrameSets();
+        createComputePipeline();
+        createComputeSets();
         createCommandBuffers();
-        
-        // Initialize frame synchronization
         createSyncObjects();
-        
-        // Initialize Game of Life compute resources
-        createComputeResources();
-        
-        // Initialize ImGui
-        initImGui();
-        
-        std::cout << "Rendering initialization complete" << std::endl;
     }
-    
-    void createSwapchain() {
-        // Query swapchain support
-        SwapChainSupportDetails swapChainSupport = vulkanContext->querySwapChainSupport(vulkanContext->getPhysicalDevice());
-        
-        std::cout << "Available formats: " << swapChainSupport.formats.size() << std::endl;
-        std::cout << "Available present modes: " << swapChainSupport.presentModes.size() << std::endl;
-        
-        VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
-        VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
-        VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
-        
-        uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
-        if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
-            imageCount = swapChainSupport.capabilities.maxImageCount;
+
+    std::optional<uint32_t> findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags wanted) {
+        VkPhysicalDeviceMemoryProperties properties;
+        vkGetPhysicalDeviceMemoryProperties(vulkanContext->getPhysicalDevice(), &properties);
+        for (uint32_t i = 0; i < properties.memoryTypeCount; ++i) {
+            if ((typeBits & (1u << i)) && (properties.memoryTypes[i].propertyFlags & wanted) == wanted) return i;
         }
-        
-        std::cout << "Creating swapchain with " << imageCount << " images" << std::endl;
-        std::cout << "Swapchain extent: " << extent.width << "x" << extent.height << std::endl;
-        
+        return std::nullopt;
+    }
+
+    // Allocates with the first memory property set in `preferences` that is available.
+    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, std::initializer_list<VkMemoryPropertyFlags> preferences,
+                      VkBuffer& buffer, VkDeviceMemory& memory, void** mapped = nullptr) {
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = size;
+        bufferInfo.usage = usage;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create buffer!");
+        }
+        VkMemoryRequirements requirements;
+        vkGetBufferMemoryRequirements(device, buffer, &requirements);
+        std::optional<uint32_t> type;
+        for (VkMemoryPropertyFlags wanted : preferences) {
+            if ((type = findMemoryType(requirements.memoryTypeBits, wanted))) break;
+        }
+        if (!type) throw std::runtime_error("No suitable memory type for buffer!");
+        VkMemoryAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = requirements.size;
+        allocInfo.memoryTypeIndex = *type;
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &memory) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate buffer memory!");
+        }
+        vkBindBufferMemory(device, buffer, memory, 0);
+        if (mapped && vkMapMemory(device, memory, 0, VK_WHOLE_SIZE, 0, mapped) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to map buffer memory!");
+        }
+    }
+
+    static constexpr VkMemoryPropertyFlags HOST = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    static constexpr VkMemoryPropertyFlags HOST_CACHED = HOST | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+    static constexpr VkMemoryPropertyFlags DEVICE_HOST = HOST | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    static constexpr VkMemoryPropertyFlags DEVICE = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+    void createSwapchain() {
+        SwapChainSupportDetails support = vulkanContext->querySwapChainSupport(vulkanContext->getPhysicalDevice());
+        VkSurfaceFormatKHR surfaceFormat = support.formats[0];
+        for (const auto& format : support.formats) {
+            if (format.format == VK_FORMAT_B8G8R8A8_SRGB && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                surfaceFormat = format;
+                break;
+            }
+        }
+
+        VkExtent2D extent = support.capabilities.currentExtent;
+        if (extent.width == UINT32_MAX) {
+            int width, height;
+            glfwGetFramebufferSize(windowManager->getWindow(), &width, &height);
+            extent.width = std::clamp(static_cast<uint32_t>(width), support.capabilities.minImageExtent.width,
+                                      support.capabilities.maxImageExtent.width);
+            extent.height = std::clamp(static_cast<uint32_t>(height), support.capabilities.minImageExtent.height,
+                                       support.capabilities.maxImageExtent.height);
+        }
+
+        uint32_t imageCount = support.capabilities.minImageCount + 1;
+        if (support.capabilities.maxImageCount > 0) imageCount = std::min(imageCount, support.capabilities.maxImageCount);
+
+        captureSupported = support.capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+
         VkSwapchainCreateInfoKHR createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
         createInfo.surface = vulkanContext->getSurface();
@@ -539,11 +797,11 @@ private:
         createInfo.imageColorSpace = surfaceFormat.colorSpace;
         createInfo.imageExtent = extent;
         createInfo.imageArrayLayers = 1;
-        createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        
+        createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                (captureSupported ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
+
         QueueFamilyIndices indices = vulkanContext->getQueueFamilyIndices();
         uint32_t queueFamilyIndices[] = {indices.graphicsFamily.value(), indices.presentFamily.value()};
-        
         if (indices.graphicsFamily != indices.presentFamily) {
             createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
             createInfo.queueFamilyIndexCount = 2;
@@ -551,100 +809,51 @@ private:
         } else {
             createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
         }
-        
-        createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
+        createInfo.preTransform = support.capabilities.currentTransform;
         createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-        createInfo.presentMode = presentMode;
+        createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR; // vsync caps the frame rate; always supported
         createInfo.clipped = VK_TRUE;
-        createInfo.oldSwapchain = VK_NULL_HANDLE;
-        
-        if (vkCreateSwapchainKHR(vulkanContext->getDevice(), &createInfo, nullptr, &swapchain) != VK_SUCCESS) {
+
+        if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapchain) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create swap chain!");
         }
-        
-        // Get swapchain images
-        uint32_t actualImageCount;
-        vkGetSwapchainImagesKHR(vulkanContext->getDevice(), swapchain, &actualImageCount, nullptr);
-        std::cout << "Actual swapchain image count: " << actualImageCount << std::endl;
-        
-        if (actualImageCount == 0) {
-            throw std::runtime_error("Swapchain created with 0 images!");
-        }
-        
-        swapchainImages.resize(actualImageCount);
-        vkGetSwapchainImagesKHR(vulkanContext->getDevice(), swapchain, &actualImageCount, swapchainImages.data());
-        
+        uint32_t actualCount = 0;
+        vkGetSwapchainImagesKHR(device, swapchain, &actualCount, nullptr);
+        swapchainImages.resize(actualCount);
+        vkGetSwapchainImagesKHR(device, swapchain, &actualCount, swapchainImages.data());
         swapchainImageFormat = surfaceFormat.format;
         swapchainExtent = extent;
-        
-        std::cout << "Swapchain created successfully with " << actualImageCount << " images" << std::endl;
-        std::cout << "swapchainImages.size(): " << swapchainImages.size() << std::endl;
     }
-    
-    VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) {
-        for (const auto& availableFormat : availableFormats) {
-            if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && 
-                availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-                return availableFormat;
+
+    void createImageViews() {
+        swapchainImageViews.resize(swapchainImages.size());
+        for (size_t i = 0; i < swapchainImages.size(); i++) {
+            VkImageViewCreateInfo createInfo{};
+            createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            createInfo.image = swapchainImages[i];
+            createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            createInfo.format = swapchainImageFormat;
+            createInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            if (vkCreateImageView(device, &createInfo, nullptr, &swapchainImageViews[i]) != VK_SUCCESS) {
+                throw std::runtime_error("Failed to create image views!");
             }
         }
-        return availableFormats[0];
     }
-    
-    VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) {
-        for (const auto& availablePresentMode : availablePresentModes) {
-            if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-                return availablePresentMode;
-            }
-        }
-        return VK_PRESENT_MODE_FIFO_KHR;
-    }
-    
-    VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) {
-        if (capabilities.currentExtent.width != UINT32_MAX) {
-            return capabilities.currentExtent;
-        } else {
-            int width, height;
-            glfwGetFramebufferSize(windowManager->getWindow(), &width, &height);
-            
-            VkExtent2D actualExtent = {
-                static_cast<uint32_t>(width),
-                static_cast<uint32_t>(height)
-            };
-            
-            actualExtent.width = std::clamp(actualExtent.width,
-                capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
-            actualExtent.height = std::clamp(actualExtent.height,
-                capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
-            
-            return actualExtent;
-        }
-    }
-    
+
     VkFormat findDepthFormat() {
-        std::vector<VkFormat> candidates = {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT};
-        
-        for (VkFormat format : candidates) {
+        for (VkFormat format : {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT}) {
             VkFormatProperties props;
             vkGetPhysicalDeviceFormatProperties(vulkanContext->getPhysicalDevice(), format, &props);
-            
-            if (props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
-                return format;
-            }
+            if (props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) return format;
         }
-        
         throw std::runtime_error("Failed to find supported depth format!");
     }
-    
+
     void createDepthResources() {
-        depthFormat = findDepthFormat();
-        
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
-        imageInfo.extent.width = swapchainExtent.width;
-        imageInfo.extent.height = swapchainExtent.height;
-        imageInfo.extent.depth = 1;
+        imageInfo.extent = {swapchainExtent.width, swapchainExtent.height, 1};
         imageInfo.mipLevels = 1;
         imageInfo.arrayLayers = 1;
         imageInfo.format = depthFormat;
@@ -653,82 +862,44 @@ private:
         imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        
-        if (vkCreateImage(vulkanContext->getDevice(), &imageInfo, nullptr, &depthImage) != VK_SUCCESS) {
+        if (vkCreateImage(device, &imageInfo, nullptr, &depthImage) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create depth image!");
         }
-        
-        VkMemoryRequirements memRequirements;
-        vkGetImageMemoryRequirements(vulkanContext->getDevice(), depthImage, &memRequirements);
-        
+        VkMemoryRequirements requirements;
+        vkGetImageMemoryRequirements(device, depthImage, &requirements);
+        std::optional<uint32_t> type = findMemoryType(requirements.memoryTypeBits, DEVICE);
+        if (!type) throw std::runtime_error("No device-local memory for the depth buffer!");
         VkMemoryAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize = memRequirements.size;
-        allocInfo.memoryTypeIndex = VulkanContext::findMemoryType(vulkanContext->getPhysicalDevice(),
-            memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        
-        if (vkAllocateMemory(vulkanContext->getDevice(), &allocInfo, nullptr, &depthImageMemory) != VK_SUCCESS) {
+        allocInfo.allocationSize = requirements.size;
+        allocInfo.memoryTypeIndex = *type;
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &depthImageMemory) != VK_SUCCESS) {
             throw std::runtime_error("Failed to allocate depth image memory!");
         }
-        
-        vkBindImageMemory(vulkanContext->getDevice(), depthImage, depthImageMemory, 0);
-        
+        vkBindImageMemory(device, depthImage, depthImageMemory, 0);
+
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = depthImage;
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
         viewInfo.format = depthFormat;
-        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        viewInfo.subresourceRange.baseMipLevel = 0;
-        viewInfo.subresourceRange.levelCount = 1;
-        viewInfo.subresourceRange.baseArrayLayer = 0;
-        viewInfo.subresourceRange.layerCount = 1;
-        
-        if (vkCreateImageView(vulkanContext->getDevice(), &viewInfo, nullptr, &depthImageView) != VK_SUCCESS) {
+        viewInfo.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+        if (vkCreateImageView(device, &viewInfo, nullptr, &depthImageView) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create depth image view!");
         }
-        
-        std::cout << "Depth resources created" << std::endl;
     }
-    
-    void createImageViews() {
-        swapchainImageViews.resize(swapchainImages.size());
-        
-        for (size_t i = 0; i < swapchainImages.size(); i++) {
-            VkImageViewCreateInfo createInfo{};
-            createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-            createInfo.image = swapchainImages[i];
-            createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            createInfo.format = swapchainImageFormat;
-            createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            createInfo.subresourceRange.baseMipLevel = 0;
-            createInfo.subresourceRange.levelCount = 1;
-            createInfo.subresourceRange.baseArrayLayer = 0;
-            createInfo.subresourceRange.layerCount = 1;
-            
-            if (vkCreateImageView(vulkanContext->getDevice(), &createInfo, nullptr, &swapchainImageViews[i]) != VK_SUCCESS) {
-                throw std::runtime_error("Failed to create image views!");
-            }
-        }
-        
-        std::cout << "Created " << swapchainImageViews.size() << " image views" << std::endl;
-    }
-    
+
     void createRenderPass() {
         VkAttachmentDescription colorAttachment{};
         colorAttachment.format = swapchainImageFormat;
         colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; // the sky pass covers every pixel
         colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        
+
         VkAttachmentDescription depthAttachment{};
         depthAttachment.format = depthFormat;
         depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -738,29 +909,23 @@ private:
         depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        
-        VkAttachmentReference colorAttachmentRef{};
-        colorAttachmentRef.attachment = 0;
-        colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        
-        VkAttachmentReference depthAttachmentRef{};
-        depthAttachmentRef.attachment = 1;
-        depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        
+
+        VkAttachmentReference colorRef{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+        VkAttachmentReference depthRef{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
         VkSubpassDescription subpass{};
         subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         subpass.colorAttachmentCount = 1;
-        subpass.pColorAttachments = &colorAttachmentRef;
-        subpass.pDepthStencilAttachment = &depthAttachmentRef;
-        
+        subpass.pColorAttachments = &colorRef;
+        subpass.pDepthStencilAttachment = &depthRef;
+
         VkSubpassDependency dependency{};
         dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
         dependency.dstSubpass = 0;
-        dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-        dependency.srcAccessMask = 0;
+        dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        dependency.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
         dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
         dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        
+
         std::array<VkAttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
         VkRenderPassCreateInfo renderPassInfo{};
         renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -770,23 +935,15 @@ private:
         renderPassInfo.pSubpasses = &subpass;
         renderPassInfo.dependencyCount = 1;
         renderPassInfo.pDependencies = &dependency;
-        
-        if (vkCreateRenderPass(vulkanContext->getDevice(), &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
+        if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create render pass!");
         }
-        
-        std::cout << "Render pass created successfully with depth testing" << std::endl;
     }
-    
+
     void createFramebuffers() {
         framebuffers.resize(swapchainImageViews.size());
-        
         for (size_t i = 0; i < swapchainImageViews.size(); i++) {
-            std::array<VkImageView, 2> attachments = {
-                swapchainImageViews[i],
-                depthImageView
-            };
-            
+            std::array<VkImageView, 2> attachments = {swapchainImageViews[i], depthImageView};
             VkFramebufferCreateInfo framebufferInfo{};
             framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
             framebufferInfo.renderPass = renderPass;
@@ -795,1129 +952,2025 @@ private:
             framebufferInfo.width = swapchainExtent.width;
             framebufferInfo.height = swapchainExtent.height;
             framebufferInfo.layers = 1;
-            
-            if (vkCreateFramebuffer(vulkanContext->getDevice(), &framebufferInfo, nullptr, &framebuffers[i]) != VK_SUCCESS) {
+            if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &framebuffers[i]) != VK_SUCCESS) {
                 throw std::runtime_error("Failed to create framebuffer!");
             }
         }
-        
-        std::cout << "Created " << framebuffers.size() << " framebuffers with depth buffer" << std::endl;
     }
-    
-    void createGraphicsPipeline() {
-        // Create shader stages
-        VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
-        VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
-        
-        shaderManager->createShaderStages(
-            "shaders/minimal.vert.spv",
-            "shaders/minimal.frag.spv",
-            vertShaderStageInfo,
-            fragShaderStageInfo
-        );
-        
-        VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
-        
-        // Vertex input (now with actual vertex data)
-        VkVertexInputBindingDescription bindingDescription{};
-        bindingDescription.binding = 0;
-        bindingDescription.stride = sizeof(Vertex);
-        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        
-        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
-        
-        attributeDescriptions[0].binding = 0;
-        attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset = offsetof(Vertex, pos);
-        
-        attributeDescriptions[1].binding = 0;
-        attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[1].offset = offsetof(Vertex, color);
-        
-        VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
-        vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInputInfo.vertexBindingDescriptionCount = 1;
-        vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-        vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
-        vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
-        
-        // Input assembly
-        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        inputAssembly.primitiveRestartEnable = VK_FALSE;
-        
-        // Viewport and scissor
-        VkViewport viewport{};
-        viewport.x = 0.0f;
-        viewport.y = 0.0f;
-        viewport.width = (float) swapchainExtent.width;
-        viewport.height = (float) swapchainExtent.height;
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
-        
-        VkRect2D scissor{};
-        scissor.offset = {0, 0};
-        scissor.extent = swapchainExtent;
-        
-        VkPipelineViewportStateCreateInfo viewportState{};
-        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-        viewportState.viewportCount = 1;
-        viewportState.pViewports = &viewport;
-        viewportState.scissorCount = 1;
-        viewportState.pScissors = &scissor;
-        
-        // Rasterizer
-        VkPipelineRasterizationStateCreateInfo rasterizer{};
-        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-        rasterizer.depthClampEnable = VK_FALSE;
-        rasterizer.rasterizerDiscardEnable = VK_FALSE;
-        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-        rasterizer.lineWidth = 1.0f;
-        rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-        rasterizer.depthBiasEnable = VK_FALSE;
-        
-        // Multisampling (disabled)
-        VkPipelineMultisampleStateCreateInfo multisampling{};
-        multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-        multisampling.sampleShadingEnable = VK_FALSE;
-        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-        
-        // Depth and stencil testing
-        VkPipelineDepthStencilStateCreateInfo depthStencil{};
-        depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-        depthStencil.depthTestEnable = VK_TRUE;
-        depthStencil.depthWriteEnable = VK_TRUE;
-        depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
-        depthStencil.depthBoundsTestEnable = VK_FALSE;
-        depthStencil.minDepthBounds = 0.0f; // Optional
-        depthStencil.maxDepthBounds = 1.0f; // Optional
-        depthStencil.stencilTestEnable = VK_FALSE;
-        depthStencil.front = {}; // Optional
-        depthStencil.back = {}; // Optional
-        
-        // Color blending
-        VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-        colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | 
-                                             VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        colorBlendAttachment.blendEnable = VK_FALSE;
-        
-        VkPipelineColorBlendStateCreateInfo colorBlending{};
-        colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        colorBlending.logicOpEnable = VK_FALSE;
-        colorBlending.attachmentCount = 1;
-        colorBlending.pAttachments = &colorBlendAttachment;
-        
-        // Pipeline layout
+
+    void createPerImageSemaphores() {
+        VkSemaphoreCreateInfo semaphoreInfo{};
+        semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        renderFinishedSemaphores.resize(swapchainImages.size());
+        for (auto& semaphore : renderFinishedSemaphores) {
+            if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &semaphore) != VK_SUCCESS) {
+                throw std::runtime_error("Failed to create semaphore!");
+            }
+        }
+    }
+
+    void destroySwapchainResources() {
+        for (auto semaphore : renderFinishedSemaphores) vkDestroySemaphore(device, semaphore, nullptr);
+        renderFinishedSemaphores.clear();
+        for (auto framebuffer : framebuffers) vkDestroyFramebuffer(device, framebuffer, nullptr);
+        framebuffers.clear();
+        vkDestroyImageView(device, depthImageView, nullptr);
+        vkDestroyImage(device, depthImage, nullptr);
+        vkFreeMemory(device, depthImageMemory, nullptr);
+        depthImageView = VK_NULL_HANDLE;
+        depthImage = VK_NULL_HANDLE;
+        depthImageMemory = VK_NULL_HANDLE;
+        for (auto view : swapchainImageViews) vkDestroyImageView(device, view, nullptr);
+        swapchainImageViews.clear();
+        vkDestroySwapchainKHR(device, swapchain, nullptr);
+        swapchain = VK_NULL_HANDLE;
+    }
+
+    void recreateSwapchain() {
+        int width = 0, height = 0;
+        glfwGetFramebufferSize(windowManager->getWindow(), &width, &height);
+        while ((width == 0 || height == 0) && !windowManager->shouldClose()) {
+            glfwWaitEvents(); // minimized
+            glfwGetFramebufferSize(windowManager->getWindow(), &width, &height);
+        }
+        vkDeviceWaitIdle(device);
+        destroySwapchainResources();
+        createSwapchain();
+        createImageViews();
+        createDepthResources();
+        createFramebuffers();
+        createPerImageSemaphores();
+        framebufferResized = false;
+    }
+
+    void createWorldBuffers() {
+        VkDeviceSize cellBytes = VkDeviceSize(chunkCapacity) * CHUNK_CELLS * sizeof(uint32_t);
+        for (int i = 0; i < 2; ++i) {
+            // Device-local and CPU-visible (resizable BAR) when available: the GPU
+            // does the heavy reads, the CPU only touches a few cells for editing.
+            createBuffer(cellBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, {DEVICE_HOST, HOST}, cellBuffers[i], cellMemory[i],
+                         reinterpret_cast<void**>(&cellsMapped[i]));
+        }
+        createBuffer(VkDeviceSize(chunkCapacity) * 27 * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                     {DEVICE_HOST, HOST}, neighborBuffer, neighborMemory, reinterpret_cast<void**>(&neighborsMapped));
+        createBuffer(VkDeviceSize(chunkCapacity) * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                     {DEVICE_HOST, HOST}, activeBuffer, activeMemory, reinterpret_cast<void**>(&activeMapped));
+        createBuffer(VkDeviceSize(chunkCapacity) * sizeof(glm::ivec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                     {DEVICE_HOST, HOST}, originBuffer, originMemory, reinterpret_cast<void**>(&originsMapped));
+        createBuffer(VkDeviceSize(chunkCapacity) * sizeof(glm::uvec2),
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, {HOST_CACHED, HOST},
+                     statsBuffer, statsMemory, reinterpret_cast<void**>(&statsMapped));
+        createBuffer(VkDeviceSize(MAX_INSTANCES) * sizeof(glm::ivec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, {DEVICE, HOST},
+                     instanceBuffer, instanceMemory);
+        createBuffer(sizeof(VkDrawIndirectCommand),
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                     {DEVICE, HOST}, indirectBuffer, indirectMemory);
+
+        slotChunk.assign(chunkCapacity, glm::ivec3(0));
+        std::fill(neighborsMapped, neighborsMapped + size_t(chunkCapacity) * 27, NO_CHUNK);
+        resetChunks();
+    }
+
+    void createVertexBuffer() {
+        // One unit cube as 12 triangles with per-face normals. Culling is off,
+        // so winding does not matter.
+        const std::array<glm::vec3, 6> normals = {
+            glm::vec3(1, 0, 0), glm::vec3(-1, 0, 0), glm::vec3(0, 1, 0),
+            glm::vec3(0, -1, 0), glm::vec3(0, 0, 1), glm::vec3(0, 0, -1)};
+        for (const glm::vec3& n : normals) {
+            glm::vec3 u = std::abs(n.y) > 0.5f ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+            glm::vec3 w = glm::cross(n, u);
+            glm::vec3 c = n * 0.5f;
+            std::array<glm::vec3, 4> corners = {c - 0.5f * u - 0.5f * w, c + 0.5f * u - 0.5f * w,
+                                                c + 0.5f * u + 0.5f * w, c - 0.5f * u + 0.5f * w};
+            for (int i : {0, 1, 2, 0, 2, 3}) cubeVertices.push_back({corners[i], n});
+        }
+        VkDeviceSize size = sizeof(Vertex) * cubeVertices.size();
+        void* data = nullptr;
+        createBuffer(size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, {DEVICE_HOST, HOST}, vertexBuffer, vertexBufferMemory, &data);
+        std::memcpy(data, cubeVertices.data(), size);
+    }
+
+    void createFrameBuffers() {
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            createBuffer(sizeof(FrameUniforms), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, {DEVICE_HOST, HOST},
+                         uniformBuffers[i], uniformBuffersMemory[i], &uniformBuffersMapped[i]);
+            createBuffer(VkDeviceSize(chunkCapacity + 1) * sizeof(Box), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                         {DEVICE_HOST, HOST}, boxBuffers[i], boxBuffersMemory[i],
+                         reinterpret_cast<void**>(&boxBuffersMapped[i]));
+        }
+    }
+
+    void createFrameSetLayout() {
+        std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
+        bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+        bindings[1] = {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr};
+        bindings[2] = {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr};
+        VkDescriptorSetLayoutCreateInfo layoutInfo{};
+        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+        layoutInfo.pBindings = bindings.data();
+        if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &frameSetLayout) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create descriptor set layout!");
+        }
+
+        VkPushConstantRange pushRange{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(uint32_t)};
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         pipelineLayoutInfo.setLayoutCount = 1;
-        pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
-        pipelineLayoutInfo.pushConstantRangeCount = 0;
-        
-        if (vkCreatePipelineLayout(vulkanContext->getDevice(), &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
+        pipelineLayoutInfo.pSetLayouts = &frameSetLayout;
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+        pipelineLayoutInfo.pPushConstantRanges = &pushRange;
+        if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create pipeline layout!");
         }
-        
-        // Create graphics pipeline
+    }
+
+    struct PipelineSpec {
+        const char* vertexShader;
+        const char* fragmentShader;
+        bool cubeVertices;
+        bool depthTest;
+        bool depthWrite;
+        bool alphaBlend;
+    };
+
+    VkPipeline createGraphicsPipeline(const PipelineSpec& spec) {
+        VkPipelineShaderStageCreateInfo vertStage{};
+        VkPipelineShaderStageCreateInfo fragStage{};
+        shaderManager->createShaderStages((shaderDir / spec.vertexShader).string(),
+                                          (shaderDir / spec.fragmentShader).string(), vertStage, fragStage);
+        VkPipelineShaderStageCreateInfo stages[] = {vertStage, fragStage};
+
+        VkVertexInputBindingDescription binding{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
+        std::array<VkVertexInputAttributeDescription, 2> attributes{{
+            {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)},
+            {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)},
+        }};
+        VkPipelineVertexInputStateCreateInfo vertexInput{};
+        vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        if (spec.cubeVertices) {
+            vertexInput.vertexBindingDescriptionCount = 1;
+            vertexInput.pVertexBindingDescriptions = &binding;
+            vertexInput.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributes.size());
+            vertexInput.pVertexAttributeDescriptions = attributes.data();
+        }
+
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo viewportState{};
+        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount = 1;
+        viewportState.scissorCount = 1;
+
+        VkPipelineRasterizationStateCreateInfo rasterizer{};
+        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterizer.lineWidth = 1.0f;
+        rasterizer.cullMode = VK_CULL_MODE_NONE;
+        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+
+        VkPipelineMultisampleStateCreateInfo multisampling{};
+        multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineDepthStencilStateCreateInfo depthStencil{};
+        depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depthStencil.depthTestEnable = spec.depthTest;
+        depthStencil.depthWriteEnable = spec.depthWrite;
+        depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+        VkPipelineColorBlendAttachmentState blendAttachment{};
+        blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        if (spec.alphaBlend) {
+            blendAttachment.blendEnable = VK_TRUE;
+            blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            blendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+            blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+            blendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+        }
+        VkPipelineColorBlendStateCreateInfo colorBlending{};
+        colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlending.attachmentCount = 1;
+        colorBlending.pAttachments = &blendAttachment;
+
+        std::array<VkDynamicState, 2> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dynamicState{};
+        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+        dynamicState.pDynamicStates = dynamicStates.data();
+
         VkGraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
         pipelineInfo.stageCount = 2;
-        pipelineInfo.pStages = shaderStages;
-        pipelineInfo.pVertexInputState = &vertexInputInfo;
+        pipelineInfo.pStages = stages;
+        pipelineInfo.pVertexInputState = &vertexInput;
         pipelineInfo.pInputAssemblyState = &inputAssembly;
         pipelineInfo.pViewportState = &viewportState;
         pipelineInfo.pRasterizationState = &rasterizer;
         pipelineInfo.pMultisampleState = &multisampling;
         pipelineInfo.pDepthStencilState = &depthStencil;
         pipelineInfo.pColorBlendState = &colorBlending;
+        pipelineInfo.pDynamicState = &dynamicState;
         pipelineInfo.layout = pipelineLayout;
         pipelineInfo.renderPass = renderPass;
-        pipelineInfo.subpass = 0;
-        
-        if (vkCreateGraphicsPipelines(vulkanContext->getDevice(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create graphics pipeline!");
         }
-        
-        std::cout << "Graphics pipeline created successfully" << std::endl;
+        return pipeline;
     }
-    
-    void createCommandBuffers() {
-        // Size command buffers to MAX_FRAMES_IN_FLIGHT instead of swapchain image count
-        commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-        
-        VkCommandBufferAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        allocInfo.commandPool = vulkanContext->getGraphicsCommandPool();
-        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfo.commandBufferCount = static_cast<uint32_t>(commandBuffers.size());
-        
-        if (vkAllocateCommandBuffers(vulkanContext->getDevice(), &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate command buffers!");
-        }
-        
-        // Command buffers will be recorded per frame in renderFrame()
-        std::cout << "Command buffers allocated for " << MAX_FRAMES_IN_FLIGHT << " frames" << std::endl;
+
+    void createGraphicsPipelines() {
+        worldPipeline = createGraphicsPipeline({"life3d_world.vert.spv", "life3d_world.frag.spv", true, true, true, false});
+        skyPipeline = createGraphicsPipeline({"life3d_screen.vert.spv", "life3d_screen.frag.spv", false, false, false, false});
+        gridPipeline = createGraphicsPipeline({"life3d_screen.vert.spv", "life3d_screen.frag.spv", false, true, false, true});
+        hudPipeline = createGraphicsPipeline({"life3d_screen.vert.spv", "life3d_screen.frag.spv", false, false, false, true});
     }
-    
-    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
-        // Add bounds checking to prevent vector subscript out of range
-        if (imageIndex >= framebuffers.size()) {
-            throw std::runtime_error("Image index out of range! imageIndex: " + std::to_string(imageIndex) + 
-                                    ", framebuffers.size(): " + std::to_string(framebuffers.size()));
-        }
-        
-        if (currentFrame >= descriptorSets.size()) {
-            throw std::runtime_error("Current frame index out of range! currentFrame: " + std::to_string(currentFrame) + 
-                                    ", descriptorSets.size(): " + std::to_string(descriptorSets.size()));
-        }
-        
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        
-        if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to begin recording command buffer!");
-        }
-        
-        // Begin render pass
-        VkRenderPassBeginInfo renderPassInfo{};
-        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        renderPassInfo.renderPass = renderPass;
-        renderPassInfo.framebuffer = framebuffers[imageIndex];
-        renderPassInfo.renderArea.offset = {0, 0};
-        renderPassInfo.renderArea.extent = swapchainExtent;
-        
-        std::array<VkClearValue, 2> clearValues{};
-        clearValues[0].color = {{0.0f, 0.1f, 0.3f, 1.0f}}; // Dark blue background
-        clearValues[1].depthStencil = {1.0f, 0}; // Clear depth to 1.0 (far plane)
-        
-        renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
-        renderPassInfo.pClearValues = clearValues.data();
-        
-        vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        
-        // Bind graphics pipeline
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
-        
-        // Bind vertex buffer
-        VkBuffer vertexBuffers[] = {vertexBuffer};
-        VkDeviceSize offsets[] = {0};
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-        
-        // Bind descriptor set (use currentFrame index instead of imageIndex)
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
-        
-        // Draw cube (36 vertices for 12 triangles - 6 faces × 2 triangles × 3 vertices)
-        vkCmdDraw(commandBuffer, static_cast<uint32_t>(cubeVertices.size()), 1, 0, 0);
-        
-        // End render pass
-        vkCmdEndRenderPass(commandBuffer);
-        
-        if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to record command buffer!");
-        }
+
+    void writeBufferDescriptor(VkDescriptorSet set, uint32_t binding, VkDescriptorType type, VkBuffer buffer) {
+        VkDescriptorBufferInfo bufferInfo{buffer, 0, VK_WHOLE_SIZE};
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = set;
+        write.dstBinding = binding;
+        write.descriptorType = type;
+        write.descriptorCount = 1;
+        write.pBufferInfo = &bufferInfo;
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
     }
-    
-    void createSyncObjects() {
-        imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-        renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-        inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
-        
-        VkSemaphoreCreateInfo semaphoreInfo{};
-        semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-        
-        VkFenceCreateInfo fenceInfo{};
-        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-        
-        // Create frame-based synchronization objects
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            if (vkCreateSemaphore(vulkanContext->getDevice(), &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
-                vkCreateSemaphore(vulkanContext->getDevice(), &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS ||
-                vkCreateFence(vulkanContext->getDevice(), &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS) {
-                throw std::runtime_error("Failed to create synchronization objects for a frame!");
+
+    void createFrameSets() {
+        std::array<VkDescriptorPoolSize, 2> poolSizes{{
+            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES_IN_FLIGHT},
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_FRAMES_IN_FLIGHT * 2},
+        }};
+        VkDescriptorPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+        poolInfo.pPoolSizes = poolSizes.data();
+        poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT;
+        if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create descriptor pool!");
+        }
+        for (int frame = 0; frame < MAX_FRAMES_IN_FLIGHT; ++frame) {
+            VkDescriptorSetAllocateInfo allocInfo{};
+            allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            allocInfo.descriptorPool = descriptorPool;
+            allocInfo.descriptorSetCount = 1;
+            allocInfo.pSetLayouts = &frameSetLayout;
+            if (vkAllocateDescriptorSets(device, &allocInfo, &frameSets[frame]) != VK_SUCCESS) {
+                throw std::runtime_error("Failed to allocate descriptor set!");
             }
+            writeBufferDescriptor(frameSets[frame], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, uniformBuffers[frame]);
+            writeBufferDescriptor(frameSets[frame], 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, instanceBuffer);
+            writeBufferDescriptor(frameSets[frame], 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, boxBuffers[frame]);
         }
-        
-        // Track which images are in flight to avoid reusing semaphores
-        imagesInFlight.resize(swapchainImages.size(), VK_NULL_HANDLE);
-        
-        std::cout << "Synchronization objects created for " << MAX_FRAMES_IN_FLIGHT << " frames" << std::endl;
     }
-    
-    void mainLoop() {
-        std::cout << "Entering main loop..." << std::endl;
-        
-        auto lastTime = std::chrono::steady_clock::now();
-        
-        while (!windowManager->shouldClose()) {
-            windowManager->pollEvents();
-            
-            // Calculate delta time
-            auto currentTime = std::chrono::steady_clock::now();
-            float deltaTime = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - lastTime).count();
-            lastTime = currentTime;
-            
-            // Update camera
-            camera->update(deltaTime);
-            
-            // Update simulation
-            updateSimulation(deltaTime);
-            
-            // Render frame
-            renderFrame();
-            
-            // Update performance metrics
-            updatePerformanceMetrics(deltaTime);
+
+    void createComputePipeline() {
+        std::array<VkDescriptorSetLayoutBinding, 8> bindings{};
+        for (uint32_t i = 0; i < bindings.size(); ++i) {
+            bindings[i] = {i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
         }
-        
-        // Wait for device to finish before cleanup
-        vkDeviceWaitIdle(vulkanContext->getDevice());
-    }
-    
-    void renderFrame() {
-        // Wait for the previous frame to finish
-        vkWaitForFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
-        
-        // Acquire next image - use frame-specific semaphore instead of image-specific
-        uint32_t imageIndex;
-        VkResult result = vkAcquireNextImageKHR(vulkanContext->getDevice(), swapchain, 
-                                               UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
-        
-        if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-            std::cerr << "Failed to acquire swap chain image! Error: " << result << std::endl;
-            return;
-        }
-        
-        // Check if a previous frame is using this image (wait on fence)
-        if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
-            vkWaitForFences(vulkanContext->getDevice(), 1, &imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
-        }
-        
-        // Mark the image as now being in use by this frame
-        imagesInFlight[imageIndex] = inFlightFences[currentFrame];
-        
-        // Bounds checking for safety
-        if (imageIndex >= framebuffers.size()) {
-            std::cerr << "Error: imageIndex " << imageIndex << " is out of bounds for framebuffers (size: " << framebuffers.size() << ")" << std::endl;
-            return;
-        }
-        
-        if (currentFrame >= commandBuffers.size()) {
-            std::cerr << "Error: currentFrame " << currentFrame << " is out of bounds for commandBuffers (size: " << commandBuffers.size() << ")" << std::endl;
-            return;
-        }
-        
-        // Only reset fence if we're about to submit work
-        vkResetFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame]);
-        
-        // Update uniform buffer
-        updateUniformBuffer(currentFrame);
-        
-        // Reset and record command buffer for this frame
-        vkResetCommandBuffer(commandBuffers[currentFrame], 0);
-        recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
-        
-        // Submit command buffer - use frame-based semaphores for proper synchronization
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        
-        VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
-        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-        submitInfo.waitSemaphoreCount = 1;
-        submitInfo.pWaitSemaphores = waitSemaphores;
-        submitInfo.pWaitDstStageMask = waitStages;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
-        
-        VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
-        submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores = signalSemaphores;
-        
-        if (vkQueueSubmit(vulkanContext->getGraphicsQueue(), 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to submit draw command buffer!");
-        }
-        
-        // Present
-        VkPresentInfoKHR presentInfo{};
-        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-        presentInfo.waitSemaphoreCount = 1;
-        presentInfo.pWaitSemaphores = signalSemaphores;
-        
-        VkSwapchainKHR swapChains[] = {swapchain};
-        presentInfo.swapchainCount = 1;
-        presentInfo.pSwapchains = swapChains;
-        presentInfo.pImageIndices = &imageIndex;
-        
-        result = vkQueuePresentKHR(vulkanContext->getPresentQueue(), &presentInfo);
-        
-        if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-            std::cerr << "Failed to present swap chain image! Error: " << result << std::endl;
-        }
-        
-        // Update current frame
-        currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
-    }
-    
-    void createComputeResources() {
-        std::cout << "Creating compute resources..." << std::endl;
-        
-        // Create storage buffers for grid state
-        createGridBuffers();
-        
-        // Create compute descriptor set layout
-        createComputeDescriptorSetLayout();
-        
-        // Create compute pipeline
-        createComputePipeline();
-        
-        // Create compute descriptor set
-        createComputeDescriptorSet();
-        
-        // Create compute command buffer
-        createComputeCommandBuffer();
-        
-        // Initialize grid with random pattern
-        initializeGrid();
-        
-        std::cout << "Compute resources created" << std::endl;
-    }
-    
-    void createGridBuffers() {
-        VkDeviceSize bufferSize = sizeof(uint32_t) * GRID_WIDTH * GRID_HEIGHT * GRID_DEPTH;
-        
-        // Create state buffer
-        VkBufferCreateInfo bufferInfo{};
-        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufferInfo.size = bufferSize;
-        bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        
-        if (vkCreateBuffer(vulkanContext->getDevice(), &bufferInfo, nullptr, &stateBuffer) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create state buffer!");
-        }
-        
-        // Create next state buffer
-        if (vkCreateBuffer(vulkanContext->getDevice(), &bufferInfo, nullptr, &nextStateBuffer) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create next state buffer!");
-        }
-        
-        // Allocate memory for both buffers separately for easier management
-        VkMemoryRequirements memRequirements;
-        vkGetBufferMemoryRequirements(vulkanContext->getDevice(), stateBuffer, &memRequirements);
-        
-        VkMemoryAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize = memRequirements.size;
-        allocInfo.memoryTypeIndex = VulkanContext::findMemoryType(vulkanContext->getPhysicalDevice(),
-            memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        
-        if (vkAllocateMemory(vulkanContext->getDevice(), &allocInfo, nullptr, &stateBufferMemory) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate state buffer memory!");
-        }
-        
-        vkBindBufferMemory(vulkanContext->getDevice(), stateBuffer, stateBufferMemory, 0);
-        
-        // Allocate separate memory for next state buffer
-        VkDeviceMemory nextStateBufferMemory_temp;
-        if (vkAllocateMemory(vulkanContext->getDevice(), &allocInfo, nullptr, &nextStateBufferMemory_temp) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate next state buffer memory!");
-        }
-        
-        vkBindBufferMemory(vulkanContext->getDevice(), nextStateBuffer, nextStateBufferMemory_temp, 0);
-        
-        // Map memory (we'll store nextStateBufferMemory separately for cleanup)
-        nextStateBufferMemory = nextStateBufferMemory_temp;
-        vkMapMemory(vulkanContext->getDevice(), stateBufferMemory, 0, bufferSize, 0, &stateBufferMapped);
-        vkMapMemory(vulkanContext->getDevice(), nextStateBufferMemory, 0, bufferSize, 0, &nextStateBufferMapped);
-        
-        std::cout << "Grid buffers created: " << GRID_WIDTH << "x" << GRID_HEIGHT << "x" << GRID_DEPTH << std::endl;
-    }
-    
-    void createComputeDescriptorSetLayout() {
-        std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
-        
-        bindings[0].binding = 0;
-        bindings[0].descriptorCount = 1;
-        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        bindings[0].pImmutableSamplers = nullptr;
-        bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        
-        bindings[1].binding = 1;
-        bindings[1].descriptorCount = 1;
-        bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        bindings[1].pImmutableSamplers = nullptr;
-        bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        
         VkDescriptorSetLayoutCreateInfo layoutInfo{};
         layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
         layoutInfo.pBindings = bindings.data();
-        
-        if (vkCreateDescriptorSetLayout(vulkanContext->getDevice(), &layoutInfo, nullptr, &computeDescriptorSetLayout) != VK_SUCCESS) {
+        if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &computeSetLayout) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create compute descriptor set layout!");
         }
-    }
-    
-    void createComputePipeline() {
-        // Load compute shader using ShaderManager
-        VkPipelineShaderStageCreateInfo computeShaderStageInfo = shaderManager->createComputeStage("shaders/game_of_life_3d.comp.spv");
-        
-        // Push constants
-        struct PushConstants {
-            uint32_t width;
-            uint32_t height;
-            uint32_t depth;
-            float time;
-            uint32_t ruleSet;
-            uint32_t surviveMin;
-            uint32_t surviveMax;
-            uint32_t birthCount;
-        };
-        
-        VkPushConstantRange pushConstantRange{};
-        pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        pushConstantRange.offset = 0;
-        pushConstantRange.size = sizeof(PushConstants);
-        
+
+        VkPushConstantRange pushRange{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PassConstants)};
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         pipelineLayoutInfo.setLayoutCount = 1;
-        pipelineLayoutInfo.pSetLayouts = &computeDescriptorSetLayout;
+        pipelineLayoutInfo.pSetLayouts = &computeSetLayout;
         pipelineLayoutInfo.pushConstantRangeCount = 1;
-        pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
-        
-        if (vkCreatePipelineLayout(vulkanContext->getDevice(), &pipelineLayoutInfo, nullptr, &computePipelineLayout) != VK_SUCCESS) {
+        pipelineLayoutInfo.pPushConstantRanges = &pushRange;
+        if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &computePipelineLayout) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create compute pipeline layout!");
         }
-        
+
         VkComputePipelineCreateInfo pipelineInfo{};
         pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
         pipelineInfo.layout = computePipelineLayout;
-        pipelineInfo.stage = computeShaderStageInfo;
-        
-        if (vkCreateComputePipelines(vulkanContext->getDevice(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computePipeline) != VK_SUCCESS) {
+        pipelineInfo.stage = shaderManager->createComputeStage((shaderDir / "life3d_chunks.comp.spv").string());
+        if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computePipeline) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create compute pipeline!");
         }
-        
-        // Note: ShaderManager handles shader module cleanup
-        std::cout << "Compute pipeline created" << std::endl;
     }
-    
-    void createComputeDescriptorSet() {
-        VkDescriptorPoolSize poolSize{};
-        poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        poolSize.descriptorCount = 2;
-        
+
+    // computeSets[p] reads cellBuffers[p] and writes the other cell buffer.
+    void createComputeSets() {
+        VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16};
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         poolInfo.poolSizeCount = 1;
         poolInfo.pPoolSizes = &poolSize;
-        poolInfo.maxSets = 1;
-        
-        if (vkCreateDescriptorPool(vulkanContext->getDevice(), &poolInfo, nullptr, &computeDescriptorPool) != VK_SUCCESS) {
+        poolInfo.maxSets = 2;
+        if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &computeDescriptorPool) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create compute descriptor pool!");
         }
-        
-        VkDescriptorSetAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool = computeDescriptorPool;
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &computeDescriptorSetLayout;
-        
-        if (vkAllocateDescriptorSets(vulkanContext->getDevice(), &allocInfo, &computeDescriptorSet) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate compute descriptor set!");
+        for (int parity = 0; parity < 2; ++parity) {
+            VkDescriptorSetAllocateInfo allocInfo{};
+            allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            allocInfo.descriptorPool = computeDescriptorPool;
+            allocInfo.descriptorSetCount = 1;
+            allocInfo.pSetLayouts = &computeSetLayout;
+            if (vkAllocateDescriptorSets(device, &allocInfo, &computeSets[parity]) != VK_SUCCESS) {
+                throw std::runtime_error("Failed to allocate compute descriptor set!");
+            }
+            const std::array<VkBuffer, 8> buffers = {cellBuffers[parity], cellBuffers[1 - parity], neighborBuffer,
+                                                     activeBuffer, originBuffer, statsBuffer, instanceBuffer, indirectBuffer};
+            for (uint32_t binding = 0; binding < buffers.size(); ++binding) {
+                writeBufferDescriptor(computeSets[parity], binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffers[binding]);
+            }
         }
-        
-        VkDescriptorBufferInfo stateBufferInfo{};
-        stateBufferInfo.buffer = stateBuffer;
-        stateBufferInfo.offset = 0;
-        stateBufferInfo.range = VK_WHOLE_SIZE;
-        
-        VkDescriptorBufferInfo nextStateBufferInfo{};
-        nextStateBufferInfo.buffer = nextStateBuffer;
-        nextStateBufferInfo.offset = 0;
-        nextStateBufferInfo.range = VK_WHOLE_SIZE;
-        
-        std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
-        
-        descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrites[0].dstSet = computeDescriptorSet;
-        descriptorWrites[0].dstBinding = 0;
-        descriptorWrites[0].dstArrayElement = 0;
-        descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        descriptorWrites[0].descriptorCount = 1;
-        descriptorWrites[0].pBufferInfo = &stateBufferInfo;
-        
-        descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrites[1].dstSet = computeDescriptorSet;
-        descriptorWrites[1].dstBinding = 1;
-        descriptorWrites[1].dstArrayElement = 0;
-        descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        descriptorWrites[1].descriptorCount = 1;
-        descriptorWrites[1].pBufferInfo = &nextStateBufferInfo;
-        
-        vkUpdateDescriptorSets(vulkanContext->getDevice(), static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     }
-    
-    void createComputeCommandBuffer() {
+
+    void createCommandBuffers() {
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = vulkanContext->getGraphicsCommandPool();
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
+        if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate command buffers!");
+        }
         allocInfo.commandBufferCount = 1;
-        
-        if (vkAllocateCommandBuffers(vulkanContext->getDevice(), &allocInfo, &computeCommandBuffer) != VK_SUCCESS) {
+        if (vkAllocateCommandBuffers(device, &allocInfo, &computeCommandBuffer) != VK_SUCCESS) {
             throw std::runtime_error("Failed to allocate compute command buffer!");
         }
-        
+    }
+
+    void createSyncObjects() {
+        VkSemaphoreCreateInfo semaphoreInfo{};
+        semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         VkFenceCreateInfo fenceInfo{};
         fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
+                vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS) {
+                throw std::runtime_error("Failed to create synchronization objects!");
+            }
+        }
         fenceInfo.flags = 0;
-        
-        if (vkCreateFence(vulkanContext->getDevice(), &fenceInfo, nullptr, &computeFence) != VK_SUCCESS) {
+        if (vkCreateFence(device, &fenceInfo, nullptr, &computeFence) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create compute fence!");
         }
     }
-    
-    void initializeGrid() {
-        // Initialize with a default pattern
-        loadPattern("glider_3d");
-        generation = 0;
-        std::cout << "Grid initialized with default pattern" << std::endl;
+
+    // ----------------------------------------------------------------- chunks
+
+    void resetChunks() {
+        chunkSlots.clear();
+        freeSlots.clear();
+        for (uint32_t slot = chunkCapacity; slot-- > 0;) freeSlots.push_back(slot); // hand out low slots first
+        activeSlots.clear();
+        tablesDirty = true;
+        chunkLimitHit = false;
+        pausedAtLimit = false;
     }
-    
-    void loadPattern(const std::string& patternName) {
-        uint32_t* stateData = static_cast<uint32_t*>(stateBufferMapped);
-        uint32_t totalCells = GRID_WIDTH * GRID_HEIGHT * GRID_DEPTH;
-        
-        // Clear grid
-        for (uint32_t i = 0; i < totalCells; ++i) {
-            stateData[i] = 0;
+
+    uint32_t findChunk(const glm::ivec3& key) const {
+        auto it = chunkSlots.find(key);
+        return it == chunkSlots.end() ? NO_CHUNK : it->second;
+    }
+
+    uint32_t ensureChunk(const glm::ivec3& key) {
+        uint32_t slot = findChunk(key);
+        if (slot != NO_CHUNK) return slot;
+        if (freeSlots.empty()) {
+            chunkLimitHit = true;
+            return NO_CHUNK;
         }
-        
-        // Try to load pattern, fall back to default if not found
-        Pattern3D pattern;
-        if (patternName == "glider_3d") {
-            pattern = SimplePatternLoader::createGlider3D();
-        } else if (patternName == "block_3d") {
-            pattern = SimplePatternLoader::createBlock3D(3);
-        } else if (patternName == "random") {
-            pattern = SimplePatternLoader::createRandom(GRID_WIDTH, GRID_HEIGHT, GRID_DEPTH, 0.3f);
-        } else {
-            // Default: simple center pattern
-            pattern = SimplePatternLoader::createGlider3D();
-        }
-        
-        // Center pattern in grid
-        pattern = SimplePatternLoader::centerPattern(pattern, GRID_WIDTH, GRID_HEIGHT, GRID_DEPTH);
-        
-        // Copy pattern to buffer
-        for (uint32_t x = 0; x < GRID_WIDTH; ++x) {
-            for (uint32_t y = 0; y < GRID_HEIGHT; ++y) {
-                for (uint32_t z = 0; z < GRID_DEPTH; ++z) {
-                    uint32_t index = z * GRID_WIDTH * GRID_HEIGHT + y * GRID_WIDTH + x;
-                    stateData[index] = pattern.getCell(x, y, z) ? 1 : 0;
-                }
+        slot = freeSlots.back();
+        freeSlots.pop_back();
+        std::memset(cellsMapped[currentCells] + size_t(slot) * CHUNK_CELLS, 0, CHUNK_CELLS * sizeof(uint32_t));
+        originsMapped[slot] = glm::ivec4(key * CHUNK, 0);
+        slotChunk[slot] = key;
+        chunkSlots.emplace(key, slot);
+        tablesDirty = true;
+        return slot;
+    }
+
+    void freeChunk(uint32_t slot) {
+        chunkSlots.erase(slotChunk[slot]);
+        freeSlots.push_back(slot);
+        tablesDirty = true;
+    }
+
+    void rebuildChunkTables() {
+        activeSlots.clear();
+        for (const auto& entry : chunkSlots) activeSlots.push_back(entry.second);
+        std::sort(activeSlots.begin(), activeSlots.end());
+        std::copy(activeSlots.begin(), activeSlots.end(), activeMapped);
+        for (uint32_t slot : activeSlots) {
+            for (int k = 0; k < 27; ++k) {
+                neighborsMapped[size_t(slot) * 27 + k] = findChunk(slotChunk[slot] + neighborOffset(k));
             }
         }
-        
-        std::cout << "Loaded pattern: " << patternName << std::endl;
+        tablesDirty = false;
     }
-    
-    void initImGui() {
-        // ImGui will be initialized later when we have a proper render pass
-        // For now, just mark it as available
-        std::cout << "ImGui ready for initialization" << std::endl;
-    }
-    
-    void updateSimulation(float deltaTime) {
-        if (!simulationRunning) return;
-        
-        timeSinceLastStep += deltaTime;
-        float stepInterval = 1.0f / simulationSpeed;
-        
-        if (timeSinceLastStep >= stepInterval) {
-            timeSinceLastStep = 0.0f;
-            stepSimulation();
+
+    // After a pass: keep chunks that hold life, add chunks that live border cells
+    // can spread into, and free the rest.
+    void maintainChunks() {
+        population = 0;
+        std::unordered_set<glm::ivec3, IVec3Hash> wanted;
+        for (uint32_t slot : activeSlots) {
+            glm::uvec2 stats = statsMapped[slot];
+            population += stats.x;
+            for (int k = 0; k < 27; ++k) {
+                if (stats.y & (1u << k)) wanted.insert(slotChunk[slot] + neighborOffset(k));
+            }
         }
+        for (uint32_t slot : activeSlots) {
+            if (statsMapped[slot].x == 0 && !wanted.count(slotChunk[slot])) freeChunk(slot);
+        }
+        for (const glm::ivec3& key : wanted) ensureChunk(key);
     }
-    
-    void stepSimulation() {
-        auto stepStart = std::chrono::steady_clock::now();
-        
-        // Record compute command buffer
+
+    bool cellAlive(const glm::ivec3& cell) const {
+        uint32_t slot = findChunk(chunkOf(cell));
+        return slot != NO_CHUNK && cellsMapped[currentCells][size_t(slot) * CHUNK_CELLS + localIndex(cell)] != 0;
+    }
+
+    // CPU edits land in the current generation; the next pass picks them up.
+    void setCell(const glm::ivec3& cell, bool alive) {
+        uint32_t slot = alive ? ensureChunk(chunkOf(cell)) : findChunk(chunkOf(cell));
+        if (slot == NO_CHUNK) return;
+        cellsMapped[currentCells][size_t(slot) * CHUNK_CELLS + localIndex(cell)] = alive ? 1u : 0u;
+        refreshPending = true;
+    }
+
+    void seedSoup(const glm::ivec3& minCorner, const glm::ivec3& size, float density) {
+        std::uniform_real_distribution<float> chance(0.0f, 1.0f);
+        for (int z = 0; z < size.z; ++z)
+            for (int y = 0; y < size.y; ++y)
+                for (int x = 0; x < size.x; ++x)
+                    if (chance(rng) < density) setCell(minCorner + glm::ivec3(x, y, z), true);
+    }
+
+    void newWorld(bool seed) {
+        resetChunks();
+        generation = 0;
+        population = 0;
+        int size = rule().seedSize;
+        // The seed soup rests on the ground (y = 0), like a structure in a superflat world.
+        if (seed) seedSoup(glm::ivec3(-size / 2, 0, -size / 2), glm::ivec3(size), rule().seedDensity);
+        runPass(false);
+        // Spawn on the ground at a distance, facing the seed.
+        float distance = std::max(20.0f, 1.6f * static_cast<float>(size));
+        eye = glm::vec3(0.6f * distance, EYE_HEIGHT, 0.8f * distance);
+        glm::vec3 dir = glm::normalize(glm::vec3(0.0f, 0.4f * static_cast<float>(size), 0.0f) - eye);
+        yaw = glm::degrees(std::atan2(dir.z, dir.x));
+        pitch = glm::degrees(std::asin(dir.y));
+        flying = false;
+        verticalSpeed = 0.0f;
+    }
+
+    // Save format: "L3D1", rule index, generation, player pose, then live cells
+    // as int32 x,y,z triples. All values little-endian as written by this machine.
+    bool saveWorld(const std::string& path) {
+        std::vector<glm::ivec3> cells;
+        const uint32_t* current = cellsMapped[currentCells];
+        for (const auto& [key, slot] : chunkSlots) {
+            const uint32_t* chunk = current + size_t(slot) * CHUNK_CELLS;
+            for (uint32_t i = 0; i < CHUNK_CELLS; ++i) {
+                if (!chunk[i]) continue;
+                glm::ivec3 local(i % CHUNK, (i / CHUNK) % CHUNK, i / (CHUNK * CHUNK));
+                cells.push_back(key * CHUNK + local);
+            }
+        }
+        std::ofstream out(path, std::ios::binary);
+        auto put = [&](const auto& value) { out.write(reinterpret_cast<const char*>(&value), sizeof(value)); };
+        out.write("L3D1", 4);
+        put(static_cast<uint32_t>(ruleIndex));
+        put(static_cast<uint64_t>(generation));
+        put(eye);
+        put(yaw);
+        put(pitch);
+        put(static_cast<uint64_t>(cells.size()));
+        out.write(reinterpret_cast<const char*>(cells.data()), std::streamsize(cells.size() * sizeof(glm::ivec3)));
+        if (!out) {
+            std::cerr << "Failed to save " << path << std::endl;
+            return false;
+        }
+        std::cout << "Saved " << cells.size() << " cells to " << std::filesystem::absolute(path).string() << std::endl;
+        return true;
+    }
+
+    bool loadWorld(const std::string& path) {
+        std::ifstream in(path, std::ios::binary);
+        char magic[4] = {};
+        uint32_t savedRule = 0;
+        uint64_t savedGeneration = 0, count = 0;
+        glm::vec3 savedEye(0.0f);
+        float savedYaw = 0.0f, savedPitch = 0.0f;
+        auto get = [&](auto& value) { in.read(reinterpret_cast<char*>(&value), sizeof(value)); };
+        in.read(magic, 4);
+        get(savedRule);
+        get(savedGeneration);
+        get(savedEye);
+        get(savedYaw);
+        get(savedPitch);
+        get(count);
+        if (!in || std::string(magic, 4) != "L3D1" || savedRule >= lifeRules().size() || count > (1ull << 32)) {
+            std::cerr << "Not a 3D Life save: " << path << std::endl;
+            return false;
+        }
+        std::vector<glm::ivec3> cells(count);
+        in.read(reinterpret_cast<char*>(cells.data()), std::streamsize(count * sizeof(glm::ivec3)));
+        if (!in) {
+            std::cerr << "Truncated save: " << path << std::endl;
+            return false;
+        }
+        resetChunks();
+        for (const glm::ivec3& cell : cells) setCell(cell, true);
+        ruleIndex = savedRule;
+        generation = savedGeneration;
+        eye = savedEye;
+        yaw = savedYaw;
+        pitch = savedPitch;
+        verticalSpeed = 0.0f;
+        runPass(false);
+        std::cout << "Loaded " << population << " cells from " << path
+                  << (chunkLimitHit ? " (chunk budget reached; some cells were dropped)" : "") << std::endl;
+        return true;
+    }
+
+    // One GPU pass: advance a generation (applyRule) or just rebuild the drawn
+    // instances and chunk stats after edits.
+    void runPass(bool applyRule) {
+        if (tablesDirty) rebuildChunkTables();
+        const uint32_t activeCount = static_cast<uint32_t>(activeSlots.size());
+
         vkResetCommandBuffer(computeCommandBuffer, 0);
-        
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        
-        if (vkBeginCommandBuffer(computeCommandBuffer, &beginInfo) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to begin compute command buffer!");
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(computeCommandBuffer, &beginInfo);
+
+        // Earlier frames may still be drawing the instance list this pass rewrites.
+        VkMemoryBarrier before{VK_STRUCTURE_TYPE_MEMORY_BARRIER, nullptr, VK_ACCESS_SHADER_WRITE_BIT,
+                               VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT};
+        vkCmdPipelineBarrier(computeCommandBuffer,
+                             VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &before, 0, nullptr, 0, nullptr);
+        vkCmdFillBuffer(computeCommandBuffer, statsBuffer, 0, VK_WHOLE_SIZE, 0);
+        const VkDrawIndirectCommand emptyDraw{static_cast<uint32_t>(cubeVertices.size()), 0, 0, 0};
+        vkCmdUpdateBuffer(computeCommandBuffer, indirectBuffer, 0, sizeof(emptyDraw), &emptyDraw);
+        VkMemoryBarrier cleared{VK_STRUCTURE_TYPE_MEMORY_BARRIER, nullptr, VK_ACCESS_TRANSFER_WRITE_BIT,
+                                VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT};
+        vkCmdPipelineBarrier(computeCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0, 1, &cleared, 0, nullptr, 0, nullptr);
+
+        if (activeCount > 0) {
+            vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
+            vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1,
+                                    &computeSets[currentCells], 0, nullptr);
+            PassConstants constants{activeCount, rule().surviveMask, rule().birthMask, applyRule ? 1u : 0u, MAX_INSTANCES};
+            vkCmdPushConstants(computeCommandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                               sizeof(constants), &constants);
+            vkCmdDispatch(computeCommandBuffer, CHUNK / 4, CHUNK / 4, (CHUNK / 4) * activeCount);
         }
-        
-        vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
-        vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSet, 0, nullptr);
-        
-        // Push constants
-        struct PushConstants {
-            uint32_t width;
-            uint32_t height;
-            uint32_t depth;
-            float time;
-            uint32_t ruleSet;
-            uint32_t surviveMin;
-            uint32_t surviveMax;
-            uint32_t birthCount;
-        };
-        
-        PushConstants pushConstants{};
-        pushConstants.width = GRID_WIDTH;
-        pushConstants.height = GRID_HEIGHT;
-        pushConstants.depth = GRID_DEPTH;
-        pushConstants.time = static_cast<float>(generation);
-        pushConstants.ruleSet = currentRule.ruleSet;
-        pushConstants.surviveMin = currentRule.surviveMin;
-        pushConstants.surviveMax = currentRule.surviveMax;
-        pushConstants.birthCount = currentRule.birthCount;
-        
-        vkCmdPushConstants(computeCommandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &pushConstants);
-        
-        // Dispatch compute shader
-        uint32_t groupCountX = (GRID_WIDTH + 7) / 8;
-        uint32_t groupCountY = (GRID_HEIGHT + 7) / 8;
-        uint32_t groupCountZ = (GRID_DEPTH + 7) / 8;
-        vkCmdDispatch(computeCommandBuffer, groupCountX, groupCountY, groupCountZ);
-        
-        if (vkEndCommandBuffer(computeCommandBuffer) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to end compute command buffer!");
-        }
-        
-        // Submit compute work
+
+        // Make results visible to the indirect draw, the vertex shader and the CPU.
+        VkMemoryBarrier after{VK_STRUCTURE_TYPE_MEMORY_BARRIER, nullptr, VK_ACCESS_SHADER_WRITE_BIT,
+                              VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_HOST_READ_BIT};
+        vkCmdPipelineBarrier(computeCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_HOST_BIT,
+                             0, 1, &after, 0, nullptr, 0, nullptr);
+        vkEndCommandBuffer(computeCommandBuffer);
+
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &computeCommandBuffer;
-        
-        vkResetFences(vulkanContext->getDevice(), 1, &computeFence);
+        vkResetFences(device, 1, &computeFence);
         if (vkQueueSubmit(vulkanContext->getGraphicsQueue(), 1, &submitInfo, computeFence) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to submit compute command buffer!");
+            throw std::runtime_error("Failed to submit compute work!");
         }
-        
-        // Wait for compute to finish
-        vkWaitForFences(vulkanContext->getDevice(), 1, &computeFence, VK_TRUE, UINT64_MAX);
-        
-        // Swap buffers for next iteration
-        std::swap(stateBuffer, nextStateBuffer);
-        std::swap(stateBufferMemory, nextStateBufferMemory);
-        std::swap(stateBufferMapped, nextStateBufferMapped);
-        buffersSwapped = !buffersSwapped;
-        
-        // Update descriptor set for next iteration (buffers are now swapped)
-        VkDescriptorBufferInfo stateBufferInfo{};
-        stateBufferInfo.buffer = stateBuffer;
-        stateBufferInfo.offset = 0;
-        stateBufferInfo.range = VK_WHOLE_SIZE;
-        
-        VkDescriptorBufferInfo nextStateBufferInfo{};
-        nextStateBufferInfo.buffer = nextStateBuffer;
-        nextStateBufferInfo.offset = 0;
-        nextStateBufferInfo.range = VK_WHOLE_SIZE;
-        
-        std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
-        descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrites[0].dstSet = computeDescriptorSet;
-        descriptorWrites[0].dstBinding = 0;
-        descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        descriptorWrites[0].descriptorCount = 1;
-        descriptorWrites[0].pBufferInfo = &stateBufferInfo;
-        
-        descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrites[1].dstSet = computeDescriptorSet;
-        descriptorWrites[1].dstBinding = 1;
-        descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        descriptorWrites[1].descriptorCount = 1;
-        descriptorWrites[1].pBufferInfo = &nextStateBufferInfo;
-        
-        vkUpdateDescriptorSets(vulkanContext->getDevice(), 2, descriptorWrites.data(), 0, nullptr);
-        
-        auto stepEnd = std::chrono::steady_clock::now();
-        stepTime = std::chrono::duration<float, std::chrono::seconds::period>(stepEnd - stepStart).count();
-        
-        generation++;
+        waitFence(computeFence, "the simulation pass");
+
+        if (applyRule) {
+            currentCells = 1 - currentCells;
+            generation++;
+        }
+        refreshPending = false;
+        maintainChunks();
     }
-    
-    void updatePerformanceMetrics(float deltaTime) {
-        frameCount++;
-        fpsTimer += deltaTime;
-        
-        if (fpsTimer >= fpsUpdateInterval) {
-            float avgFrameTime = fpsTimer / frameCount;
-            float fps = 1.0f / avgFrameTime;
-            
-            std::cout << "FPS: " << fps << " | Frame Time: " << (avgFrameTime * 1000.0f) << "ms";
-            if (stepTime > 0.0f) {
-                std::cout << " | Step Time: " << (stepTime * 1000.0f) << "ms";
+
+    void updateSimulation(float deltaTime) {
+        if (!simulationRunning) return;
+        stepAccumulator += deltaTime * SPEEDS[speedIndex];
+        int steps = 0;
+        while (stepAccumulator >= 1.0f && steps < 4) {
+            runPass(true);
+            stepAccumulator -= 1.0f;
+            ++steps;
+            if (chunkLimitHit && !pausedAtLimit) {
+                // Past the budget, growth freezes at the edge; stop and say so instead.
+                pausedAtLimit = true;
+                simulationRunning = false;
+                std::cout << "Chunk budget of " << chunkCapacity << " reached at generation " << generation
+                          << ": paused. Press G to keep going (growth stops at the edge), or start with --chunks N."
+                          << std::endl;
+                break;
             }
-            std::cout << " | Generation: " << generation << std::endl;
-            
-            frameCount = 0;
-            fpsTimer = 0.0f;
-            stepTime = 0.0f;
+        }
+        stepAccumulator = std::min(stepAccumulator, 1.0f); // drop backlog instead of spiraling
+    }
+
+    // Compares the chunked GPU world with the dense CPU reference. The soup is
+    // centered on a chunk corner so neighbor lookups and chunk growth are exercised.
+    bool verifyAgainstReference() {
+        constexpr int BOX = 80, HALF = BOX / 2, SOUP = 12, STEPS = 20;
+        bool ok = true;
+        std::vector<uint32_t> expected(BOX * BOX * BOX), scratch;
+        for (size_t r = 0; r < lifeRules().size(); ++r) {
+            ruleIndex = r;
+            resetChunks();
+            generation = 0;
+            seedSoup(glm::ivec3(-SOUP / 2), glm::ivec3(SOUP), std::max(rule().seedDensity, 0.25f));
+            runPass(false);
+            for (int z = 0; z < BOX; ++z)
+                for (int y = 0; y < BOX; ++y)
+                    for (int x = 0; x < BOX; ++x)
+                        expected[(z * BOX + y) * BOX + x] = cellAlive(glm::ivec3(x, y, z) - HALF) ? 1u : 0u;
+            size_t mismatches = 0;
+            for (int step = 0; step < STEPS; ++step) {
+                stepLifeReference(expected, scratch, BOX, BOX, BOX, rule());
+                expected.swap(scratch);
+                runPass(true);
+                uint64_t expectedPopulation = 0;
+                for (int z = 0; z < BOX; ++z)
+                    for (int y = 0; y < BOX; ++y)
+                        for (int x = 0; x < BOX; ++x) {
+                            uint32_t want = expected[(z * BOX + y) * BOX + x];
+                            expectedPopulation += want;
+                            mismatches += (cellAlive(glm::ivec3(x, y, z) - HALF) ? 1u : 0u) != want;
+                        }
+                mismatches += expectedPopulation != population; // catches stray cells outside the box
+            }
+            std::cout << "verify " << rule().name << " " << describeRule(rule()) << ": "
+                      << (mismatches ? "FAIL" : "ok") << " (" << mismatches << " mismatches, population " << population
+                      << ", " << chunkSlots.size() << " chunks)" << std::endl;
+            ok = ok && mismatches == 0;
+        }
+        return ok;
+    }
+
+    // ----------------------------------------------------------------- player
+
+    glm::vec3 forward() const {
+        float y = glm::radians(yaw), p = glm::radians(pitch);
+        return glm::vec3(std::cos(p) * std::cos(y), std::sin(p), std::cos(p) * std::sin(y));
+    }
+
+    glm::mat4 projection() const {
+        float aspect = swapchainExtent.height ? float(swapchainExtent.width) / float(swapchainExtent.height) : 1.0f;
+        glm::mat4 proj = glm::perspective(glm::radians(settings.fov), aspect, 0.05f, 1000.0f);
+        proj[1][1] *= -1; // Vulkan clip space has Y pointing down
+        return proj;
+    }
+
+    glm::mat4 viewProjection() const {
+        return projection() * glm::lookAt(eye, eye + forward(), glm::vec3(0, 1, 0));
+    }
+
+    // Keyboard input only counts while the mouse is captured; gravity always applies.
+    void updateMovement(float deltaTime) {
+        GLFWwindow* window = windowManager->getWindow();
+        auto down = [&](int key) { return cursorCaptured && glfwGetKey(window, key) == GLFW_PRESS; };
+        float y = glm::radians(yaw);
+        glm::vec3 flatForward(std::cos(y), 0.0f, std::sin(y));
+        glm::vec3 right(-std::sin(y), 0.0f, std::cos(y));
+        glm::vec3 move(0.0f);
+        if (down(GLFW_KEY_W)) move += flatForward;
+        if (down(GLFW_KEY_S)) move -= flatForward;
+        if (down(GLFW_KEY_D)) move += right;
+        if (down(GLFW_KEY_A)) move -= right;
+        if (glm::dot(move, move) > 0.0f) move = glm::normalize(move);
+        const bool sprint = down(GLFW_KEY_LEFT_CONTROL);
+
+        glm::vec3 delta;
+        if (flying) {
+            if (down(GLFW_KEY_SPACE)) move.y += 1.0f;
+            if (down(GLFW_KEY_LEFT_SHIFT)) move.y -= 1.0f;
+            delta = move * FLY_SPEED * (sprint ? 2.0f : 1.0f) * deltaTime;
+        } else {
+            onGround = standingOnSomething();
+            if (down(GLFW_KEY_SPACE) && onGround) verticalSpeed = JUMP_SPEED;
+            verticalSpeed = std::max(verticalSpeed - GRAVITY * deltaTime, -TERMINAL_SPEED);
+            delta = move * (sprint ? SPRINT_SPEED : WALK_SPEED) * deltaTime;
+            delta.y = verticalSpeed * deltaTime;
+        }
+        moveWithCollision(delta);
+    }
+
+    // Minecraft's player box: 0.6 wide, 1.8 tall, eyes 1.62 above the feet.
+    static constexpr float EYE_HEIGHT = 1.62f;
+    static glm::vec3 playerMin(const glm::vec3& at) { return at - glm::vec3(0.3f, EYE_HEIGHT, 0.3f); }
+    static glm::vec3 playerMax(const glm::vec3& at) { return at + glm::vec3(0.3f, 1.8f - EYE_HEIGHT, 0.3f); }
+
+    // Moves one axis at a time (y first, like Minecraft) and stops at live blocks
+    // the player was not already inside. Blocks born inside the player never trap
+    // it. While walking, the y = 0 ground is solid.
+    // True when a live block or the ground is directly under the player's feet.
+    bool standingOnSomething() const {
+        constexpr float PROBE = 0.01f;
+        glm::vec3 lo = playerMin(eye), hi = playerMax(eye);
+        if (lo.y >= 0.0f && lo.y < PROBE) return true;
+        int below = static_cast<int>(std::floor(lo.y - PROBE));
+        if (below >= static_cast<int>(std::floor(lo.y))) return false; // feet are not near a block top
+        for (int z = static_cast<int>(std::floor(lo.z)); z < static_cast<int>(std::ceil(hi.z)); ++z)
+            for (int x = static_cast<int>(std::floor(lo.x)); x < static_cast<int>(std::ceil(hi.x)); ++x)
+                if (cellAlive(glm::ivec3(x, below, z))) return true;
+        return false;
+    }
+
+    void moveWithCollision(const glm::vec3& delta) {
+        constexpr float GAP = 1e-3f;
+        for (int axis : {1, 0, 2}) {
+            if (delta[axis] == 0.0f) continue;
+            glm::vec3 next = eye;
+            next[axis] += delta[axis];
+            glm::vec3 oldLo = playerMin(eye), oldHi = playerMax(eye);
+            glm::vec3 lo = playerMin(next), hi = playerMax(next);
+            bool blocked = false;
+            float stop = delta[axis] > 0 ? std::numeric_limits<float>::max() : std::numeric_limits<float>::lowest();
+            // Sweep the whole path so large steps (lag frames, sprint flying) cannot tunnel.
+            glm::ivec3 first = glm::ivec3(glm::floor(glm::min(lo, oldLo)));
+            glm::ivec3 last = glm::ivec3(glm::ceil(glm::max(hi, oldHi))) - 1;
+            for (int z = first.z; z <= last.z; ++z)
+                for (int yy = first.y; yy <= last.y; ++yy)
+                    for (int x = first.x; x <= last.x; ++x) {
+                        glm::vec3 c(x, yy, z);
+                        bool wasInside = c.x < oldHi.x && c.x + 1 > oldLo.x && c.y < oldHi.y && c.y + 1 > oldLo.y &&
+                                         c.z < oldHi.z && c.z + 1 > oldLo.z;
+                        if (wasInside || !cellAlive(glm::ivec3(x, yy, z))) continue;
+                        blocked = true;
+                        stop = delta[axis] > 0 ? std::min(stop, c[axis]) : std::max(stop, c[axis] + 1.0f);
+                    }
+            if (!flying && axis == 1 && lo.y < 0.0f && oldLo.y >= 0.0f) {
+                blocked = true;
+                stop = std::max(stop, 0.0f);
+            }
+            if (blocked) {
+                // Put the box against the blocking face.
+                next[axis] = delta[axis] > 0 ? stop - (playerMax(eye)[axis] - eye[axis]) - GAP
+                                             : stop + (eye[axis] - playerMin(eye)[axis]) + GAP;
+                if (axis == 1) verticalSpeed = 0.0f;
+            }
+            eye = next;
+        }
+        onGround = !flying && standingOnSomething();
+    }
+
+    // Walks the crosshair ray through blocks (Amanatides-Woo) up to REACH.
+    // Stamps are placed against the face that was hit, else on the y = 0 ground
+    // within reach, else into empty air a few blocks ahead.
+    void updateTarget() {
+        target = Target{};
+        glm::vec3 dir = forward();
+        glm::ivec3 cell = glm::ivec3(glm::floor(eye));
+        glm::ivec3 step(dir.x > 0 ? 1 : -1, dir.y > 0 ? 1 : -1, dir.z > 0 ? 1 : -1);
+        glm::vec3 tMax, tDelta;
+        for (int axis = 0; axis < 3; ++axis) {
+            if (std::abs(dir[axis]) < 1e-8f) {
+                tMax[axis] = tDelta[axis] = std::numeric_limits<float>::max();
+                continue;
+            }
+            float boundary = static_cast<float>(cell[axis] + (step[axis] > 0 ? 1 : 0));
+            tMax[axis] = (boundary - eye[axis]) / dir[axis];
+            tDelta[axis] = std::abs(1.0f / dir[axis]);
+        }
+        int lastAxis = -1;
+        float t = 0.0f;
+        while (t <= REACH) {
+            if (cellAlive(cell)) {
+                target.hit = true;
+                target.block = cell;
+                if (lastAxis >= 0) {
+                    target.normal = glm::ivec3(0);
+                    target.normal[lastAxis] = -step[lastAxis];
+                    target.place = cell + target.normal;
+                    target.canPlace = true;
+                }
+                return;
+            }
+            lastAxis = tMax.x < tMax.y ? (tMax.x < tMax.z ? 0 : 2) : (tMax.y < tMax.z ? 1 : 2);
+            t = tMax[lastAxis];
+            cell[lastAxis] += step[lastAxis];
+            tMax[lastAxis] += tDelta[lastAxis];
+        }
+        // The y = 0 ground: build on top of it like Minecraft's surface.
+        if (eye.y > 0.0f && dir.y < 0.0f && -eye.y / dir.y <= REACH) {
+            glm::vec3 p = eye + dir * (-eye.y / dir.y);
+            target.place = glm::ivec3(static_cast<int>(std::floor(p.x)), 0, static_cast<int>(std::floor(p.z)));
+            target.normal = glm::ivec3(0, 1, 0);
+            target.canPlace = true;
+            return;
+        }
+        glm::vec3 absDir = glm::abs(dir);
+        int major = absDir.x > absDir.y ? (absDir.x > absDir.z ? 0 : 2) : (absDir.y > absDir.z ? 1 : 2);
+        target.normal = glm::ivec3(0);
+        target.normal[major] = step[major];
+        target.place = glm::ivec3(glm::floor(eye + dir * AIR_PLACE_DISTANCE));
+        target.canPlace = true;
+    }
+
+    // Cells of the selected stamp. Stamps are centered across the target face and
+    // extend away from it along `normal`, so they never overlap the targeted block.
+    std::vector<glm::ivec3> stampCells(Stamp stamp, const glm::ivec3& anchor, const glm::ivec3& normal) {
+        int axis = normal.x != 0 ? 0 : normal.y != 0 ? 1 : 2;
+        glm::ivec3 u(0), v(0);
+        u[(axis + 1) % 3] = 1;
+        v[(axis + 2) % 3] = 1;
+        std::vector<glm::ivec3> cells;
+        auto box = [&](int across, int along, float density) {
+            std::uniform_real_distribution<float> chance(0.0f, 1.0f);
+            for (int c = 0; c < along; ++c)
+                for (int b = 0; b < across; ++b)
+                    for (int a = 0; a < across; ++a)
+                        if (density >= 1.0f || chance(rng) < density)
+                            cells.push_back(anchor + u * (a - across / 2) + v * (b - across / 2) + normal * c);
+        };
+        switch (stamp) {
+            case Stamp::Cell: cells.push_back(anchor); break;
+            case Stamp::Block: box(2, 2, 1.0f); break;
+            case Stamp::Plus:
+                for (const glm::ivec3& d : {glm::ivec3(0), u, -u, v, -v, normal, -normal}) cells.push_back(anchor + normal + d);
+                break;
+            case Stamp::SmallSoup: box(8, 8, std::max(rule().seedDensity, 0.25f)); break;
+            case Stamp::BigSoup: box(16, 16, std::max(rule().seedDensity, 0.25f)); break;
+            case Stamp::Wall:
+                if (axis == 1) {
+                    // On a floor or ceiling, stand the wall up across the view direction.
+                    glm::vec3 view = forward();
+                    glm::ivec3 across = std::abs(view.x) > std::abs(view.z) ? glm::ivec3(0, 0, 1) : glm::ivec3(1, 0, 0);
+                    for (int h = 0; h < 5; ++h)
+                        for (int a = 0; a < 5; ++a) cells.push_back(anchor + across * (a - 2) + normal * h);
+                } else {
+                    box(5, 1, 1.0f);
+                }
+                break;
+            case Stamp::Pillar: box(1, 8, 1.0f); break;
+            case Stamp::RuleSeed: box(rule().seedSize, rule().seedSize, rule().seedDensity); break;
+        }
+        return cells;
+    }
+
+    bool overlapsPlayer(const glm::ivec3& cell) const {
+        glm::vec3 lo = playerMin(eye), hi = playerMax(eye);
+        glm::vec3 c(cell);
+        return c.x < hi.x && c.x + 1.0f > lo.x && c.y < hi.y && c.y + 1.0f > lo.y && c.z < hi.z && c.z + 1.0f > lo.z;
+    }
+
+    void placeStamp() {
+        if (!target.canPlace || hotbarSlot < 0) return;
+        for (const glm::ivec3& cell : stampCells(static_cast<Stamp>(hotbarSlot), target.place, target.normal)) {
+            if (!overlapsPlayer(cell)) setCell(cell, true);
         }
     }
-    
-    void renderUI() {
-        if (!showUI) return;
-        
-        // Basic UI will be added when ImGui is fully integrated
-        // For now, just log UI state
+
+    void breakBlock() {
+        if (target.hit) setCell(target.block, false);
     }
-    
+
+    void applyScriptAction(const ScriptAction& action) {
+        switch (action.kind) {
+            case ScriptAction::Position: eye = action.value; break;
+            case ScriptAction::Look:
+                yaw = action.value.x;
+                pitch = std::clamp(action.value.y, -89.9f, 89.9f);
+                break;
+            case ScriptAction::Slot:
+                hotbarSlot = std::clamp(static_cast<int>(action.value.x) - 1, -1, static_cast<int>(STAMP_NAMES.size()) - 1);
+                break;
+            case ScriptAction::Push:
+                moveWithCollision(action.value);
+                std::cout << "push: feet at " << eye.x << " " << eye.y - EYE_HEIGHT << " " << eye.z << std::endl;
+                break;
+            case ScriptAction::Resize:
+                glfwSetWindowSize(windowManager->getWindow(), static_cast<int>(action.value.x), static_cast<int>(action.value.y));
+                break;
+            case ScriptAction::Place:
+            case ScriptAction::Break: {
+                updateTarget();
+                uint64_t before = population;
+                if (action.kind == ScriptAction::Place) placeStamp(); else breakBlock();
+                if (refreshPending) runPass(false);
+                std::cout << (action.kind == ScriptAction::Place ? "place " : "break ") << handName()
+                          << (target.hit ? " at block face" : " in air") << ": population " << before << " -> "
+                          << population << std::endl;
+                break;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ input
+
+    void setCursorCaptured(bool captured) {
+        cursorCaptured = captured;
+        haveCursorPosition = false;
+        glfwSetInputMode(windowManager->getWindow(), GLFW_CURSOR, captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+        if (!captured) breakHeld = placeHeld = false;
+    }
+
+    void toggleFullscreen() {
+        GLFWwindow* window = windowManager->getWindow();
+        fullscreen = !fullscreen;
+        if (fullscreen) {
+            glfwGetWindowPos(window, &windowedX, &windowedY);
+            glfwGetWindowSize(window, &windowedWidth, &windowedHeight);
+            GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+            const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+            glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+        } else {
+            glfwSetWindowMonitor(window, nullptr, windowedX, windowedY, windowedWidth, windowedHeight, 0);
+        }
+        framebufferResized = true;
+    }
+
+    const char* handName() const { return hotbarSlot < 0 ? "Empty hand" : STAMP_NAMES[hotbarSlot]; }
+
+    void notify(const std::string& message) {
+        std::cout << message << std::endl;
+        toast = message;
+        toastUntil = glfwGetTime() + 4.0;
+    }
+
+    void selectSlot(int slot) {
+        hotbarSlot = slot;
+        slotNameUntil = glfwGetTime() + 2.0;
+    }
+
+    void openPauseMenu() {
+        if (screen != Screen::Playing) return;
+        runningBeforePause = simulationRunning;
+        simulationRunning = false;
+        screen = Screen::Paused;
+        setCursorCaptured(false);
+    }
+
+    void resumeGame() {
+        screen = Screen::Playing;
+        simulationRunning = runningBeforePause;
+        stepAccumulator = 0.0f;
+        setCursorCaptured(true);
+    }
+
+    void openInventory() {
+        screen = Screen::Inventory;
+        setCursorCaptured(false);
+    }
+
+    void openNewWorldScreen() {
+        newWorldRule = static_cast<int>(ruleIndex);
+        newWorldSeed = static_cast<int>(rng() & 0x7FFFFFFF);
+        newWorldEmpty = false;
+        screen = Screen::NewWorld;
+    }
+
+    bool worldFrozen() const {
+        return screen == Screen::Paused || screen == Screen::Settings || screen == Screen::NewWorld;
+    }
+
+    void onKey(int key, int action, int mods) {
+        GLFWwindow* window = windowManager->getWindow();
+        const bool ctrl = mods & GLFW_MOD_CONTROL, shift = mods & GLFW_MOD_SHIFT;
+        if (action == GLFW_PRESS && ctrl && key == GLFW_KEY_Q) {
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+            return;
+        }
+        if (screen != Screen::Playing) {
+            if (action != GLFW_PRESS) return;
+            if (key == GLFW_KEY_ESCAPE || (key == GLFW_KEY_E && screen == Screen::Inventory)) {
+                switch (screen) {
+                    case Screen::Paused: resumeGame(); break;
+                    case Screen::Inventory: screen = Screen::Playing; setCursorCaptured(true); break;
+                    case Screen::Settings:
+                        if (persistSettings) saveSettings(settings);
+                        screen = Screen::Paused;
+                        break;
+                    case Screen::NewWorld: screen = Screen::Paused; break;
+                    case Screen::Playing: break;
+                }
+            }
+            return;
+        }
+        // F3 alone toggles the debug overlay on release; F3+G shows chunk borders.
+        if (key == GLFW_KEY_F3) {
+            if (action == GLFW_PRESS) f3UsedInCombo = false;
+            if (action == GLFW_RELEASE && !f3UsedInCombo) showDebug = !showDebug;
+            return;
+        }
+        if (action == GLFW_REPEAT && key == GLFW_KEY_N) {
+            runPass(true);
+            return;
+        }
+        if (action != GLFW_PRESS) return;
+        if (key >= GLFW_KEY_1 && key < GLFW_KEY_1 + static_cast<int>(STAMP_NAMES.size())) {
+            int slot = key - GLFW_KEY_1;
+            selectSlot(slot == hotbarSlot ? -1 : slot); // pressing the selected number again empties the hand
+            return;
+        }
+        switch (key) {
+            case GLFW_KEY_ESCAPE: openPauseMenu(); break;
+            case GLFW_KEY_E: openInventory(); break;
+            case GLFW_KEY_SPACE: {
+                double now = glfwGetTime();
+                if (now - lastSpacePress < DOUBLE_TAP_SECONDS) {
+                    flying = !flying;
+                    verticalSpeed = 0.0f;
+                    lastSpacePress = -1.0;
+                } else {
+                    lastSpacePress = now;
+                }
+                break;
+            }
+            case GLFW_KEY_S:
+                if (ctrl) saveWorldWithMessage();
+                break;
+            case GLFW_KEY_O:
+                if (ctrl) loadWorldWithMessage();
+                break;
+            case GLFW_KEY_G:
+                if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS) {
+                    showChunkBorders = !showChunkBorders; // Minecraft's F3+G
+                    f3UsedInCombo = true;
+                } else {
+                    simulationRunning = !simulationRunning;
+                    stepAccumulator = 0.0f;
+                }
+                break;
+            case GLFW_KEY_N:
+                if (ctrl) {
+                    newWorld(!shift);
+                    notify(shift ? "New empty world" : std::string("New world: ") + rule().name);
+                } else {
+                    runPass(true);
+                }
+                break;
+            case GLFW_KEY_R: {
+                size_t count = lifeRules().size();
+                ruleIndex = shift ? (ruleIndex + count - 1) % count : (ruleIndex + 1) % count;
+                notify(std::string("Rule: ") + rule().name + " " + describeRule(rule()));
+                break;
+            }
+            case GLFW_KEY_EQUAL:
+            case GLFW_KEY_KP_ADD:
+            case GLFW_KEY_RIGHT_BRACKET:
+                speedIndex = std::min(speedIndex + 1, SPEEDS.size() - 1);
+                break;
+            case GLFW_KEY_MINUS:
+            case GLFW_KEY_KP_SUBTRACT:
+            case GLFW_KEY_LEFT_BRACKET:
+                speedIndex = speedIndex > 0 ? speedIndex - 1 : 0;
+                break;
+            case GLFW_KEY_F1: hudVisible = !hudVisible; break;
+            case GLFW_KEY_F2: requestScreenshot(timestampedScreenshotName()); break;
+            case GLFW_KEY_F11: toggleFullscreen(); break;
+            case GLFW_KEY_H: printControls(); break;
+            default: break;
+        }
+    }
+
+    void saveWorldWithMessage() {
+        if (saveWorld(saveFilePath())) notify("Saved world to " + saveFilePath());
+        else notify("Could not save the world");
+    }
+
+    void loadWorldWithMessage() {
+        if (loadWorld(saveFilePath())) notify("Loaded " + saveFilePath());
+        else notify("Could not load " + saveFilePath());
+    }
+
+    // Left click places the selected stamp, right click removes the targeted block.
+    // Both repeat while held. (The reverse of Minecraft, by request.)
+    void onMouseButton(int button, int action, int) {
+        if (screen != Screen::Playing) return; // menus handle their own clicks
+        if (!cursorCaptured) {
+            if (action == GLFW_PRESS) setCursorCaptured(true); // first click only grabs the mouse
+            return;
+        }
+        if (button == GLFW_MOUSE_BUTTON_LEFT) {
+            placeHeld = action == GLFW_PRESS;
+            placeTimer = 0.0f;
+            if (placeHeld) placeStamp();
+        } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+            breakHeld = action == GLFW_PRESS;
+            breakTimer = 0.0f;
+            if (breakHeld) breakBlock();
+        }
+    }
+
+    void onCursorMove(double x, double y) {
+        if (screen == Screen::Playing && cursorCaptured && haveCursorPosition) {
+            float degrees = MOUSE_DEGREES_PER_PIXEL * static_cast<float>(settings.sensitivity) / 100.0f;
+            float dy = static_cast<float>(y - lastCursorY) * degrees * (settings.invertY ? -1.0f : 1.0f);
+            yaw += static_cast<float>(x - lastCursorX) * degrees;
+            pitch = std::clamp(pitch - dy, -89.9f, 89.9f);
+        }
+        lastCursorX = x;
+        lastCursorY = y;
+        haveCursorPosition = true;
+    }
+
+    void onScroll(double yoffset) {
+        if (screen != Screen::Playing || yoffset == 0.0) return;
+        // Like Minecraft: scrolling down selects the next slot. From an empty hand,
+        // scrolling picks the first or last slot.
+        int count = static_cast<int>(STAMP_NAMES.size());
+        int next = hotbarSlot < 0 ? (yoffset < 0 ? 0 : count - 1) : hotbarSlot + (yoffset < 0 ? 1 : -1);
+        selectSlot((next % count + count) % count);
+    }
+
+    void updateHeldButtons(float deltaTime) {
+        if (breakHeld && (breakTimer += deltaTime) >= BREAK_REPEAT) {
+            breakTimer = 0.0f;
+            breakBlock();
+        }
+        if (placeHeld && (placeTimer += deltaTime) >= PLACE_REPEAT) {
+            placeTimer = 0.0f;
+            placeStamp();
+        }
+    }
+
+    void printControls() const {
+        std::cout << "\n3D Game of Life - Minecraft-style controls\n"
+                     "  Mouse  look (click the window to grab the mouse)   Esc  pause menu and settings\n"
+                     "  W A S D  move   Space  jump (fly up)   Left Shift  fly down   Left Ctrl  sprint\n"
+                     "  Double-tap Space  toggle flying\n"
+                     "  Left click  place the selected stamp   Right click  remove the outlined block\n"
+                     "  E  stamps and rules   1-" << STAMP_NAMES.size() << " / scroll  hotbar (press the selected number again for an empty hand):\n ";
+        for (size_t i = 0; i < STAMP_NAMES.size(); ++i) std::cout << "  " << (i + 1) << " " << STAMP_NAMES[i];
+        std::cout << "\n"
+                     "  G  run/pause generations   N  single generation   [ ]  slower/faster\n"
+                     "  R / Shift+R  next/previous rule   Ctrl+N  new world   Ctrl+Shift+N  empty world\n"
+                     "  Ctrl+S  save the world   Ctrl+O  load it (user data folder)\n"
+                     "  F1  hide HUD   F2  screenshot   F3  debug info   F3+G  chunk borders   F11  fullscreen\n"
+                     "  H  help   Ctrl+Q  quit\n"
+                     "Rules:\n";
+        for (size_t i = 0; i < lifeRules().size(); ++i) {
+            std::cout << "  " << lifeRules()[i].name << "  " << describeRule(lifeRules()[i]) << "\n";
+        }
+        std::cout << std::endl;
+    }
+
+    // ------------------------------------------------------------------- menus
+
+    void initImGui() {
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+        ImGuiIO& io = ImGui::GetIO();
+        io.IniFilename = nullptr;
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        applyMinecraftStyle();
+        baseStyle = ImGui::GetStyle();
+        // Installed after the game's GLFW callbacks, which ImGui then chains to.
+        ImGui_ImplGlfw_InitForVulkan(windowManager->getWindow(), true);
+
+        VkInstance instance = vulkanContext->getVkInstance();
+        ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_0, [](const char* name, void* user) {
+            return vkGetInstanceProcAddr(*static_cast<VkInstance*>(user), name);
+        }, &instance);
+        ImGui_ImplVulkan_InitInfo info{};
+        info.ApiVersion = VK_API_VERSION_1_0;
+        info.Instance = vulkanContext->getVkInstance();
+        info.PhysicalDevice = vulkanContext->getPhysicalDevice();
+        info.Device = device;
+        info.QueueFamily = vulkanContext->getQueueFamilyIndices().graphicsFamily.value();
+        info.Queue = vulkanContext->getGraphicsQueue();
+        info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE + 4;
+        info.RenderPass = renderPass;
+        info.MinImageCount = 2;
+        info.ImageCount = std::max<uint32_t>(2, static_cast<uint32_t>(swapchainImages.size()));
+        info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+        if (!ImGui_ImplVulkan_Init(&info)) throw std::runtime_error("Failed to initialize the menu renderer!");
+        imguiReady = true;
+    }
+
+    // The swapchain is sRGB, so the GPU applies gamma on write; menu colors are
+    // authored in sRGB and converted to linear here.
+    static float toLinear(float c) { return std::pow(c, 2.2f); }
+    static ImU32 color(int r, int g, int b, int a = 255) {
+        auto channel = [](int v) { return static_cast<int>(std::lround(255.0f * toLinear(static_cast<float>(v) / 255.0f))); };
+        return IM_COL32(channel(r), channel(g), channel(b), a);
+    }
+
+    // Flat gray buttons with a blue hover, white text, square corners.
+    static void applyMinecraftStyle() {
+        ImGuiStyle& style = ImGui::GetStyle();
+        ImGui::StyleColorsDark(&style);
+        style.WindowRounding = style.FrameRounding = style.GrabRounding = style.ScrollbarRounding = 0.0f;
+        style.PopupRounding = style.ChildRounding = style.TabRounding = 0.0f;
+        style.WindowBorderSize = 0.0f;
+        style.FrameBorderSize = 1.0f;
+        style.WindowPadding = ImVec2(8, 8);
+        style.FramePadding = ImVec2(6, 4);
+        style.ItemSpacing = ImVec2(4, 4);
+        style.GrabMinSize = 8.0f;
+        ImVec4* c = style.Colors;
+        c[ImGuiCol_Text] = ImVec4(1, 1, 1, 1);
+        c[ImGuiCol_TextDisabled] = ImVec4(0.63f, 0.63f, 0.63f, 1);
+        c[ImGuiCol_WindowBg] = ImVec4(0, 0, 0, 0.55f);
+        c[ImGuiCol_ChildBg] = ImVec4(0.78f, 0.78f, 0.78f, 0.0f);
+        c[ImGuiCol_PopupBg] = ImVec4(0.12f, 0.12f, 0.12f, 0.96f);
+        c[ImGuiCol_Border] = ImVec4(0, 0, 0, 1);
+        c[ImGuiCol_Button] = ImVec4(0.44f, 0.44f, 0.44f, 1);
+        c[ImGuiCol_ButtonHovered] = ImVec4(0.49f, 0.53f, 0.78f, 1);
+        c[ImGuiCol_ButtonActive] = ImVec4(0.38f, 0.42f, 0.66f, 1);
+        c[ImGuiCol_FrameBg] = ImVec4(0.18f, 0.18f, 0.18f, 1);
+        c[ImGuiCol_FrameBgHovered] = ImVec4(0.26f, 0.27f, 0.38f, 1);
+        c[ImGuiCol_FrameBgActive] = ImVec4(0.30f, 0.32f, 0.46f, 1);
+        c[ImGuiCol_SliderGrab] = ImVec4(0.75f, 0.75f, 0.75f, 1);
+        c[ImGuiCol_SliderGrabActive] = ImVec4(1, 1, 1, 1);
+        c[ImGuiCol_CheckMark] = ImVec4(1, 1, 1, 1);
+        c[ImGuiCol_Header] = ImVec4(0.44f, 0.44f, 0.44f, 1);
+        c[ImGuiCol_HeaderHovered] = ImVec4(0.49f, 0.53f, 0.78f, 1);
+        c[ImGuiCol_HeaderActive] = ImVec4(0.38f, 0.42f, 0.66f, 1);
+        c[ImGuiCol_Separator] = ImVec4(0.5f, 0.5f, 0.5f, 1);
+        for (int i = 0; i < ImGuiCol_COUNT; ++i) {
+            c[i] = ImVec4(toLinear(c[i].x), toLinear(c[i].y), toLinear(c[i].z), c[i].w);
+        }
+    }
+
+    float effectiveUiScale() const {
+        if (settings.guiScale > 0) return static_cast<float>(settings.guiScale);
+        return std::max(1.0f, std::round(static_cast<float>(swapchainExtent.height) / 500.0f));
+    }
+
+    // Rebuilds the pixel font at the GUI scale so text stays crisp.
+    void updateUiScale() {
+        float scale = effectiveUiScale();
+        if (scale == uiScale) return;
+        if (uiScale != 0.0f) {
+            vkDeviceWaitIdle(device);
+            ImGui_ImplVulkan_DestroyFontsTexture(); // recreated by the next NewFrame
+        }
+        ImGuiIO& io = ImGui::GetIO();
+        io.Fonts->Clear();
+        ImFontConfig font;
+        font.SizePixels = 13.0f * scale;
+        font.OversampleH = font.OversampleV = 1;
+        font.PixelSnapH = true;
+        io.Fonts->AddFontDefault(&font);
+        ImGui::GetStyle() = baseStyle;
+        ImGui::GetStyle().ScaleAllSizes(scale);
+        uiScale = scale;
+    }
+
+    float px(float value) const { return value * uiScale; }
+
+    void buildUi() {
+        if (!imguiReady) return;
+        updateUiScale();
+        ImGuiIO& io = ImGui::GetIO();
+        if (screen == Screen::Playing) io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+        else io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+        switch (screen) {
+            case Screen::Playing: drawHudOverlay(); break;
+            case Screen::Paused: drawPauseMenu(); break;
+            case Screen::Settings: drawSettingsMenu(); break;
+            case Screen::Inventory: drawInventory(); break;
+            case Screen::NewWorld: drawNewWorldMenu(); break;
+        }
+        drawToast();
+        ImGui::Render();
+    }
+
+    // Text with a drop shadow, like Minecraft's HUD.
+    void shadowText(ImDrawList* draw, ImVec2 pos, const std::string& text, ImU32 textColor = IM_COL32(255, 255, 255, 255)) {
+        ImU32 shadow = color(40, 40, 40, (textColor >> IM_COL32_A_SHIFT) & 0xFF);
+        draw->AddText(ImVec2(pos.x + px(1), pos.y + px(1)), shadow, text.c_str());
+        draw->AddText(pos, textColor, text.c_str());
+    }
+
+    void drawHudOverlay() {
+        if (!hudVisible) return;
+        ImDrawList* draw = ImGui::GetForegroundDrawList();
+        ImVec2 size = ImGui::GetIO().DisplaySize;
+        float line = ImGui::GetTextLineHeight();
+
+        // Status line, and more when F3 is on.
+        std::ostringstream status;
+        status << rule().name << "  |  gen " << generation << "  |  " << SPEEDS[speedIndex] << " gen/s "
+               << (simulationRunning ? "running" : "paused (G)");
+        std::vector<std::string> lines = {status.str()};
+        if (showDebug) {
+            std::ostringstream a, b, c, d;
+            a << std::fixed << std::setprecision(3) << "XYZ: " << eye.x << " / " << eye.y - EYE_HEIGHT << " / " << eye.z;
+            glm::ivec3 chunk = chunkOf(glm::ivec3(glm::floor(eye)));
+            b << "Chunk: " << chunk.x << " " << chunk.y << " " << chunk.z << "  |  " << (flying ? "flying" : "walking")
+              << (onGround ? ", on ground" : "");
+            c << std::fixed << std::setprecision(1) << "Facing: yaw " << yaw << ", pitch " << pitch;
+            d << population << " alive" << (population > MAX_INSTANCES ? " (draw capped)" : "") << "  |  "
+              << chunkSlots.size() << " / " << chunkCapacity << " chunks" << (chunkLimitHit ? " (LIMIT)" : "")
+              << "  |  " << std::lround(fps) << " fps";
+            lines.insert(lines.end(), {describeRule(rule()), a.str(), b.str(), c.str(), d.str()});
+            if (target.hit) lines.push_back("Targeted block: " + std::to_string(target.block.x) + " " +
+                                            std::to_string(target.block.y) + " " + std::to_string(target.block.z));
+        }
+        for (size_t i = 0; i < lines.size(); ++i) {
+            ImVec2 pos(px(4), px(4) + line * static_cast<float>(i));
+            ImVec2 textSize = ImGui::CalcTextSize(lines[i].c_str());
+            draw->AddRectFilled(ImVec2(pos.x - px(2), pos.y), ImVec2(pos.x + textSize.x + px(2), pos.y + line),
+                                IM_COL32(0, 0, 0, 90));
+            shadowText(draw, pos, lines[i]);
+        }
+
+        // Selected stamp name above the hotbar, fading out (hotbar metrics match life3d_screen.frag).
+        double remaining = slotNameUntil - glfwGetTime();
+        if (remaining > 0.0 && hotbarSlot >= 0) {
+            float hotbarScale = std::max(1.0f, std::floor(size.y / 540.0f));
+            float slot = 40.0f * hotbarScale;
+            std::string name = handName();
+            ImVec2 textSize = ImGui::CalcTextSize(name.c_str());
+            int alpha = static_cast<int>(255.0 * std::min(1.0, remaining / 0.5));
+            shadowText(draw, ImVec2((size.x - textSize.x) * 0.5f, size.y - slot - 16.0f * hotbarScale - textSize.y),
+                       name, IM_COL32(255, 255, 255, alpha));
+        }
+    }
+
+    void drawToast() {
+        double remaining = toastUntil - glfwGetTime();
+        if (remaining <= 0.0 || toast.empty()) return;
+        ImDrawList* draw = ImGui::GetForegroundDrawList();
+        ImVec2 size = ImGui::GetIO().DisplaySize;
+        ImVec2 textSize = ImGui::CalcTextSize(toast.c_str());
+        int alpha = static_cast<int>(255.0 * std::min(1.0, remaining / 0.5));
+        ImVec2 pos((size.x - textSize.x) * 0.5f, size.y * 0.22f);
+        draw->AddRectFilled(ImVec2(pos.x - px(4), pos.y - px(2)), ImVec2(pos.x + textSize.x + px(4), pos.y + textSize.y + px(2)),
+                            IM_COL32(0, 0, 0, alpha / 2));
+        shadowText(draw, pos, toast, color(255, 255, 160, alpha));
+    }
+
+    // A full-window, dimmed menu background.
+    bool beginMenuScreen(const char* id, float dim = 0.55f) {
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(viewport->Pos);
+        ImGui::SetNextWindowSize(viewport->Size);
+        ImGui::SetNextWindowBgAlpha(dim);
+        return ImGui::Begin(id, nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                             ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus);
+    }
+
+    void centeredText(const std::string& text, ImU32 textColor = IM_COL32(255, 255, 255, 255)) {
+        float width = ImGui::CalcTextSize(text.c_str()).x;
+        ImGui::SetCursorPosX((ImGui::GetWindowWidth() - width) * 0.5f);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(textColor));
+        ImGui::TextUnformatted(text.c_str());
+        ImGui::PopStyleColor();
+    }
+
+    // Minecraft-like menu geometry (buttons 20 high, 4 apart), a bit wider than
+    // Minecraft's 200 because the menu font is wider. Scaled by the GUI scale.
+    static constexpr float MENU_WIDTH = 260.0f;
+    static constexpr float HALF_WIDTH = (MENU_WIDTH - 4.0f) / 2.0f;
+    static constexpr float TEXT_WIDTH = 440.0f;
+
+    bool menuButton(const char* label, float width = MENU_WIDTH, float xOffset = 0.0f) {
+        ImGui::SetCursorPosX((ImGui::GetWindowWidth() - px(MENU_WIDTH)) * 0.5f + px(xOffset));
+        return ImGui::Button(label, ImVec2(px(width), px(20.0f)));
+    }
+
+    // Two half-width buttons side by side; returns 1 or 2 for the one clicked.
+    int menuButtonPair(const char* left, const char* right) {
+        int clicked = 0;
+        float y = ImGui::GetCursorPosY();
+        if (menuButton(left, HALF_WIDTH)) clicked = 1;
+        ImGui::SetCursorPosY(y);
+        if (menuButton(right, HALF_WIDTH, HALF_WIDTH + 4.0f)) clicked = 2;
+        return clicked;
+    }
+
+    void drawPauseMenu() {
+        if (beginMenuScreen("##pause")) {
+            ImGui::SetCursorPosY(ImGui::GetWindowHeight() * 0.25f - px(24));
+            centeredText("Game Menu");
+            ImGui::Dummy(ImVec2(0, px(10)));
+            if (menuButton("Back to Game")) resumeGame();
+            switch (menuButtonPair("Stamps & Rules", "New World...")) {
+                case 1: screen = Screen::Inventory; break;
+                case 2: openNewWorldScreen(); break;
+            }
+            switch (menuButtonPair("Save World", "Load World")) {
+                case 1: saveWorldWithMessage(); break;
+                case 2: loadWorldWithMessage(); break;
+            }
+            if (menuButton("Settings...")) screen = Screen::Settings;
+            ImGui::Dummy(ImVec2(0, px(6)));
+            if (menuButton("Quit Game")) glfwSetWindowShouldClose(windowManager->getWindow(), GLFW_TRUE);
+            ImGui::Dummy(ImVec2(0, px(10)));
+            std::ostringstream status;
+            status << rule().name << " " << describeRule(rule()) << "  |  generation " << generation << "  |  "
+                   << population << " alive";
+            centeredText(status.str(), color(200, 200, 200));
+        }
+        ImGui::End();
+    }
+
+    // One Minecraft-style option: a slider or toggle in a two-column grid.
+    static constexpr float OPTION_WIDTH = 180.0f;
+    void optionCell(int index) {
+        float column = index % 2 == 0 ? -OPTION_WIDTH / 2 - 3.0f : OPTION_WIDTH / 2 + 3.0f; // from the center
+        ImGui::SetCursorPosX(ImGui::GetWindowWidth() * 0.5f + px(column - OPTION_WIDTH / 2));
+    }
+
+    bool optionToggle(int index, const char* name, bool& value) {
+        optionCell(index);
+        std::string label = std::string(name) + ": " + (value ? "ON" : "OFF") + "##" + name;
+        if (ImGui::Button(label.c_str(), ImVec2(px(OPTION_WIDTH), px(20)))) {
+            value = !value;
+            return true;
+        }
+        return false;
+    }
+
+    void drawSettingsMenu() {
+        if (beginMenuScreen("##settings", 0.82f)) {
+            ImGui::SetCursorPosY(px(20));
+            centeredText("Settings");
+            ImGui::Dummy(ImVec2(0, px(10)));
+            ImGui::PushItemWidth(px(OPTION_WIDTH));
+            bool changed = false;
+            auto row = [&](auto&& left, auto&& right) {
+                float y = ImGui::GetCursorPosY();
+                left();
+                ImGui::SetCursorPosY(y);
+                right();
+                ImGui::Dummy(ImVec2(0, px(2)));
+            };
+            row([&] { optionCell(0); changed |= ImGui::SliderFloat("##fov", &settings.fov, 30.0f, 110.0f, "FOV: %.0f"); },
+                [&] { optionCell(1); changed |= ImGui::SliderInt("##render", &settings.renderDistance, 64, 512, "Render Distance: %d"); });
+            row([&] { optionCell(0); changed |= ImGui::SliderInt("##sens", &settings.sensitivity, 10, 300, "Sensitivity: %d%%"); },
+                [&] { changed |= optionToggle(1, "Invert Mouse", settings.invertY); });
+            row([&] {
+                    optionCell(0);
+                    const char* format = settings.guiScale == 0 ? "GUI Scale: Auto" : "GUI Scale: %d";
+                    changed |= ImGui::SliderInt("##gui", &settings.guiScale, 0, 4, format);
+                },
+                [&] {
+                    optionCell(1);
+                    int speed = static_cast<int>(speedIndex);
+                    std::string format = "Speed: " + formatSpeed(SPEEDS[speedIndex]) + " gen/s";
+                    if (ImGui::SliderInt("##speed", &speed, 0, static_cast<int>(SPEEDS.size()) - 1, format.c_str())) {
+                        speedIndex = static_cast<size_t>(speed);
+                    }
+                });
+            row([&] { optionToggle(0, "HUD", hudVisible); },
+                [&] { optionToggle(1, "Chunk Borders", showChunkBorders); });
+            row([&] {
+                    bool wantFullscreen = fullscreen;
+                    if (optionToggle(0, "Fullscreen", wantFullscreen)) toggleFullscreen();
+                },
+                [&] {
+                    optionCell(1);
+                    if (ImGui::Button("Reset to Defaults", ImVec2(px(OPTION_WIDTH), px(20)))) {
+                        settings = Settings{};
+                        changed = true;
+                    }
+                });
+            ImGui::PopItemWidth();
+            (void)changed;
+            ImGui::Dummy(ImVec2(0, px(10)));
+            if (menuButton("Done")) {
+                if (persistSettings) saveSettings(settings);
+                screen = Screen::Paused;
+            }
+            if (persistSettings) centeredText("Saved to " + settingsPath().string(), color(160, 160, 160));
+        }
+        ImGui::End();
+    }
+
+    static std::string formatSpeed(float speed) {
+        std::ostringstream out;
+        out << speed;
+        return out.str();
+    }
+
+    void drawStampIcon(ImDrawList* draw, ImVec2 min, float size, int stamp, ImU32 color) {
+        float cell = std::floor(size * 0.14f);
+        ImVec2 origin(min.x + std::floor((size - 5.0f * cell) * 0.5f), min.y + std::floor((size - 5.0f * cell) * 0.5f));
+        for (int y = 0; y < 5; ++y)
+            for (int x = 0; x < 5; ++x)
+                if ((STAMP_ICONS[stamp] >> (24 - (y * 5 + x))) & 1u)
+                    draw->AddRectFilled(ImVec2(origin.x + x * cell, origin.y + y * cell),
+                                        ImVec2(origin.x + (x + 1) * cell, origin.y + (y + 1) * cell), color);
+    }
+
+    void drawInventory() {
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(viewport->Pos);
+        ImGui::SetNextWindowSize(viewport->Size);
+        ImGui::SetNextWindowBgAlpha(0.35f);
+        ImGui::Begin("##inventory-dim", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs);
+        ImGui::End();
+
+        ImVec2 panel(px(420), px(380));
+        ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x + (viewport->Size.x - panel.x) * 0.5f,
+                                       viewport->Pos.y + (viewport->Size.y - panel.y) * 0.5f));
+        ImGui::SetNextWindowSize(panel);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(color(198, 198, 198)));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(color(64, 64, 64)));
+        ImGui::Begin("##inventory", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                                 ImGuiWindowFlags_NoSavedSettings);
+        ImGui::TextUnformatted("Stamps (left click places, right click removes)");
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        const float tile = px(36);
+        for (int i = -1; i < static_cast<int>(STAMP_NAMES.size()); ++i) {
+            if (i != -1) ImGui::SameLine(0, px(2));
+            ImGui::PushID(i);
+            ImVec2 min = ImGui::GetCursorScreenPos();
+            bool clicked = ImGui::InvisibleButton("tile", ImVec2(tile, tile));
+            bool hovered = ImGui::IsItemHovered();
+            bool selected = i == hotbarSlot;
+            draw->AddRectFilled(min, ImVec2(min.x + tile, min.y + tile),
+                                hovered ? color(150, 155, 200) : color(139, 139, 139));
+            draw->AddRect(min, ImVec2(min.x + tile, min.y + tile), selected ? color(255, 255, 255) : color(55, 55, 55),
+                          0.0f, 0, selected ? px(2) : px(1));
+            if (i >= 0) drawStampIcon(draw, min, tile, i, color(90, 200, 110));
+            else draw->AddText(ImVec2(min.x + tile * 0.3f, min.y + tile * 0.25f), color(60, 60, 60), "--");
+            if (hovered) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+                ImGui::SetTooltip("%s%s\n%s", i >= 0 ? (std::to_string(i + 1) + ". ").c_str() : "",
+                                  i >= 0 ? STAMP_NAMES[i] : "Empty hand",
+                                  i >= 0 ? STAMP_DESCRIPTIONS[i] : "Nothing to place and no placement outline.");
+                ImGui::PopStyleColor();
+            }
+            if (clicked) selectSlot(i);
+            ImGui::PopID();
+        }
+        ImGui::TextUnformatted(hotbarSlot >= 0 ? STAMP_DESCRIPTIONS[hotbarSlot] : "Empty hand: nothing to place.");
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Rule (keeps the current cells)");
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(color(25, 25, 25)));
+        ImGui::BeginChild("##rules", ImVec2(0, px(118)), ImGuiChildFlags_Borders);
+        for (size_t r = 0; r < lifeRules().size(); ++r) {
+            const LifeRule& candidate = lifeRules()[r];
+            std::string label = std::string(candidate.name) + "   " + describeRule(candidate);
+            if (ImGui::Selectable(label.c_str(), r == ruleIndex)) {
+                ruleIndex = r;
+                notify(std::string("Rule: ") + candidate.name + " " + describeRule(candidate));
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+                ImGui::SetNextWindowSize(ImVec2(px(300), 0));
+                ImGui::BeginTooltip();
+                ImGui::TextWrapped("%s", explainRule(candidate).c_str());
+                ImGui::Spacing();
+                ImGui::TextWrapped("%s", candidate.description);
+                ImGui::EndTooltip();
+                ImGui::PopStyleColor();
+            }
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+        ImGui::TextWrapped("%s: %s", rule().name, explainRule(rule()).c_str());
+        ImGui::TextWrapped("%s", rule().description);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+        if (ImGui::Button("New world with this rule", ImVec2(px(230), px(20)))) {
+            newWorld(true);
+            notify(std::string("New world: ") + rule().name);
+            screen = Screen::Playing;
+            setCursorCaptured(true);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Done (E)", ImVec2(-1, px(20)))) {
+            screen = Screen::Playing;
+            setCursorCaptured(true);
+        }
+        ImGui::PopStyleColor();
+        ImGui::End();
+        ImGui::PopStyleColor(2);
+    }
+
+    void drawNewWorldMenu() {
+        if (beginMenuScreen("##newworld", 0.82f)) {
+            ImGui::SetCursorPosY(px(16));
+            centeredText("Create New World");
+            ImGui::Dummy(ImVec2(0, px(10)));
+            float left = (ImGui::GetWindowWidth() - px(MENU_WIDTH)) * 0.5f;
+            ImGui::SetCursorPosX(left);
+            ImGui::TextUnformatted("Rule");
+            ImGui::SetCursorPosX(left);
+            ImGui::PushItemWidth(px(MENU_WIDTH));
+            if (ImGui::BeginCombo("##rule", lifeRules()[newWorldRule].name)) {
+                for (int r = 0; r < static_cast<int>(lifeRules().size()); ++r) {
+                    if (ImGui::Selectable(lifeRules()[r].name, r == newWorldRule)) newWorldRule = r;
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetNextWindowSize(ImVec2(px(300), 0));
+                        ImGui::BeginTooltip();
+                        ImGui::TextWrapped("%s", explainRule(lifeRules()[r]).c_str());
+                        ImGui::EndTooltip();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SetCursorPosX(left);
+            // The rule text uses a wider column than the controls so it stays short.
+            float textLeft = (ImGui::GetWindowWidth() - px(TEXT_WIDTH)) * 0.5f;
+            ImGui::SetCursorPosX(textLeft);
+            ImGui::PushTextWrapPos(textLeft + px(TEXT_WIDTH));
+            ImGui::TextUnformatted(explainRule(lifeRules()[newWorldRule]).c_str());
+            ImGui::SetCursorPosX(textLeft);
+            ImGui::TextDisabled("%s", lifeRules()[newWorldRule].description);
+            ImGui::PopTextWrapPos();
+            ImGui::Dummy(ImVec2(0, px(4)));
+            ImGui::SetCursorPosX(left);
+            ImGui::TextUnformatted("Seed");
+            ImGui::SetCursorPosX(left);
+            ImGui::PushItemWidth(px(MENU_WIDTH - 64.0f));
+            ImGui::InputInt("##seed", &newWorldSeed, 0);
+            ImGui::PopItemWidth();
+            ImGui::SameLine();
+            if (ImGui::Button("Random", ImVec2(px(60), 0))) newWorldSeed = static_cast<int>(rng() & 0x7FFFFFFF);
+            ImGui::PopItemWidth();
+            ImGui::Dummy(ImVec2(0, px(4)));
+            ImGui::SetCursorPosX(left);
+            std::string emptyLabel = std::string("Start: ") + (newWorldEmpty ? "Empty world" : "Rule's seed soup");
+            if (ImGui::Button(emptyLabel.c_str(), ImVec2(px(MENU_WIDTH), px(20)))) newWorldEmpty = !newWorldEmpty;
+            ImGui::Dummy(ImVec2(0, px(10)));
+            switch (menuButtonPair("Create New World", "Cancel")) {
+                case 1:
+                    ruleIndex = static_cast<size_t>(newWorldRule);
+                    rng.seed(static_cast<uint32_t>(newWorldSeed));
+                    newWorld(!newWorldEmpty);
+                    notify(std::string("New world: ") + rule().name + (newWorldEmpty ? " (empty)" : ""));
+                    resumeGame();
+                    break;
+                case 2: screen = Screen::Paused; break;
+            }
+        }
+        ImGui::End();
+    }
+
+    // ------------------------------------------------------------------ frame
+
+    void mainLoop() {
+        auto lastTime = std::chrono::steady_clock::now();
+        while (!windowManager->shouldClose()) {
+            glfwPollEvents();
+            auto now = std::chrono::steady_clock::now();
+            float deltaTime = std::min(std::chrono::duration<float>(now - lastTime).count(), 0.25f);
+            lastTime = now;
+
+            if (!worldFrozen()) {
+                updateMovement(deltaTime);
+                updateSimulation(deltaTime);
+            }
+            updateTarget();
+            if (screen == Screen::Playing) updateHeldButtons(deltaTime);
+            if (refreshPending) {
+                runPass(false);
+                updateTarget();
+            }
+            if (options.exitAfterFrames && framesRendered + 1 == options.exitAfterFrames && !options.screenshotPath.empty()) {
+                requestScreenshot(options.screenshotPath);
+            }
+            buildUi();
+            drawFrame();
+            updateHud(deltaTime);
+            if (options.exitAfterFrames && framesRendered >= options.exitAfterFrames) break;
+        }
+        vkDeviceWaitIdle(device);
+        float seconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - startTime).count();
+        std::cout << "Exit: " << framesRendered << " frames in " << std::fixed << std::setprecision(1) << seconds
+                  << " s, generation " << generation << ", " << population << " alive, " << chunkSlots.size()
+                  << " chunks, " << swapchainExtent.width << "x" << swapchainExtent.height << ", feet at "
+                  << std::setprecision(2) << eye.x << " " << eye.y - EYE_HEIGHT << " " << eye.z
+                  << (flying ? " (flying)" : onGround ? " (on ground)" : " (airborne)") << std::endl;
+    }
+
+    void updateHud(float deltaTime) {
+        hudTimer += deltaTime;
+        hudFrames++;
+        if (hudTimer < 0.25f) return;
+        fps = hudFrames / hudTimer;
+        hudTimer = 0.0f;
+        hudFrames = 0;
+        std::ostringstream title;
+        title << std::fixed << std::setprecision(1)
+              << "3D Life  |  " << rule().name << " " << describeRule(rule())
+              << "  |  gen " << generation << "  |  " << population << " alive"
+              << (population > MAX_INSTANCES ? " (draw capped)" : "")
+              << "  |  " << chunkSlots.size() << " chunks" << (chunkLimitHit ? " (LIMIT)" : "")
+              << "  |  " << SPEEDS[speedIndex] << " gen/s " << (simulationRunning ? "running" : "paused")
+              << "  |  " << (flying ? "flying" : "walking") << " XYZ " << eye.x << " " << eye.y - EYE_HEIGHT << " " << eye.z
+              << "  |  " << (hotbarSlot + 1) << " " << handName()
+              << "  |  " << std::lround(fps) << " fps";
+        glfwSetWindowTitle(windowManager->getWindow(), title.str().c_str());
+    }
+
+    void requestScreenshot(const std::string& path) {
+        if (!captureSupported) {
+            std::cerr << "Screenshots are not supported by this swapchain." << std::endl;
+            return;
+        }
+        pendingScreenshot = path;
+    }
+
+    uint32_t writeBoxes(Box* boxes) {
+        uint32_t count = 0;
+        if (hudVisible && target.hit) {
+            boxes[count++] = {glm::vec4(glm::vec3(target.block) - 0.004f, 0.03f), glm::vec4(glm::vec3(target.block) + 1.004f, 0.0f)};
+        } else if (hudVisible && target.canPlace && hotbarSlot >= 0) {
+            boxes[count++] = {glm::vec4(glm::vec3(target.place) + 0.02f, 0.03f), glm::vec4(glm::vec3(target.place) + 0.98f, 2.0f)};
+        }
+        if (showChunkBorders) {
+            for (const auto& entry : chunkSlots) {
+                glm::vec3 lo(entry.first * CHUNK);
+                boxes[count++] = {glm::vec4(lo, 0.08f), glm::vec4(lo + float(CHUNK), 1.0f)};
+            }
+        }
+        return count;
+    }
+
+    void drawFrame() {
+        waitFence(inFlightFences[currentFrame], "a frame");
+
+        uint32_t imageIndex = 0;
+        VkResult result = vkAcquireNextImageKHR(device, swapchain, GPU_TIMEOUT_NS, imageAvailableSemaphores[currentFrame],
+                                                VK_NULL_HANDLE, &imageIndex);
+        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+            recreateSwapchain();
+            return;
+        }
+        if (result == VK_TIMEOUT || result == VK_NOT_READY) return; // compositor is not ready; try next loop
+        if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+            throw std::runtime_error("Failed to acquire swap chain image!");
+        }
+        vkResetFences(device, 1, &inFlightFences[currentFrame]);
+
+        glm::mat4 viewProj = viewProjection();
+        FrameUniforms uniforms{};
+        uniforms.viewProj = viewProj;
+        uniforms.invViewProj = glm::inverse(viewProj);
+        uniforms.camera = glm::vec4(eye, std::chrono::duration<float>(std::chrono::steady_clock::now() - startTime).count());
+        uniforms.viewport = glm::vec4(swapchainExtent.width, swapchainExtent.height, hudVisible ? 1.0f : 0.0f, float(MAX_INSTANCES));
+        uniforms.hotbar = glm::ivec4(hotbarSlot, static_cast<int>(STAMP_NAMES.size()), 0, 0);
+        float renderDistance = static_cast<float>(settings.renderDistance);
+        uniforms.fog = glm::vec4(0.45f * renderDistance, renderDistance, 0.0f, 0.0f);
+        std::memcpy(uniformBuffersMapped[currentFrame], &uniforms, sizeof(uniforms));
+        uint32_t boxCount = writeBoxes(boxBuffersMapped[currentFrame]);
+
+        std::string screenshot;
+        screenshot.swap(pendingScreenshot);
+        if (!screenshot.empty()) prepareCaptureBuffer();
+
+        VkCommandBuffer cmd = commandBuffers[currentFrame];
+        vkResetCommandBuffer(cmd, 0);
+        recordCommandBuffer(cmd, imageIndex, boxCount, !screenshot.empty());
+
+        VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.waitSemaphoreCount = 1;
+        submitInfo.pWaitSemaphores = &imageAvailableSemaphores[currentFrame];
+        submitInfo.pWaitDstStageMask = &waitStage;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &cmd;
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores = &renderFinishedSemaphores[imageIndex];
+        if (vkQueueSubmit(vulkanContext->getGraphicsQueue(), 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to submit draw command buffer!");
+        }
+
+        VkPresentInfoKHR presentInfo{};
+        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        presentInfo.waitSemaphoreCount = 1;
+        presentInfo.pWaitSemaphores = &renderFinishedSemaphores[imageIndex];
+        presentInfo.swapchainCount = 1;
+        presentInfo.pSwapchains = &swapchain;
+        presentInfo.pImageIndices = &imageIndex;
+        result = vkQueuePresentKHR(vulkanContext->getPresentQueue(), &presentInfo);
+
+        if (!screenshot.empty()) saveCapture(screenshot, currentFrame);
+
+        framesRendered++;
+        currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
+            recreateSwapchain();
+        } else if (result != VK_SUCCESS) {
+            throw std::runtime_error("Failed to present swap chain image!");
+        }
+    }
+
+    void recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, uint32_t boxCount, bool capture) {
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        if (vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to begin recording command buffer!");
+        }
+
+        std::array<VkClearValue, 2> clearValues{};
+        clearValues[1].depthStencil = {1.0f, 0};
+        VkRenderPassBeginInfo renderPassInfo{};
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassInfo.renderPass = renderPass;
+        renderPassInfo.framebuffer = framebuffers[imageIndex];
+        renderPassInfo.renderArea.extent = swapchainExtent;
+        renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+        renderPassInfo.pClearValues = clearValues.data();
+        vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+        VkViewport viewport{0.0f, 0.0f, float(swapchainExtent.width), float(swapchainExtent.height), 0.0f, 1.0f};
+        VkRect2D scissor{{0, 0}, swapchainExtent};
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &frameSets[currentFrame], 0, nullptr);
+        auto setMode = [&](uint32_t mode) {
+            vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               sizeof(mode), &mode);
+        };
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline);
+        setMode(0);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipeline);
+        VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
+        setMode(0);
+        vkCmdDrawIndirect(cmd, indirectBuffer, 0, 1, sizeof(VkDrawIndirectCommand));
+        if (boxCount > 0) {
+            setMode(1);
+            vkCmdDraw(cmd, static_cast<uint32_t>(cubeVertices.size()), boxCount * 12, 0, 0);
+        }
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, gridPipeline);
+        setMode(1);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, hudPipeline);
+        setMode(2);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+        if (imguiReady) {
+            ImDrawData* drawData = ImGui::GetDrawData();
+            if (drawData && drawData->CmdListsCount > 0) ImGui_ImplVulkan_RenderDrawData(drawData, cmd);
+        }
+        vkCmdEndRenderPass(cmd);
+
+        if (capture) recordCapture(cmd, swapchainImages[imageIndex]);
+
+        if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to record command buffer!");
+        }
+    }
+
+    // ------------------------------------------------------------ screenshots
+
+    void prepareCaptureBuffer() {
+        destroyBuffer(captureBuffer, captureMemory);
+        createBuffer(VkDeviceSize(swapchainExtent.width) * swapchainExtent.height * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                     {HOST_CACHED, HOST}, captureBuffer, captureMemory);
+    }
+
+    void recordCapture(VkCommandBuffer cmd, VkImage image) {
+        VkImageMemoryBarrier toTransfer{};
+        toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        toTransfer.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        toTransfer.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toTransfer.image = image;
+        toTransfer.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                             0, nullptr, 0, nullptr, 1, &toTransfer);
+
+        VkBufferImageCopy region{};
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageExtent = {swapchainExtent.width, swapchainExtent.height, 1};
+        vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, captureBuffer, 1, &region);
+
+        VkImageMemoryBarrier toPresent = toTransfer;
+        toPresent.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        toPresent.dstAccessMask = 0;
+        toPresent.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        toPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        VkBufferMemoryBarrier toHost{};
+        toHost.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        toHost.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        toHost.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+        toHost.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toHost.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toHost.buffer = captureBuffer;
+        toHost.size = VK_WHOLE_SIZE;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT | VK_PIPELINE_STAGE_HOST_BIT, 0,
+                             0, nullptr, 1, &toHost, 1, &toPresent);
+    }
+
+    void saveCapture(const std::string& path, size_t frame) {
+        waitFence(inFlightFences[frame], "the screenshot frame");
+        const uint32_t width = swapchainExtent.width, height = swapchainExtent.height;
+        void* data = nullptr;
+        vkMapMemory(device, captureMemory, 0, VK_WHOLE_SIZE, 0, &data);
+        const uint8_t* pixels = static_cast<const uint8_t*>(data);
+        bool bgr = swapchainImageFormat == VK_FORMAT_B8G8R8A8_SRGB || swapchainImageFormat == VK_FORMAT_B8G8R8A8_UNORM;
+        std::vector<uint8_t> rgb(size_t(width) * height * 3);
+        for (size_t i = 0; i < size_t(width) * height; ++i) {
+            rgb[i * 3 + 0] = pixels[i * 4 + (bgr ? 2 : 0)];
+            rgb[i * 3 + 1] = pixels[i * 4 + 1];
+            rgb[i * 3 + 2] = pixels[i * 4 + (bgr ? 0 : 2)];
+        }
+        vkUnmapMemory(device, captureMemory);
+        if (writePng(path, width, height, rgb)) std::cout << "Saved screenshot " << path << std::endl;
+        else std::cerr << "Failed to write screenshot " << path << std::endl;
+    }
+
+    // ---------------------------------------------------------------- cleanup
+
+    void destroyBuffer(VkBuffer& buffer, VkDeviceMemory& memory) {
+        vkDestroyBuffer(device, buffer, nullptr);
+        vkFreeMemory(device, memory, nullptr);
+        buffer = VK_NULL_HANDLE;
+        memory = VK_NULL_HANDLE;
+    }
+
     void cleanup() {
-        std::cout << "Cleaning up resources..." << std::endl;
-        
-        // Wait for device to finish
-        if (vulkanContext) {
-            vkDeviceWaitIdle(vulkanContext->getDevice());
+        if (!vulkanContext || device == VK_NULL_HANDLE) {
+            if (windowManager) windowManager->cleanup();
+            return;
         }
-        
-        // Cleanup rendering resources in reverse order
-        if (graphicsPipeline != VK_NULL_HANDLE) {
-            vkDestroyPipeline(vulkanContext->getDevice(), graphicsPipeline, nullptr);
-            graphicsPipeline = VK_NULL_HANDLE;
+        vkDeviceWaitIdle(device);
+
+        destroyBuffer(captureBuffer, captureMemory);
+        vkDestroyFence(device, computeFence, nullptr);
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
+            vkDestroyFence(device, inFlightFences[i], nullptr);
+            destroyBuffer(uniformBuffers[i], uniformBuffersMemory[i]);
+            destroyBuffer(boxBuffers[i], boxBuffersMemory[i]);
         }
-        
-        if (pipelineLayout != VK_NULL_HANDLE) {
-            vkDestroyPipelineLayout(vulkanContext->getDevice(), pipelineLayout, nullptr);
-            pipelineLayout = VK_NULL_HANDLE;
+        vkDestroyPipeline(device, computePipeline, nullptr);
+        vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
+        vkDestroyDescriptorPool(device, computeDescriptorPool, nullptr);
+        vkDestroyDescriptorSetLayout(device, computeSetLayout, nullptr);
+        for (VkPipeline pipeline : {worldPipeline, skyPipeline, gridPipeline, hudPipeline}) {
+            vkDestroyPipeline(device, pipeline, nullptr);
         }
-        
-        // Command buffers are automatically freed when command pool is destroyed
-        commandBuffers.clear();
-        
-        // Cleanup synchronization objects
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            vkDestroySemaphore(vulkanContext->getDevice(), imageAvailableSemaphores[i], nullptr);
-            vkDestroySemaphore(vulkanContext->getDevice(), renderFinishedSemaphores[i], nullptr);
-            vkDestroyFence(vulkanContext->getDevice(), inFlightFences[i], nullptr);
+        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+        vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+        vkDestroyDescriptorSetLayout(device, frameSetLayout, nullptr);
+        destroyBuffer(vertexBuffer, vertexBufferMemory);
+        for (int i = 0; i < 2; ++i) destroyBuffer(cellBuffers[i], cellMemory[i]);
+        destroyBuffer(neighborBuffer, neighborMemory);
+        destroyBuffer(activeBuffer, activeMemory);
+        destroyBuffer(originBuffer, originMemory);
+        destroyBuffer(statsBuffer, statsMemory);
+        destroyBuffer(instanceBuffer, instanceMemory);
+        destroyBuffer(indirectBuffer, indirectMemory);
+        destroySwapchainResources();
+        vkDestroyRenderPass(device, renderPass, nullptr);
+
+        if (imguiReady) {
+            ImGui_ImplVulkan_Shutdown();
+            ImGui_ImplGlfw_Shutdown();
+            ImGui::DestroyContext();
+            imguiReady = false;
         }
-        
-        // Cleanup 3D rendering resources
-        if (descriptorPool != VK_NULL_HANDLE) {
-            vkDestroyDescriptorPool(vulkanContext->getDevice(), descriptorPool, nullptr);
-            descriptorPool = VK_NULL_HANDLE;
-        }
-        
-        if (descriptorSetLayout != VK_NULL_HANDLE) {
-            vkDestroyDescriptorSetLayout(vulkanContext->getDevice(), descriptorSetLayout, nullptr);
-            descriptorSetLayout = VK_NULL_HANDLE;
-        }
-        
-        // Cleanup uniform buffers
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            if (uniformBuffers[i] != VK_NULL_HANDLE) {
-                vkDestroyBuffer(vulkanContext->getDevice(), uniformBuffers[i], nullptr);
-                vkFreeMemory(vulkanContext->getDevice(), uniformBuffersMemory[i], nullptr);
-            }
-        }
-        
-        // Cleanup vertex buffer
-        if (vertexBuffer != VK_NULL_HANDLE) {
-            vkDestroyBuffer(vulkanContext->getDevice(), vertexBuffer, nullptr);
-            vkFreeMemory(vulkanContext->getDevice(), vertexBufferMemory, nullptr);
-        }
-        
-        // Cleanup framebuffers
-        for (auto framebuffer : framebuffers) {
-            vkDestroyFramebuffer(vulkanContext->getDevice(), framebuffer, nullptr);
-        }
-        framebuffers.clear();
-        
-        if (renderPass != VK_NULL_HANDLE) {
-            vkDestroyRenderPass(vulkanContext->getDevice(), renderPass, nullptr);
-            renderPass = VK_NULL_HANDLE;
-        }
-        
-        // Cleanup image views
-        for (auto imageView : swapchainImageViews) {
-            vkDestroyImageView(vulkanContext->getDevice(), imageView, nullptr);
-        }
-        swapchainImageViews.clear();
-        
-        // Cleanup depth resources
-        if (depthImageView != VK_NULL_HANDLE) {
-            vkDestroyImageView(vulkanContext->getDevice(), depthImageView, nullptr);
-            depthImageView = VK_NULL_HANDLE;
-        }
-        if (depthImage != VK_NULL_HANDLE) {
-            vkDestroyImage(vulkanContext->getDevice(), depthImage, nullptr);
-            vkFreeMemory(vulkanContext->getDevice(), depthImageMemory, nullptr);
-            depthImage = VK_NULL_HANDLE;
-            depthImageMemory = VK_NULL_HANDLE;
-        }
-        
-        // Cleanup swapchain
-        if (swapchain != VK_NULL_HANDLE) {
-            vkDestroySwapchainKHR(vulkanContext->getDevice(), swapchain, nullptr);
-            swapchain = VK_NULL_HANDLE;
-        }
-        
-        // Cleanup compute resources
-        if (computeFence != VK_NULL_HANDLE) {
-            vkDestroyFence(vulkanContext->getDevice(), computeFence, nullptr);
-            computeFence = VK_NULL_HANDLE;
-        }
-        
-        if (computePipeline != VK_NULL_HANDLE) {
-            vkDestroyPipeline(vulkanContext->getDevice(), computePipeline, nullptr);
-            computePipeline = VK_NULL_HANDLE;
-        }
-        
-        if (computePipelineLayout != VK_NULL_HANDLE) {
-            vkDestroyPipelineLayout(vulkanContext->getDevice(), computePipelineLayout, nullptr);
-            computePipelineLayout = VK_NULL_HANDLE;
-        }
-        
-        if (computeDescriptorSetLayout != VK_NULL_HANDLE) {
-            vkDestroyDescriptorSetLayout(vulkanContext->getDevice(), computeDescriptorSetLayout, nullptr);
-            computeDescriptorSetLayout = VK_NULL_HANDLE;
-        }
-        
-        if (computeDescriptorPool != VK_NULL_HANDLE) {
-            vkDestroyDescriptorPool(vulkanContext->getDevice(), computeDescriptorPool, nullptr);
-            computeDescriptorPool = VK_NULL_HANDLE;
-        }
-        
-        if (stateBuffer != VK_NULL_HANDLE) {
-            if (stateBufferMapped) {
-                vkUnmapMemory(vulkanContext->getDevice(), stateBufferMemory);
-            }
-            if (nextStateBufferMapped) {
-                vkUnmapMemory(vulkanContext->getDevice(), nextStateBufferMemory);
-            }
-            vkDestroyBuffer(vulkanContext->getDevice(), stateBuffer, nullptr);
-            vkDestroyBuffer(vulkanContext->getDevice(), nextStateBuffer, nullptr);
-            vkFreeMemory(vulkanContext->getDevice(), stateBufferMemory, nullptr);
-            if (nextStateBufferMemory != VK_NULL_HANDLE) {
-                vkFreeMemory(vulkanContext->getDevice(), nextStateBufferMemory, nullptr);
-            }
-            stateBuffer = VK_NULL_HANDLE;
-            nextStateBuffer = VK_NULL_HANDLE;
-            stateBufferMemory = VK_NULL_HANDLE;
-            nextStateBufferMemory = VK_NULL_HANDLE;
-        }
-        
-        // Cleanup shader manager
         if (shaderManager) {
             shaderManager->cleanup();
             shaderManager.reset();
         }
-        
-        // Cleanup core Vulkan components
-        // memoryManager.reset();  // Temporarily disabled
-        
-        if (vulkanContext) {
-            vulkanContext->cleanup();
-        }
-        
-        if (windowManager) {
-            windowManager->cleanup();
-        }
-        
-        std::cout << "Cleanup complete" << std::endl;
-    }
-
-    void createDescriptorSetLayout() {
-        VkDescriptorSetLayoutBinding uboLayoutBinding{};
-        uboLayoutBinding.binding = 0;
-        uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        uboLayoutBinding.descriptorCount = 1;
-        uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-        uboLayoutBinding.pImmutableSamplers = nullptr;
-        
-        VkDescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layoutInfo.bindingCount = 1;
-        layoutInfo.pBindings = &uboLayoutBinding;
-        
-        if (vkCreateDescriptorSetLayout(vulkanContext->getDevice(), &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create descriptor set layout!");
-        }
-        
-        std::cout << "Descriptor set layout created" << std::endl;
-    }
-    
-    void createVertexBuffer() {
-        VkDeviceSize bufferSize = sizeof(cubeVertices[0]) * cubeVertices.size();
-        
-        VkBufferCreateInfo bufferInfo{};
-        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufferInfo.size = bufferSize;
-        bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        
-        if (vkCreateBuffer(vulkanContext->getDevice(), &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create vertex buffer!");
-        }
-        
-        VkMemoryRequirements memRequirements;
-        vkGetBufferMemoryRequirements(vulkanContext->getDevice(), vertexBuffer, &memRequirements);
-        
-        VkMemoryAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize = memRequirements.size;
-        allocInfo.memoryTypeIndex = VulkanContext::findMemoryType(vulkanContext->getPhysicalDevice(), 
-            memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        
-        if (vkAllocateMemory(vulkanContext->getDevice(), &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate vertex buffer memory!");
-        }
-        
-        vkBindBufferMemory(vulkanContext->getDevice(), vertexBuffer, vertexBufferMemory, 0);
-        
-        void* data;
-        vkMapMemory(vulkanContext->getDevice(), vertexBufferMemory, 0, bufferSize, 0, &data);
-        memcpy(data, cubeVertices.data(), (size_t) bufferSize);
-        vkUnmapMemory(vulkanContext->getDevice(), vertexBufferMemory);
-        
-        std::cout << "Vertex buffer created with " << cubeVertices.size() << " vertices" << std::endl;
-    }
-    
-    void createUniformBuffers() {
-        VkDeviceSize bufferSize = sizeof(UniformBufferObject);
-        
-        uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-        uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-        uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
-        
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            VkBufferCreateInfo bufferInfo{};
-            bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-            bufferInfo.size = bufferSize;
-            bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-            bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            
-            if (vkCreateBuffer(vulkanContext->getDevice(), &bufferInfo, nullptr, &uniformBuffers[i]) != VK_SUCCESS) {
-                throw std::runtime_error("Failed to create uniform buffer!");
-            }
-            
-            VkMemoryRequirements memRequirements;
-            vkGetBufferMemoryRequirements(vulkanContext->getDevice(), uniformBuffers[i], &memRequirements);
-            
-            VkMemoryAllocateInfo allocInfo{};
-            allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-            allocInfo.allocationSize = memRequirements.size;
-            allocInfo.memoryTypeIndex = VulkanContext::findMemoryType(vulkanContext->getPhysicalDevice(),
-                memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-            
-            if (vkAllocateMemory(vulkanContext->getDevice(), &allocInfo, nullptr, &uniformBuffersMemory[i]) != VK_SUCCESS) {
-                throw std::runtime_error("Failed to allocate uniform buffer memory!");
-            }
-            
-            vkBindBufferMemory(vulkanContext->getDevice(), uniformBuffers[i], uniformBuffersMemory[i], 0);
-            vkMapMemory(vulkanContext->getDevice(), uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMapped[i]);
-        }
-        
-        std::cout << "Uniform buffers created for " << MAX_FRAMES_IN_FLIGHT << " frames" << std::endl;
-    }
-    
-    void createDescriptorPool() {
-        VkDescriptorPoolSize poolSize{};
-        poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        poolSize.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-        
-        VkDescriptorPoolCreateInfo poolInfo{};
-        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        poolInfo.poolSizeCount = 1;
-        poolInfo.pPoolSizes = &poolSize;
-        poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-        
-        if (vkCreateDescriptorPool(vulkanContext->getDevice(), &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create descriptor pool!");
-        }
-        
-        std::cout << "Descriptor pool created" << std::endl;
-    }
-    
-    void createDescriptorSets() {
-        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
-        VkDescriptorSetAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool = descriptorPool;
-        allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-        allocInfo.pSetLayouts = layouts.data();
-        
-        descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-        if (vkAllocateDescriptorSets(vulkanContext->getDevice(), &allocInfo, descriptorSets.data()) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate descriptor sets!");
-        }
-        
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            VkDescriptorBufferInfo bufferInfo{};
-            bufferInfo.buffer = uniformBuffers[i];
-            bufferInfo.offset = 0;
-            bufferInfo.range = sizeof(UniformBufferObject);
-            
-            VkWriteDescriptorSet descriptorWrite{};
-            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet = descriptorSets[i];
-            descriptorWrite.dstBinding = 0;
-            descriptorWrite.dstArrayElement = 0;
-            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptorWrite.descriptorCount = 1;
-            descriptorWrite.pBufferInfo = &bufferInfo;
-            
-            vkUpdateDescriptorSets(vulkanContext->getDevice(), 1, &descriptorWrite, 0, nullptr);
-        }
-        
-        std::cout << "Descriptor sets created and updated" << std::endl;
-    }
-    
-    void updateUniformBuffer(uint32_t currentImage) {
-        // Add bounds checking for uniform buffer access
-        if (currentImage >= uniformBuffersMapped.size()) {
-            throw std::runtime_error("Current image index out of range for uniform buffers! currentImage: " + std::to_string(currentImage) + 
-                                    ", uniformBuffersMapped.size(): " + std::to_string(uniformBuffersMapped.size()));
-        }
-        
-        auto currentTime = std::chrono::steady_clock::now();
-        float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-        
-        UniformBufferObject ubo{};
-        
-        // Model matrix with rotation on multiple axes for visual interest
-        ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(rotationSpeed), glm::vec3(0.0f, 1.0f, 0.0f));
-        ubo.model = glm::rotate(ubo.model, time * glm::radians(rotationSpeed * 0.5f), glm::vec3(1.0f, 0.0f, 0.0f));
-        
-        // View matrix from camera
-        ubo.view = camera->getViewMatrix();
-        
-        // Projection matrix from camera
-        ubo.proj = camera->getProjectionMatrix();
-        ubo.proj[1][1] *= -1; // GLM was designed for OpenGL, flip Y for Vulkan
-        
-        memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+        vulkanContext->cleanup();
+        windowManager->cleanup();
+        device = VK_NULL_HANDLE;
     }
 };
 
-int main() {
+int main(int argc, char** argv) {
     try {
-        // Initialize logger if available
-        std::cout << "Starting Vulkan HIP Engine - Minimal Build" << std::endl;
-        
-        // Run application
-        MinimalVulkanApp app;
-        app.run();
-        
-        std::cout << "Application exited successfully" << std::endl;
-        return 0;
-    }
-    catch (const std::exception& e) {
+        Options options = parseOptions(argc, argv);
+        std::filesystem::path exeDir = executableDirectory(argv[0]);
+        initVulkanLoader(exeDir);
+        LifePrototypeApp app(options, findShaderDirectory(exeDir));
+        return app.run();
+    } catch (const std::exception& e) {
         std::cerr << "Fatal error: " << e.what() << std::endl;
+#if defined(_WIN32)
+        MessageBoxA(nullptr, e.what(), "3D Life", MB_OK | MB_ICONERROR); // no console in release builds
+#endif
         return 1;
     }
-} 
+}
