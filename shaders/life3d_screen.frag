@@ -31,7 +31,7 @@ float roundedBox(vec2 p, vec2 halfSize, float radius) {
 }
 
 // 5x5 hotbar icons, one bit per pixel, row-major from the top-left.
-const uint ICONS[8] = uint[8](
+const uint ICONS[9] = uint[9](
     0x0001000u,  // 1 single cell
     0x00739C0u,  // 2 2x2x2 block
     0x0023880u,  // 3 plus
@@ -39,7 +39,8 @@ const uint ICONS[8] = uint[8](
     0x165E9B6u,  // 5 big soup
     0x1FFFFFFu,  // 6 wall
     0x0421084u,  // 7 pillar
-    0x1555555u  // 8 rule seed
+    0x1555555u,  // 8 rule seed
+    0x00209C0u   // 9 glider
 );
 
 vec4 hud() {
@@ -64,7 +65,7 @@ vec4 hud() {
     if (rel.x < 0.0 || rel.y < 0.0 || rel.x >= width || rel.y >= slot) return vec4(0.0);
     int index = int(rel.x / (slot + gap));
     vec2 inSlot = vec2(rel.x - float(index) * (slot + gap), rel.y);
-    if (index >= slots || index >= 8 || inSlot.x >= slot) return vec4(0.0);
+    if (index >= slots || index >= 9 || inSlot.x >= slot) return vec4(0.0);
 
     // Rounded dark slots in the menu style: the selected one gets a mint border
     // and tint. Colors are linear (the swapchain is sRGB).

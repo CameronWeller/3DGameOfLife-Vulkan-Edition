@@ -60,6 +60,7 @@ static_assert(GLM_CONFIG_CLIP_CONTROL & GLM_CLIP_CONTROL_ZO_BIT,
 #include "VulkanContext.h"
 #include "engine/vulkan/resources/ShaderManager.h"
 #include "Life3DRules.h"
+#include "Life3DPatterns.h"
 #include "MenuFont.h"
 #include "Updater.h"
 #include "tutorial/Tutorial.h"
@@ -90,7 +91,7 @@ glm::ivec3 neighborOffset(int k) { return glm::ivec3(k % 3 - 1, (k / 3) % 3 - 1,
 
 // Scripted input for end-to-end checks, applied in order before the first frame.
 struct ScriptAction {
-    enum Kind { Position, Look, Place, Break, Slot, Resize, Push, Rotate } kind;
+    enum Kind { Position, Look, Place, Break, Slot, Resize, Push, Rotate, Tilt } kind;
     glm::vec3 value{0.0f};
 };
 
@@ -134,7 +135,8 @@ void printUsage() {
                  "Scripted input (applied in order, for tests):\n"
                  "  --pos X,Y,Z  --look YAW,PITCH  --slot N (0 = empty hand)  --place  --break  --resize W,H\n"
                  "  --push DX,DY,DZ   move the player with collision\n"
-                 "  --rotate N        rotate the stamp N quarter turns (like pressing E N times)\n";
+                 "  --rotate N        rotate the stamp N quarter turns (like pressing E N times)\n"
+                 "  --tilt N          tilt the stamp N quarter turns around x (like pressing C N times)\n";
 }
 
 glm::vec3 parseVector(const std::string& text, int components) {
@@ -183,6 +185,7 @@ Options parseOptions(int argc, char** argv) {
         else if (arg == "--resize") options.script.push_back({ScriptAction::Resize, parseVector(value(i), 2)});
         else if (arg == "--push") options.script.push_back({ScriptAction::Push, parseVector(value(i), 3)});
         else if (arg == "--rotate") options.script.push_back({ScriptAction::Rotate, glm::vec3(std::stof(value(i)))});
+        else if (arg == "--tilt") options.script.push_back({ScriptAction::Tilt, glm::vec3(std::stof(value(i)))});
         else if (arg == "--help" || arg == "-h") { printUsage(); std::exit(0); }
         else throw std::runtime_error("Unknown option: " + arg);
     }
@@ -338,10 +341,10 @@ std::string timestampedScreenshotName() {
 }
 
 // Hotbar stamps; their order matches the icons in shaders/life3d_screen.frag.
-enum class Stamp { Cell, Block, Plus, SmallSoup, BigSoup, Wall, Pillar, RuleSeed };
-constexpr std::array<const char*, 8> STAMP_NAMES = {
-    "Cell", "Block 2x2x2", "Plus", "Soup 8^3", "Soup 16^3", "Wall 5x5", "Pillar 8", "Rule seed"};
-constexpr std::array<const char*, 8> STAMP_DESCRIPTIONS = {
+enum class Stamp { Cell, Block, Plus, SmallSoup, BigSoup, Wall, Pillar, RuleSeed, Glider };
+constexpr std::array<const char*, 9> STAMP_NAMES = {
+    "Cell", "Block 2x2x2", "Plus", "Soup 8^3", "Soup 16^3", "Wall 5x5", "Pillar 8", "Rule seed", "Glider"};
+constexpr std::array<const char*, 9> STAMP_DESCRIPTIONS = {
     "One live cell.",
     "A solid 2x2x2 cube.",
     "A 3D cross of seven cells.",
@@ -349,10 +352,12 @@ constexpr std::array<const char*, 8> STAMP_DESCRIPTIONS = {
     "A 16x16x16 random soup at the rule's density.",
     "A solid 5x5 wall. On the ground it stands upright.",
     "A line of 8 cells growing away from the surface.",
-    "The current rule's own starting soup."};
+    "The current rule's own starting soup.",
+    "Bays' glider (Life 4555's under that rule, Life 5766's otherwise). It lies flat on the ground and stands "
+    "up on a wall; Q/E pick its heading, Z/C tilt it to climb or dive."};
 // Same 5x5 bitmaps as ICONS in shaders/life3d_screen.frag (bit 24 = top-left).
-constexpr std::array<uint32_t, 8> STAMP_ICONS = {
-    0x0001000u, 0x00739C0u, 0x0023880u, 0x0051120u, 0x165E9B6u, 0x1FFFFFFu, 0x0421084u, 0x1555555u};
+constexpr std::array<uint32_t, 9> STAMP_ICONS = {
+    0x0001000u, 0x00739C0u, 0x0023880u, 0x0051120u, 0x165E9B6u, 0x1FFFFFFu, 0x0421084u, 0x1555555u, 0x00209C0u};
 
 // Player-adjustable options, stored as "key:value" lines like Minecraft's options.txt.
 struct Settings {
@@ -630,6 +635,7 @@ private:
     double lastCursorX = 0.0, lastCursorY = 0.0;
     int hotbarSlot = 0; // -1 = empty hand: nothing to place, no placement outline
     int brushRotation = 0; // quarter turns around the placement surface (Q/E)
+    int brushTilt = 0;     // quarter turns around the world x axis (Z/C), applied after brushRotation
     bool breakHeld = false, placeHeld = false;
     float breakTimer = 0.0f, placeTimer = 0.0f;
     bool hudVisible = true;
@@ -1828,8 +1834,9 @@ private:
 
     // Cells of the selected stamp. Stamps are centered across the target face and
     // extend away from it along `normal`, so they never overlap the targeted block.
-    // Q/E rotate them in quarter turns around `normal`. `solid` fills soups
-    // completely (for the placement outline).
+    // Q/E rotate them in quarter turns around `normal`, then Z/C tilt them in
+    // quarter turns around the world x axis. `solid` fills soups completely (for
+    // the placement outline).
     std::vector<glm::ivec3> stampCells(Stamp stamp, const glm::ivec3& anchor, const glm::ivec3& normal, bool solid = false) {
         int axis = normal.x != 0 ? 0 : normal.y != 0 ? 1 : 2;
         glm::ivec3 u(0), v(0);
@@ -1865,6 +1872,13 @@ private:
                 break;
             case Stamp::Pillar: box(1, 8, 1.0f); break;
             case Stamp::RuleSeed: box(rule().seedSize, rule().seedSize, rule().seedDensity); break;
+            case Stamp::Glider: {
+                // Pattern x and z lie across the surface, pattern y grows away from it,
+                // so the glider slides along the surface it is placed on.
+                const Pattern glider = std::string(rule().name) == "Life 4555" ? life4555Glider() : life5766Glider();
+                for (const PatternCell& c : glider) cells.push_back(anchor + u * (c.x - 1) + v * (c.z - 1) + normal * c.y);
+                break;
+            }
         }
         for (glm::ivec3& cell : cells) {
             glm::ivec3 d = cell - anchor;
@@ -1873,6 +1887,7 @@ private:
                 d[(axis + 1) % 3] = -b;
                 d[(axis + 2) % 3] = a;
             }
+            for (int turn = 0; turn < brushTilt; ++turn) d = glm::ivec3(d.x, -d.z, d.y);
             cell = anchor + d;
         }
         return cells;
@@ -1908,6 +1923,9 @@ private:
             case ScriptAction::Rotate:
                 rotateBrush(static_cast<int>(action.value.x));
                 break;
+            case ScriptAction::Tilt:
+                tiltBrush(static_cast<int>(action.value.x));
+                break;
             case ScriptAction::Push:
                 moveWithCollision(action.value);
                 std::cout << "push: feet at " << eye.x << " " << eye.y - EYE_HEIGHT << " " << eye.z << std::endl;
@@ -1926,7 +1944,8 @@ private:
                         hi = glm::max(hi, c);
                     }
                     std::cout << "stamp bounds (" << lo.x << "," << lo.y << "," << lo.z << ")-(" << hi.x << "," << hi.y
-                              << "," << hi.z << ") rotation " << brushRotation * 90 << std::endl;
+                              << "," << hi.z << ") rotation " << brushRotation * 90 << " tilt " << brushTilt * 90
+                              << std::endl;
                 }
                 if (action.kind == ScriptAction::Place) placeStamp(); else breakBlock();
                 if (refreshPending) runPass(false);
@@ -1967,11 +1986,17 @@ private:
     std::string handLabel() const {
         std::string label = handName();
         if (hotbarSlot >= 0 && brushRotation != 0) label += " (rotated " + std::to_string(brushRotation * 90) + " deg)";
+        if (hotbarSlot >= 0 && brushTilt != 0) label += " (tilted " + std::to_string(brushTilt * 90) + " deg)";
         return label;
     }
 
     void rotateBrush(int quarterTurns) {
         brushRotation = ((brushRotation + quarterTurns) % 4 + 4) % 4;
+        slotNameUntil = glfwGetTime() + 2.0;
+    }
+
+    void tiltBrush(int quarterTurns) {
+        brushTilt = ((brushTilt + quarterTurns) % 4 + 4) % 4;
         slotNameUntil = glfwGetTime() + 2.0;
     }
 
@@ -2065,6 +2090,8 @@ private:
             case GLFW_KEY_TAB: openInventory(); break;
             case GLFW_KEY_Q: rotateBrush(-1); break; // Ctrl+Q (quit) is handled above
             case GLFW_KEY_E: rotateBrush(1); break;
+            case GLFW_KEY_Z: tiltBrush(-1); break;
+            case GLFW_KEY_C: tiltBrush(1); break;
             case GLFW_KEY_SPACE: {
                 double now = glfwGetTime();
                 if (now - lastSpacePress < DOUBLE_TAP_SECONDS) {
@@ -2191,7 +2218,7 @@ private:
                      "  W A S D  move   Space  jump (fly up)   Left Shift  fly down   Left Ctrl  sprint\n"
                      "  Double-tap Space  toggle flying\n"
                      "  Left click  place the selected stamp   Right click  remove the outlined block\n"
-                     "  Tab  stamps and rules   Q / E  rotate the stamp   1-" << STAMP_NAMES.size()
+                     "  Tab  stamps and rules   Q / E  rotate the stamp   Z / C  tilt it around x   1-" << STAMP_NAMES.size()
                   << " / scroll  hotbar (press the selected number again for an empty hand):\n ";
         for (size_t i = 0; i < STAMP_NAMES.size(); ++i) std::cout << "  " << (i + 1) << " " << STAMP_NAMES[i];
         std::cout << "\n"
@@ -2720,7 +2747,7 @@ private:
         if (beginCard("##inventory", 470)) {
             cardHeader("Stamps & Rules", "Tab to close");
             sectionLabel("Stamps");
-            mutedText("Left click places, right click removes, Q and E rotate.");
+            mutedText("Left click places, right click removes. Q/E rotate, Z/C tilt around x.");
             ImDrawList* draw = ImGui::GetWindowDrawList();
             const int tiles = static_cast<int>(STAMP_NAMES.size()) + 1;
             const float gap = px(6);
