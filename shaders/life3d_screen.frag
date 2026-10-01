@@ -24,6 +24,12 @@ float gridLine(vec2 p, float spacing) {
     return 1.0 - min(min(dist.x, dist.y), 1.0);
 }
 
+// Signed distance from p (relative to the box center) to a rounded box.
+float roundedBox(vec2 p, vec2 halfSize, float radius) {
+    vec2 q = abs(p) - halfSize + radius;
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+}
+
 // 5x5 hotbar icons, one bit per pixel, row-major from the top-left.
 const uint ICONS[8] = uint[8](
     0x0001000u,  // 1 single cell
@@ -60,10 +66,17 @@ vec4 hud() {
     vec2 inSlot = vec2(rel.x - float(index) * (slot + gap), rel.y);
     if (index >= slots || index >= 8 || inSlot.x >= slot) return vec4(0.0);
 
+    // Rounded dark slots in the menu style: the selected one gets a mint border
+    // and tint. Colors are linear (the swapchain is sRGB).
+    const vec3 accent = vec3(0.112, 0.791, 0.392); // sRGB (94, 230, 168)
+    const vec3 panel = vec3(0.0044, 0.006, 0.011); // sRGB (14, 18, 28)
     bool selected = index == frame.hotbar.x;
-    float border = (selected ? 3.0 : 2.0) * scale;
-    if (min(min(inSlot.x, inSlot.y), min(slot - inSlot.x, slot - inSlot.y)) < border) {
-        return selected ? vec4(1.0, 1.0, 1.0, 0.95) : vec4(0.35, 0.35, 0.35, 0.85);
+    float edge = roundedBox(inSlot + 0.5 - 0.5 * slot, vec2(0.5 * slot), 7.0 * scale);
+    float coverage = clamp(0.5 - edge, 0.0, 1.0); // antialiased corners
+    if (coverage <= 0.0) return vec4(0.0);
+    float border = (selected ? 2.0 : 1.0) * scale;
+    if (edge > -border) {
+        return selected ? vec4(accent, coverage) : vec4(0.19, 0.26, 0.46, 0.55 * coverage);
     }
     // Icon: 5x5 cells in the middle of the slot.
     float cell = floor(slot * 0.14);
@@ -71,10 +84,10 @@ vec4 hud() {
     if (all(greaterThanEqual(iconRel, vec2(0.0))) && all(lessThan(iconRel, vec2(5.0 * cell)))) {
         ivec2 bit = ivec2(iconRel / cell);
         if (((ICONS[index] >> uint(24 - (bit.y * 5 + bit.x))) & 1u) != 0u) {
-            return vec4(vec3(0.55, 0.9, 0.6) * (selected ? 1.0 : 0.75), 1.0);
+            return vec4(accent * (selected ? 1.0 : 0.6), 1.0);
         }
     }
-    return vec4(0.0, 0.0, 0.0, selected ? 0.55 : 0.4);
+    return selected ? vec4(panel + accent * 0.06, 0.8) : vec4(panel, 0.6);
 }
 
 void main() {
