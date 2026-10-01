@@ -82,7 +82,6 @@ target_compile_definitions(gol3d_volk PUBLIC VK_NO_PROTOTYPES)
 target_link_libraries(gol3d_volk PUBLIC Vulkan::Headers ${CMAKE_DL_LIBS})
 
 # Dear ImGui (menus); its Vulkan backend loads functions through volk's loader.
-# The repository's include/ holds older backend copies, so gol3d lists these first.
 add_library(gol3d_imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp

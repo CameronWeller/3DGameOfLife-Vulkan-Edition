@@ -334,10 +334,6 @@ flowchart LR
 
 More detail is in [docs/PROTOTYPE.md](docs/PROTOTYPE.md).
 
-> **Two engines live in this repo.** The playable game is the self-contained `prototype/` build described above
-> (source in [`src/main_minimal.cpp`](src/main_minimal.cpp)). The root `CMakeLists.txt` builds an older, larger
-> engine (`VulkanEngine`, ImGui UI, VMA, vcpkg) that is still a work in progress.
-
 ---
 
 ## Contributing
@@ -373,7 +369,6 @@ ctest --test-dir build/prototype -LE gpu    # CPU only (no GPU or display needed
 | [`shaders/life3d_*`](shaders/) | Compute and render shaders |
 | [`docs/PROTOTYPE.md`](docs/PROTOTYPE.md) | Detailed game documentation |
 | [`scripts/readme-media/`](scripts/readme-media/) | Scripts that regenerate every image and GIF in this README |
-| `src/`, `include/` (the rest) | The older, work-in-progress engine |
 
 ### Good first contributions
 
@@ -382,7 +377,6 @@ ctest --test-dir build/prototype -LE gpu    # CPU only (no GPU or display needed
   the <kbd>R</kbd> cycle and the Stamps & Rules screen automatically.
 - **Add a 3D glider stamp.** Bays' rules have gliders, but there is no stamp for one yet.
 - **Pattern files.** Import and export patterns in a documented text format.
-- **Publish a release.** CI that runs `cpack` for each platform and uploads to GitHub Releases.
 
 ### Regenerating the README media
 
