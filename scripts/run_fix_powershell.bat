@@ -1,3 +1,0 @@
-@echo off
-echo Running PowerShell fix script with administrator privileges...
-"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -Command "Start-Process 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' -ArgumentList '-ExecutionPolicy Bypass -File \"%~dp0fix_powershell.ps1\"' -Verb RunAs" 

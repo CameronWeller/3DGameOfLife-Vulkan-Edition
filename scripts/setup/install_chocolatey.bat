@@ -1,3 +1,0 @@
-@echo off
-echo Installing Chocolatey...
-"C:\Program Files\PowerShell\7\pwsh.exe" -Command "Start-Process pwsh -ArgumentList '-ExecutionPolicy Bypass -File \"%~dp0install_chocolatey.ps1\"' -Verb RunAs" 
