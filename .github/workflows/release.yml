@@ -1,0 +1,249 @@
+name: Release gol3d
+
+# Every push to main builds gol3d for Linux, Windows and macOS and publishes a
+# GitHub release with native packages. Pull requests build the same packages
+# (as workflow artifacts) without publishing.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  MOLTENVK_URL: https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
+  MOLTENVK_SHA256: f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e
+
+jobs:
+  version:
+    name: Version and shaders
+    runs-on: ubuntu-24.04 # glslc is packaged from Ubuntu 23.04 on
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        # major.minor from VERSION; the patch number is this workflow's run number.
+        run: |
+          base=$(tr -d '[:space:]' < VERSION)
+          echo "version=${base%.*}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+      - name: Compile SPIR-V once for every platform
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends glslc
+          mkdir -p spirv
+          for s in life3d_chunks.comp life3d_world.vert life3d_world.frag life3d_screen.vert life3d_screen.frag; do
+            glslc -o "spirv/$s.spv" "shaders/$s"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spirv
+          path: spirv
+
+  linux:
+    name: Linux ${{ matrix.arch }}
+    needs: version
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, deb: amd64, runner: ubuntu-22.04 }
+          - { arch: aarch64, deb: arm64, runner: ubuntu-22.04-arm }
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build rpm dpkg-dev file pkg-config \
+            libwayland-dev libxkbcommon-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: spirv
+          path: spirv
+      - name: Build
+        run: |
+          cmake -S prototype -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+            -DGOL3D_BUNDLE_DEPS=ON -DGOL3D_SHADER_DIR="$PWD/spirv" \
+            -DGOL3D_VERSION="$VERSION" -DGOL3D_PACKAGE_PLATFORM="linux-${{ matrix.arch }}"
+          cmake --build build
+      - name: Test (CPU)
+        run: ctest --test-dir build -LE gpu --output-on-failure
+      - name: DEB, RPM and tarball
+        working-directory: build
+        run: cpack -G "DEB;RPM;TGZ"
+      - name: AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          LINUXDEPLOY_OUTPUT_VERSION: ${{ needs.version.outputs.version }}
+          # Lets AppImageUpdate (and the in-game updater) find newer releases.
+          UPDATE_INFORMATION: gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|gol3d-*-linux-${{ matrix.arch }}.AppImage.zsync
+        run: |
+          DESTDIR="$PWD/AppDir" cmake --install build
+          curl -fsSL -o linuxdeploy "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${{ matrix.arch }}.AppImage"
+          chmod +x linuxdeploy
+          ./linuxdeploy --appdir AppDir --output appimage \
+            --desktop-file AppDir/usr/share/applications/gol3d.desktop \
+            --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/gol3d.png
+          mv ./*.AppImage "build/gol3d-$VERSION-linux-${{ matrix.arch }}.AppImage"
+          if ls ./*.zsync >/dev/null 2>&1; then mv ./*.zsync "build/gol3d-$VERSION-linux-${{ matrix.arch }}.AppImage.zsync"; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: |
+            build/*.deb
+            build/*.rpm
+            build/*.tar.gz
+            build/*.AppImage
+            build/*.zsync
+          if-no-files-found: error
+
+  arch:
+    name: Arch Linux x86_64
+    needs: version
+    runs-on: ubuntu-22.04
+    container: archlinux:base-devel
+    env:
+      GOL3D_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Install build tools
+        run: pacman -Syu --noconfirm --needed git cmake ninja shaderc libx11 libxrandr libxinerama libxcursor libxi wayland libxkbcommon
+      - uses: actions/checkout@v4
+      - name: makepkg
+        # makepkg refuses to run as root.
+        run: |
+          useradd -m builder
+          chown -R builder "$GITHUB_WORKSPACE"
+          cd packaging/arch
+          sudo -u builder --preserve-env=GOL3D_VERSION makepkg --noconfirm --nodeps -f
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-x86_64
+          path: packaging/arch/*.pkg.tar.zst
+          if-no-files-found: error
+
+  windows:
+    name: Windows ${{ matrix.arch }}
+    needs: version
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, ARM64]
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: spirv
+          path: spirv
+      - name: Build
+        shell: pwsh
+        run: |
+          $platform = "windows-${{ matrix.arch }}".ToLower()
+          cmake -S prototype -B build -A ${{ matrix.arch }} -DGOL3D_BUNDLE_DEPS=ON `
+            "-DGOL3D_SHADER_DIR=$env:GITHUB_WORKSPACE/spirv" "-DGOL3D_VERSION=$env:VERSION" "-DGOL3D_PACKAGE_PLATFORM=$platform"
+          cmake --build build --config Release
+      - name: Test (CPU)
+        if: matrix.arch == 'x64'
+        run: ctest --test-dir build -C Release -LE gpu --output-on-failure
+      - name: Installer and zip
+        working-directory: build
+        run: cpack -C Release -G "NSIS;ZIP"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: |
+            build/*.exe
+            build/*.zip
+          if-no-files-found: error
+
+  macos:
+    name: macOS universal
+    needs: version
+    runs-on: macos-14
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: spirv
+          path: spirv
+      - name: MoltenVK (universal)
+        run: |
+          curl -fsSL -o moltenvk.tar "$MOLTENVK_URL"
+          echo "$MOLTENVK_SHA256  moltenvk.tar" | shasum -a 256 -c -
+          tar xf moltenvk.tar
+          lipo -info MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib
+      - name: Build
+        run: |
+          cmake -S prototype -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DGOL3D_BUNDLE_DEPS=ON -DGOL3D_SHADER_DIR="$PWD/spirv" -DGOL3D_VERSION="$VERSION" \
+            -DGOL3D_MOLTENVK_DYLIB="$PWD/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib" \
+            -DGOL3D_PACKAGE_PLATFORM=macos-universal
+          cmake --build build --parallel
+          lipo -info "build/3D Life.app/Contents/MacOS/3D Life"
+      - name: Test (CPU)
+        run: ctest --test-dir build -LE gpu --output-on-failure
+      - name: Disk image
+        working-directory: build
+        run: cpack -G DragNDrop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: build/*.dmg
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [version, linux, arch, windows, macos]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          rm -rf spirv
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create release
+        run: |
+          cat > notes.md <<EOF
+          Automated build of \`${GITHUB_SHA::7}\` on main.
+
+          | Platform | Download |
+          | -- | -- |
+          | Windows 10/11 (x64, ARM64) | \`gol3d-$VERSION-windows-*.exe\` installer, or the \`.zip\` |
+          | macOS 11+ (Apple silicon and Intel) | \`gol3d-$VERSION-macos-universal.dmg\` |
+          | Debian, Ubuntu, Mint | \`gol3d_$VERSION_*.deb\` |
+          | Fedora, openSUSE, RHEL | \`gol3d-$VERSION-*.rpm\` |
+          | Arch, Manjaro | \`gol3d-$VERSION-1-x86_64.pkg.tar.zst\` |
+          | Any Linux | \`gol3d-$VERSION-linux-*.AppImage\` or the \`.tar.gz\` |
+
+          Needs a GPU driver with Vulkan support (on Linux, the Vulkan loader: \`libvulkan1\` / \`vulkan-loader\` / \`vulkan-icd-loader\`).
+          The macOS app is not notarized: the first time, right-click it and choose Open.
+          Verify downloads with \`SHA256SUMS\`.
+          EOF
+          gh release create "v$VERSION" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "3D Life $VERSION" --notes-file notes.md --latest

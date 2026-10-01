@@ -24,7 +24,8 @@ click removes. Simulation actions use keys Minecraft leaves unbound.
 | -- | -- |
 | Mouse | Look around. Click the window to grab the mouse. |
 | Esc | Pause menu (world freezes): Back to Game, Stamps & Rules, New World, Save/Load, Tutorial, Settings, Quit |
-| E | Stamps & Rules screen: pick a stamp or the empty hand, and switch rules (hover for descriptions) |
+| Tab | Stamps & Rules screen: pick a stamp or the empty hand, and switch rules (hover for descriptions) |
+| Q / E | Rotate the selected stamp a quarter turn around the surface you place on |
 | W A S D | Move |
 | Space | Jump; fly up while flying |
 | Double-tap Space | Toggle flying (as in creative mode) |
@@ -63,6 +64,22 @@ status.
 They save to `~/.config/gol3d/options.txt` (`%APPDATA%\gol3d` on Windows) and
 load on start. Scripted and test runs ignore the file.
 
+**Updates:** at startup the game asks GitHub's releases API whether a newer
+release exists. You can turn this off with Settings > Check for Updates, and
+Settings > Check Now checks on demand. When an update exists, a message appears
+and the pause menu offers it:
+- **Windows installer:** downloads the new installer, verifies its SHA-256
+  against the digest GitHub publishes, installs it silently and restarts the
+  game.
+- **AppImage:** downloads the new AppImage, verifies it, replaces the file in
+  place, then offers Restart Now. The AppImage also carries zsync update
+  information for AppImageUpdate.
+- **`.deb`, `.rpm`, Arch, `.dmg` and archives:** opens the release page, since
+  the package manager or you install those.
+
+Downloads use the system `curl` and are accepted only from this repository's
+release URLs.
+
 The user data folder for saves and screenshots:
 - Linux: `~/.local/share/gol3d`
 - Windows: `%APPDATA%\gol3d`
@@ -82,7 +99,7 @@ The user data folder for saves and screenshots:
 - the y = 0 ground;
 - empty air 4 blocks ahead.
 
-A white outline marks the spot when you're not targeting a block. Stamps grow
+A white outline shows where the whole stamp will go, including its rotation. Stamps grow
 away from the surface. A wall placed on the ground stands up across your view.
 Cells that would overlap the player are skipped.
 
@@ -129,7 +146,7 @@ Lesson content lives in `src/tutorial/TutorialLessons.cpp`, the panel in
 ## Rules
 
 Every rule is a two-state rule over the 26 cells of the 3x3x3 cube around a cell,
-written as survive/birth neighbor counts. The Stamps & Rules screen (E) and the
+written as survive/birth neighbor counts. The Stamps & Rules screen (Tab) and the
 New World screen spell each rule out in words.
 
 Conway's Life is B3/S23 over 8 neighbors, but those numbers do not carry over to
@@ -182,10 +199,26 @@ copy (B5 is odd), and its glider is a different 10-cell shape.
 - **Timeouts:** every GPU wait times out after 2 s. On timeout the game exits
   with an error instead of hanging.
 
+## Releases
+
+Every push to `main` runs `.github/workflows/release.yml` and publishes a GitHub
+release, versioned from `VERSION` (major.minor) plus the workflow run number:
+
+| Platform | Packages |
+| -- | -- |
+| Linux x86_64, aarch64 | `.deb`, `.rpm`, `.tar.gz`, AppImage |
+| Arch Linux x86_64 | `.pkg.tar.zst` (built from `packaging/arch/PKGBUILD`) |
+| Windows x64, ARM64 | NSIS installer `.exe`, `.zip` |
+| macOS 11+ (universal) | `.dmg` with MoltenVK bundled; not notarized |
+
+A `SHA256SUMS` file is published alongside. Pull requests build the same
+packages as workflow artifacts without publishing. Locally, `cpack` in the build
+directory makes the packages for the host platform.
+
 ## Testing
 
 ```bash
-ctest --test-dir build/prototype            # CPU rule checks + GPU check
+ctest --test-dir build/prototype            # CPU rule and updater checks + GPU check
 ctest --test-dir build/prototype -LE gpu    # CPU-only
 ```
 
@@ -203,6 +236,8 @@ Other scripted actions:
 - `--push DX,DY,DZ` moves the player through the collision code;
 - `--save PATH` writes the world on exit;
 - `--load PATH` opens a save.
+- `--rotate N` turns the stamp N quarter turns.
+- `--update-feed URL` checks a releases JSON (a `file://` URL works) instead of GitHub.
 
 Run `gol3d --help` for all options.
 

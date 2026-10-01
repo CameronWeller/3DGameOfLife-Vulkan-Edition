@@ -40,6 +40,9 @@
 #elif defined(__APPLE__)
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
+#include <unistd.h>
+#else
+#include <unistd.h>
 #endif
 
 #include <GLFW/glfw3.h>
@@ -57,6 +60,7 @@ static_assert(GLM_CONFIG_CLIP_CONTROL & GLM_CLIP_CONTROL_ZO_BIT,
 #include "VulkanContext.h"
 #include "engine/vulkan/resources/ShaderManager.h"
 #include "Life3DRules.h"
+#include "Updater.h"
 #include "tutorial/Tutorial.h"
 
 using namespace VulkanHIP;
@@ -85,7 +89,7 @@ glm::ivec3 neighborOffset(int k) { return glm::ivec3(k % 3 - 1, (k / 3) % 3 - 1,
 
 // Scripted input for end-to-end checks, applied in order before the first frame.
 struct ScriptAction {
-    enum Kind { Position, Look, Place, Break, Slot, Resize, Push } kind;
+    enum Kind { Position, Look, Place, Break, Slot, Resize, Push, Rotate } kind;
     glm::vec3 value{0.0f};
 };
 
@@ -104,6 +108,7 @@ struct Options {
     std::string savePath;
     bool fly = false;
     std::string menu; // open a menu at start (for screenshots): pause, settings, inventory, newworld, tutorial[:N]
+    std::string updateFeed; // test hook: releases JSON URL (file:// works) instead of GitHub
     std::vector<ScriptAction> script;
 };
 
@@ -122,10 +127,13 @@ void printUsage() {
                  "  --load PATH       open a saved world (Ctrl+S saves world.life3d in the user data folder)\n"
                  "  --fly             start flying instead of walking\n"
                  "  --menu NAME       open pause, settings, inventory, newworld or tutorial[:LESSON] at start\n"
+                 "  --update-feed URL check this releases JSON for updates (testing)\n"
+                 "  --version         print the version and exit\n"
                  "  --save PATH       save the world to PATH on exit\n"
                  "Scripted input (applied in order, for tests):\n"
                  "  --pos X,Y,Z  --look YAW,PITCH  --slot N (0 = empty hand)  --place  --break  --resize W,H\n"
-                 "  --push DX,DY,DZ   move the player with collision\n";
+                 "  --push DX,DY,DZ   move the player with collision\n"
+                 "  --rotate N        rotate the stamp N quarter turns (like pressing E N times)\n";
 }
 
 glm::vec3 parseVector(const std::string& text, int components) {
@@ -163,6 +171,8 @@ Options parseOptions(int argc, char** argv) {
         else if (arg == "--load") options.loadPath = value(i);
         else if (arg == "--fly") options.fly = true;
         else if (arg == "--menu") options.menu = value(i);
+        else if (arg == "--update-feed") options.updateFeed = value(i);
+        else if (arg == "--version") { std::cout << "gol3d " << GOL3D_VERSION_STRING << std::endl; std::exit(0); }
         else if (arg == "--save") options.savePath = value(i);
         else if (arg == "--pos") options.script.push_back({ScriptAction::Position, parseVector(value(i), 3)});
         else if (arg == "--look") options.script.push_back({ScriptAction::Look, parseVector(value(i), 2)});
@@ -171,6 +181,7 @@ Options parseOptions(int argc, char** argv) {
         else if (arg == "--break") options.script.push_back({ScriptAction::Break});
         else if (arg == "--resize") options.script.push_back({ScriptAction::Resize, parseVector(value(i), 2)});
         else if (arg == "--push") options.script.push_back({ScriptAction::Push, parseVector(value(i), 3)});
+        else if (arg == "--rotate") options.script.push_back({ScriptAction::Rotate, glm::vec3(std::stof(value(i)))});
         else if (arg == "--help" || arg == "-h") { printUsage(); std::exit(0); }
         else throw std::runtime_error("Unknown option: " + arg);
     }
@@ -349,6 +360,7 @@ struct Settings {
     bool invertY = false;
     int renderDistance = 256; // blocks; fog ends here
     int guiScale = 0;        // 0 = automatic
+    bool checkUpdates = true; // ask GitHub for a newer release at startup
 };
 
 std::filesystem::path settingsPath() {
@@ -378,6 +390,7 @@ Settings loadSettings() {
             else if (key == "invertY") settings.invertY = value == "true";
             else if (key == "renderDistance") settings.renderDistance = std::clamp(std::stoi(value), 64, 512);
             else if (key == "guiScale") settings.guiScale = std::clamp(std::stoi(value), 0, 4);
+            else if (key == "checkUpdates") settings.checkUpdates = value != "false";
         } catch (const std::exception&) {
             // Ignore malformed lines and keep the default.
         }
@@ -391,15 +404,16 @@ void saveSettings(const Settings& settings) {
     std::ofstream out(settingsPath());
     out << "fov:" << settings.fov << "\nsensitivity:" << settings.sensitivity
         << "\ninvertY:" << (settings.invertY ? "true" : "false") << "\nrenderDistance:" << settings.renderDistance
-        << "\nguiScale:" << settings.guiScale << "\n";
+        << "\nguiScale:" << settings.guiScale
+        << "\ncheckUpdates:" << (settings.checkUpdates ? "true" : "false") << "\n";
 }
 
 } // namespace
 
 class LifePrototypeApp {
 public:
-    LifePrototypeApp(Options options, std::filesystem::path shaderDir)
-        : options(std::move(options)), shaderDir(std::move(shaderDir)), rng(this->options.seed) {
+    LifePrototypeApp(Options options, std::filesystem::path shaderDir, std::filesystem::path exeDir)
+        : options(std::move(options)), shaderDir(std::move(shaderDir)), exeDir(std::move(exeDir)), rng(this->options.seed) {
         ruleIndex = this->options.rule;
         simulationRunning = this->options.run;
         showChunkBorders = this->options.chunkBorders;
@@ -413,6 +427,9 @@ public:
     ~LifePrototypeApp() {
         cleanup();
     }
+
+    // Set when an AppImage was updated in place and the player chose to restart.
+    std::filesystem::path restartPath;
 
     int run() {
         initWindow();
@@ -437,6 +454,11 @@ public:
             for (uint32_t i = 0; i < options.warmupSteps; ++i) runPass(true);
         }
         else if (!options.menu.empty()) throw std::runtime_error("Unknown --menu " + options.menu);
+        if (!options.updateFeed.empty() || (persistSettings && settings.checkUpdates)) {
+            updater = std::make_unique<gol3d::Updater>(GOL3D_VERSION_STRING, exeDir,
+                                                       options.updateFeed.empty() ? gol3d::RELEASES_API_LATEST : options.updateFeed);
+            updater->checkAsync();
+        }
         mainLoop();
         if (persistSettings) saveSettings(settings);
         if (!options.savePath.empty() && !saveWorld(options.savePath)) return 1;
@@ -502,6 +524,7 @@ private:
 
     Options options;
     std::filesystem::path shaderDir;
+    std::filesystem::path exeDir;
     std::mt19937 rng;
 
     WindowManager* windowManager = nullptr;
@@ -605,6 +628,7 @@ private:
     bool haveCursorPosition = false;
     double lastCursorX = 0.0, lastCursorY = 0.0;
     int hotbarSlot = 0; // -1 = empty hand: nothing to place, no placement outline
+    int brushRotation = 0; // quarter turns around the placement surface (Q/E)
     bool breakHeld = false, placeHeld = false;
     float breakTimer = 0.0f, placeTimer = 0.0f;
     bool hudVisible = true;
@@ -626,6 +650,8 @@ private:
     double toastUntil = 0.0;
     bool showDebug = false;
     bool f3UsedInCombo = false;
+    std::unique_ptr<gol3d::Updater> updater;
+    bool updateAnnounced = false;
     int newWorldRule = 0;
     int newWorldSeed = 0;
     bool newWorldEmpty = false;
@@ -1800,7 +1826,9 @@ private:
 
     // Cells of the selected stamp. Stamps are centered across the target face and
     // extend away from it along `normal`, so they never overlap the targeted block.
-    std::vector<glm::ivec3> stampCells(Stamp stamp, const glm::ivec3& anchor, const glm::ivec3& normal) {
+    // Q/E rotate them in quarter turns around `normal`. `solid` fills soups
+    // completely (for the placement outline).
+    std::vector<glm::ivec3> stampCells(Stamp stamp, const glm::ivec3& anchor, const glm::ivec3& normal, bool solid = false) {
         int axis = normal.x != 0 ? 0 : normal.y != 0 ? 1 : 2;
         glm::ivec3 u(0), v(0);
         u[(axis + 1) % 3] = 1;
@@ -1811,7 +1839,7 @@ private:
             for (int c = 0; c < along; ++c)
                 for (int b = 0; b < across; ++b)
                     for (int a = 0; a < across; ++a)
-                        if (density >= 1.0f || chance(rng) < density)
+                        if (solid || density >= 1.0f || chance(rng) < density)
                             cells.push_back(anchor + u * (a - across / 2) + v * (b - across / 2) + normal * c);
         };
         switch (stamp) {
@@ -1835,6 +1863,15 @@ private:
                 break;
             case Stamp::Pillar: box(1, 8, 1.0f); break;
             case Stamp::RuleSeed: box(rule().seedSize, rule().seedSize, rule().seedDensity); break;
+        }
+        for (glm::ivec3& cell : cells) {
+            glm::ivec3 d = cell - anchor;
+            for (int turn = 0; turn < brushRotation; ++turn) {
+                int a = d[(axis + 1) % 3], b = d[(axis + 2) % 3];
+                d[(axis + 1) % 3] = -b;
+                d[(axis + 2) % 3] = a;
+            }
+            cell = anchor + d;
         }
         return cells;
     }
@@ -1866,6 +1903,9 @@ private:
             case ScriptAction::Slot:
                 hotbarSlot = std::clamp(static_cast<int>(action.value.x) - 1, -1, static_cast<int>(STAMP_NAMES.size()) - 1);
                 break;
+            case ScriptAction::Rotate:
+                rotateBrush(static_cast<int>(action.value.x));
+                break;
             case ScriptAction::Push:
                 moveWithCollision(action.value);
                 std::cout << "push: feet at " << eye.x << " " << eye.y - EYE_HEIGHT << " " << eye.z << std::endl;
@@ -1877,6 +1917,15 @@ private:
             case ScriptAction::Break: {
                 updateTarget();
                 uint64_t before = population;
+                if (action.kind == ScriptAction::Place && hotbarSlot >= 0 && target.canPlace) {
+                    glm::ivec3 lo(std::numeric_limits<int>::max()), hi(std::numeric_limits<int>::lowest());
+                    for (const glm::ivec3& c : stampCells(static_cast<Stamp>(hotbarSlot), target.place, target.normal, true)) {
+                        lo = glm::min(lo, c);
+                        hi = glm::max(hi, c);
+                    }
+                    std::cout << "stamp bounds (" << lo.x << "," << lo.y << "," << lo.z << ")-(" << hi.x << "," << hi.y
+                              << "," << hi.z << ") rotation " << brushRotation * 90 << std::endl;
+                }
                 if (action.kind == ScriptAction::Place) placeStamp(); else breakBlock();
                 if (refreshPending) runPass(false);
                 std::cout << (action.kind == ScriptAction::Place ? "place " : "break ") << handName()
@@ -1912,6 +1961,17 @@ private:
     }
 
     const char* handName() const { return hotbarSlot < 0 ? "Empty hand" : STAMP_NAMES[hotbarSlot]; }
+
+    std::string handLabel() const {
+        std::string label = handName();
+        if (hotbarSlot >= 0 && brushRotation != 0) label += " (rotated " + std::to_string(brushRotation * 90) + " deg)";
+        return label;
+    }
+
+    void rotateBrush(int quarterTurns) {
+        brushRotation = ((brushRotation + quarterTurns) % 4 + 4) % 4;
+        slotNameUntil = glfwGetTime() + 2.0;
+    }
 
     void notify(const std::string& message) {
         std::cout << message << std::endl;
@@ -1964,7 +2024,7 @@ private:
         }
         if (screen != Screen::Playing) {
             if (action != GLFW_PRESS) return;
-            if (key == GLFW_KEY_ESCAPE || (key == GLFW_KEY_E && screen == Screen::Inventory)) {
+            if (key == GLFW_KEY_ESCAPE || (key == GLFW_KEY_TAB && screen == Screen::Inventory)) {
                 switch (screen) {
                     case Screen::Paused: resumeGame(); break;
                     case Screen::Inventory: screen = Screen::Playing; setCursorCaptured(true); break;
@@ -2000,7 +2060,9 @@ private:
         }
         switch (key) {
             case GLFW_KEY_ESCAPE: openPauseMenu(); break;
-            case GLFW_KEY_E: openInventory(); break;
+            case GLFW_KEY_TAB: openInventory(); break;
+            case GLFW_KEY_Q: rotateBrush(-1); break; // Ctrl+Q (quit) is handled above
+            case GLFW_KEY_E: rotateBrush(1); break;
             case GLFW_KEY_SPACE: {
                 double now = glfwGetTime();
                 if (now - lastSpacePress < DOUBLE_TAP_SECONDS) {
@@ -2127,7 +2189,8 @@ private:
                      "  W A S D  move   Space  jump (fly up)   Left Shift  fly down   Left Ctrl  sprint\n"
                      "  Double-tap Space  toggle flying\n"
                      "  Left click  place the selected stamp   Right click  remove the outlined block\n"
-                     "  E  stamps and rules   1-" << STAMP_NAMES.size() << " / scroll  hotbar (press the selected number again for an empty hand):\n ";
+                     "  Tab  stamps and rules   Q / E  rotate the stamp   1-" << STAMP_NAMES.size()
+                  << " / scroll  hotbar (press the selected number again for an empty hand):\n ";
         for (size_t i = 0; i < STAMP_NAMES.size(); ++i) std::cout << "  " << (i + 1) << " " << STAMP_NAMES[i];
         std::cout << "\n"
                      "  G  run/pause generations   N  single generation   [ ]  slower/faster\n"
@@ -2266,6 +2329,10 @@ private:
             case Screen::Inventory: drawInventory(); break;
             case Screen::NewWorld: drawNewWorldMenu(); break;
         }
+        if (updater && !updateAnnounced && updater->state() == gol3d::Updater::State::Available) {
+            updateAnnounced = true;
+            notify("Update available: 3D Life " + updater->release().version + ". Press Esc for details.");
+        }
         drawToast();
         ImGui::Render();
     }
@@ -2315,7 +2382,7 @@ private:
         if (remaining > 0.0 && hotbarSlot >= 0) {
             float hotbarScale = std::max(1.0f, std::floor(size.y / 540.0f));
             float slot = 40.0f * hotbarScale;
-            std::string name = handName();
+            std::string name = handLabel();
             ImVec2 textSize = ImGui::CalcTextSize(name.c_str());
             int alpha = static_cast<int>(255.0 * std::min(1.0, remaining / 0.5));
             shadowText(draw, ImVec2((size.x - textSize.x) * 0.5f, size.y - slot - 16.0f * hotbarScale - textSize.y),
@@ -2330,7 +2397,7 @@ private:
         ImVec2 size = ImGui::GetIO().DisplaySize;
         ImVec2 textSize = ImGui::CalcTextSize(toast.c_str());
         int alpha = static_cast<int>(255.0 * std::min(1.0, remaining / 0.5));
-        ImVec2 pos((size.x - textSize.x) * 0.5f, size.y * 0.22f);
+        ImVec2 pos((size.x - textSize.x) * 0.5f, size.y * 0.1f);
         draw->AddRectFilled(ImVec2(pos.x - px(4), pos.y - px(2)), ImVec2(pos.x + textSize.x + px(4), pos.y + textSize.y + px(2)),
                             IM_COL32(0, 0, 0, alpha / 2));
         shadowText(draw, pos, toast, color(255, 255, 160, alpha));
@@ -2395,6 +2462,7 @@ private:
             }
             ImGui::Dummy(ImVec2(0, px(6)));
             if (menuButton("Quit Game")) glfwSetWindowShouldClose(windowManager->getWindow(), GLFW_TRUE);
+            drawUpdatePanel();
             ImGui::Dummy(ImVec2(0, px(10)));
             std::ostringstream status;
             status << rule().name << " " << describeRule(rule()) << "  |  generation " << generation << "  |  "
@@ -2402,6 +2470,52 @@ private:
             centeredText(status.str(), color(200, 200, 200));
         }
         ImGui::End();
+    }
+
+    // Update status and actions under the pause menu buttons.
+    void drawUpdatePanel() {
+        if (!updater) return;
+        using State = gol3d::Updater::State;
+        State state = updater->state();
+        gol3d::ReleaseInfo release = updater->release();
+        ImGui::Dummy(ImVec2(0, px(8)));
+        switch (state) {
+            case State::Available: {
+                centeredText("Update available: 3D Life " + release.version + " (you have " + updater->currentVersion() + ")",
+                             color(255, 255, 160));
+                bool installs = updater->method() != gol3d::InstallMethod::OpenPage;
+                if (installs && menuButton("Download and Install")) updater->installAsync();
+                if (menuButton(installs ? "Release Notes" : "Open Download Page")) gol3d::openInBrowser(release.pageUrl);
+                break;
+            }
+            case State::Downloading:
+                centeredText("Downloading and verifying 3D Life " + release.version + "...", color(255, 255, 160));
+                break;
+            case State::Ready:
+                if (updater->method() == gol3d::InstallMethod::AppImage) {
+                    centeredText("Updated to " + release.version + ". Restart to use it.", color(160, 255, 160));
+                    if (menuButton("Restart Now")) {
+                        restartPath = updater->appImagePath();
+                        glfwSetWindowShouldClose(windowManager->getWindow(), GLFW_TRUE);
+                    }
+                } else {
+                    centeredText("3D Life " + release.version + " is downloaded and verified.", color(160, 255, 160));
+                    if (menuButton("Install and Restart") && updater->launchInstaller()) {
+                        glfwSetWindowShouldClose(windowManager->getWindow(), GLFW_TRUE);
+                    }
+                }
+                break;
+            case State::Failed:
+                centeredText(updater->error(), color(255, 170, 150));
+                if (menuButton("Open Download Page")) gol3d::openInBrowser(gol3d::RELEASES_PAGE);
+                break;
+            case State::UpToDate:
+                centeredText("3D Life " + updater->currentVersion() + " is up to date.", color(160, 160, 160));
+                break;
+            case State::Checking:
+            case State::Idle:
+                break;
+        }
     }
 
     // One Minecraft-style option: a slider or toggle in a two-column grid.
@@ -2454,6 +2568,15 @@ private:
                 });
             row([&] { optionToggle(0, "HUD", hudVisible); },
                 [&] { optionToggle(1, "Chunk Borders", showChunkBorders); });
+            row([&] { changed |= optionToggle(0, "Check for Updates", settings.checkUpdates); },
+                [&] {
+                    optionCell(1);
+                    if (ImGui::Button("Check Now", ImVec2(px(OPTION_WIDTH), px(20)))) {
+                        if (!updater) updater = std::make_unique<gol3d::Updater>(GOL3D_VERSION_STRING, exeDir);
+                        updateAnnounced = false;
+                        updater->checkAsync();
+                    }
+                });
             row([&] {
                     bool wantFullscreen = fullscreen;
                     if (optionToggle(0, "Fullscreen", wantFullscreen)) toggleFullscreen();
@@ -2572,7 +2695,7 @@ private:
             setCursorCaptured(true);
         }
         ImGui::SameLine();
-        if (ImGui::Button("Done (E)", ImVec2(-1, px(20)))) {
+        if (ImGui::Button("Done (Tab)", ImVec2(-1, px(20)))) {
             screen = Screen::Playing;
             setCursorCaptured(true);
         }
@@ -2746,8 +2869,15 @@ private:
         uint32_t count = 0;
         if (hudVisible && target.hit) {
             boxes[count++] = {glm::vec4(glm::vec3(target.block) - 0.004f, 0.03f), glm::vec4(glm::vec3(target.block) + 1.004f, 0.0f)};
-        } else if (hudVisible && target.canPlace && hotbarSlot >= 0) {
-            boxes[count++] = {glm::vec4(glm::vec3(target.place) + 0.02f, 0.03f), glm::vec4(glm::vec3(target.place) + 0.98f, 2.0f)};
+        }
+        if (hudVisible && target.canPlace && hotbarSlot >= 0) {
+            // White outline around the whole (rotated) stamp.
+            glm::ivec3 lo(std::numeric_limits<int>::max()), hi(std::numeric_limits<int>::lowest());
+            for (const glm::ivec3& cell : stampCells(static_cast<Stamp>(hotbarSlot), target.place, target.normal, true)) {
+                lo = glm::min(lo, cell);
+                hi = glm::max(hi, cell);
+            }
+            boxes[count++] = {glm::vec4(glm::vec3(lo) + 0.02f, 0.03f), glm::vec4(glm::vec3(hi) + 0.98f, 2.0f)};
         }
         if (showChunkBorders) {
             for (const auto& entry : chunkSlots) {
@@ -3028,8 +3158,21 @@ int main(int argc, char** argv) {
         Options options = parseOptions(argc, argv);
         std::filesystem::path exeDir = executableDirectory(argv[0]);
         initVulkanLoader(exeDir);
-        LifePrototypeApp app(options, findShaderDirectory(exeDir));
-        return app.run();
+        std::filesystem::path restart;
+        int code = 0;
+        {
+            LifePrototypeApp app(options, findShaderDirectory(exeDir), exeDir);
+            code = app.run();
+            restart = app.restartPath;
+        }
+#if !defined(_WIN32)
+        if (!restart.empty()) {
+            // An updated AppImage replaced this one in place; start it.
+            execl(restart.c_str(), restart.c_str(), static_cast<char*>(nullptr));
+            std::cerr << "Could not restart " << restart << std::endl;
+        }
+#endif
+        return code;
     } catch (const std::exception& e) {
         std::cerr << "Fatal error: " << e.what() << std::endl;
 #if defined(_WIN32)

@@ -91,7 +91,8 @@ add_library(gol3d_imgui STATIC
     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp)
 target_include_directories(gol3d_imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
-target_compile_definitions(gol3d_imgui PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
+# GLFW_INCLUDE_NONE: nothing here uses OpenGL, so the build needs no GL headers.
+target_compile_definitions(gol3d_imgui PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES GLFW_INCLUDE_NONE)
 target_link_libraries(gol3d_imgui PUBLIC Vulkan::Headers glfw)
 
 # ------------------------------------------------------------------------ game
@@ -104,7 +105,8 @@ set(GOL3D_SOURCES
     ${GOL_ROOT}/src/DeviceManager.cpp
     ${GOL_ROOT}/src/WindowManager.cpp
     ${GOL_ROOT}/src/Logger.cpp
-    ${GOL_ROOT}/src/engine/vulkan/resources/ShaderManager.cpp)
+    ${GOL_ROOT}/src/engine/vulkan/resources/ShaderManager.cpp
+    ${GOL_ROOT}/src/Updater.cpp)
 if(WIN32)
     list(APPEND GOL3D_SOURCES ${GOL_ROOT}/packaging/windows/gol3d.rc)
 elseif(APPLE)
@@ -115,7 +117,10 @@ endif()
 add_executable(gol3d ${GOL3D_SOURCES})
 target_include_directories(gol3d PRIVATE ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${GOL_ROOT}/include)
 target_link_libraries(gol3d PRIVATE glfw glm::glm gol3d_imgui gol3d_volk)
-target_compile_definitions(gol3d PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE)
+target_compile_definitions(gol3d PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE GOL3D_VERSION_STRING="${PROJECT_VERSION}")
+if(WIN32)
+    target_link_libraries(gol3d PRIVATE shell32)
+endif()
 # Every translation unit sees volk's function pointers instead of Vulkan prototypes;
 # the engine sources keep including <vulkan/vulkan.h> unchanged.
 if(MSVC)
@@ -153,14 +158,24 @@ if(GOL3D_SHADER_DIR)
         list(APPEND GOL_SPV ${spv})
     endforeach()
 else()
-    find_program(GLSLC_EXECUTABLE glslc HINTS ENV VULKAN_SDK PATH_SUFFIXES bin REQUIRED)
+    # glslc (shaderc, Vulkan SDK) or glslangValidator (glslang) both work.
+    find_program(GLSLC_EXECUTABLE glslc HINTS ENV VULKAN_SDK PATH_SUFFIXES bin)
+    if(GLSLC_EXECUTABLE)
+        set(GOL_GLSL_COMMAND ${GLSLC_EXECUTABLE} -o)
+    else()
+        find_program(GLSLANG_EXECUTABLE glslangValidator HINTS ENV VULKAN_SDK PATH_SUFFIXES bin)
+        if(NOT GLSLANG_EXECUTABLE)
+            message(FATAL_ERROR "Need glslc or glslangValidator to compile shaders (or set GOL3D_SHADER_DIR).")
+        endif()
+        set(GOL_GLSL_COMMAND ${GLSLANG_EXECUTABLE} -V --target-env vulkan1.0 -o)
+    endif()
     foreach(shader ${GOL_SHADERS})
         set(spv ${GOL_SPV_DIR}/${shader}.spv)
         add_custom_command(OUTPUT ${spv}
             COMMAND ${CMAKE_COMMAND} -E make_directory ${GOL_SPV_DIR}
-            COMMAND ${GLSLC_EXECUTABLE} -o ${spv} ${GOL_ROOT}/shaders/${shader}
+            COMMAND ${GOL_GLSL_COMMAND} ${spv} ${GOL_ROOT}/shaders/${shader}
             DEPENDS ${GOL_ROOT}/shaders/${shader} ${GOL_ROOT}/shaders/life3d_frame.glsl
-            COMMENT "glslc ${shader}")
+            COMMENT "Compiling ${shader}")
         list(APPEND GOL_SPV ${spv})
     endforeach()
 endif()
@@ -250,6 +265,12 @@ enable_testing()
 add_executable(life3d_rules_test life3d_rules_test.cpp)
 target_include_directories(life3d_rules_test PRIVATE ${GOL_ROOT}/include)
 add_test(NAME life3d_rules COMMAND life3d_rules_test)
+add_executable(updater_test updater_test.cpp ${GOL_ROOT}/src/Updater.cpp)
+target_include_directories(updater_test PRIVATE ${GOL_ROOT}/include)
+if(WIN32)
+    target_link_libraries(updater_test PRIVATE shell32)
+endif()
+add_test(NAME updater COMMAND updater_test)
 # Pattern claims made by the tutorial (still lifes, oscillator periods, gliders).
 add_executable(life3d_patterns_test life3d_patterns_test.cpp ${GOL_ROOT}/src/tutorial/TutorialLessons.cpp)
 target_include_directories(life3d_patterns_test PRIVATE ${GOL_ROOT}/include ${GOL_ROOT}/src)
