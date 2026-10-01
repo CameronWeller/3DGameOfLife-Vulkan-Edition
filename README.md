@@ -114,6 +114,21 @@ He found two rules that pass. Bays writes them as four numbers `E_lo E_hi F_lo F
 - **Life 5766** (S5-7/B6): survives with 5 to 7 neighbors, born with exactly 6. This is the game's default.
 - **Life 4555** (S4-5/B5): survives with 4 or 5, born with exactly 5. Livelier; soups churn longer.
 
+#### Conway's game hides inside Life 5766
+
+Take any 2D Life pattern and stack it two layers thick. A live cell with *n* live 2D neighbors now has 2*n* + 1
+live 3D neighbors (*n* in each layer, plus its twin), and an empty cell in the slab has 2*n*. Life 5766 keeps a cell
+alive when 2*n* + 1 is 5 or 7, so when *n* is 2 or 3, and gives birth when 2*n* = 6, so when *n* is 3. That is
+exactly Conway's S23/B3. As long as no cell just above or below the slab sees exactly 6 live neighbors, the slab
+runs Conway's game, and Bays' 5766 glider turns out to be Conway's glider, two blocks thick:
+
+| Conway's glider (2D) | Bays' Life 5766 glider (3D, in-game) |
+| -- | -- |
+| ![Conway's glider moving across a 2D grid](docs/media/conway-glider.gif) | ![The Life 5766 glider: Conway's glider two layers thick, crawling across the ground](docs/media/glider-life5766.gif) |
+
+Life 4555 has no such copy (its birth count, 5, is odd, and an empty cell in a two-layer slab always has an even
+count), so its glider is a different 10-cell shape. The in-game tutorial shows both.
+
 Same seed, same number of generations, four different rules:
 
 ![Four rules compared side by side: Life 5766, Life 4555, Conway's numbers and Coral](docs/media/rules-compared.gif)
@@ -174,12 +189,25 @@ Press the selected number again to empty your hand. Reach is 6 blocks. What you 
 block you're looking at, or on the ground, or in the air 4 blocks ahead, in that order. A white outline shows
 where it will go.
 
-| Stamps and rules (<kbd>Tab</kbd>) | Pause menu (<kbd>Esc</kbd>) |
+### Tutorial
+
+New to 3D Life? Press <kbd>Esc</kbd> and choose **Tutorial**. Eight short lessons each set up a small scene and
+explain what to watch for: the 26-cell neighborhood, which cells are born, survive or die, why Conway's numbers
+explode in 3D, still lifes, oscillators, both of Bays' gliders, and the rules that aren't Life-like at all. The
+world keeps running, so you can step with <kbd>N</kbd>, run with <kbd>G</kbd> and fly around each scene.
+
+![Tutorial lesson 2: every cell outlined by what happens to it next generation](docs/media/tutorial-survive-birth.png)
+
+### Menus
+
+| Pause menu (<kbd>Esc</kbd>) | Stamps and rules (<kbd>Tab</kbd>) |
 | -- | -- |
-| ![The Stamps and Rules screen, with each rule explained in words](docs/media/menu-inventory.png) | ![The pause menu](docs/media/menu-pause.png) |
+| ![The pause menu](docs/media/menu-pause.png) | ![The Stamps and Rules screen, with each rule explained in words](docs/media/menu-inventory.png) |
 
 The **Stamps & Rules** screen explains every rule in plain words. **Settings** has field of view, render distance,
-mouse sensitivity, GUI scale, simulation speed and HUD options; they're saved between sessions.
+mouse sensitivity, GUI scale, simulation speed, HUD and update options; they're saved between sessions.
+
+![The settings screen](docs/media/menu-settings.png)
 
 ---
 
@@ -241,18 +269,39 @@ Saves and screenshots go to `~/.local/share/gol3d` on Linux, `%APPDATA%\gol3d` o
 
 ## Download and build
 
-> **Prebuilt downloads:** the only release on the
-> [Releases page](https://github.com/CameronWeller/3DGameOfLife-Vulkan-Edition/releases) is an early alpha that
-> predates the playable game. Until a new one is published, build from source. It takes a couple of minutes, and
-> CMake fetches GLFW and GLM for you if they aren't installed.
+### Download a release
 
-### Requirements
+Every change to `main` publishes a new build on the
+**[latest release page](https://github.com/CameronWeller/3DGameOfLife-Vulkan-Edition/releases/latest)**.
+Pick the file for your system:
+
+| System | File | Notes |
+| -- | -- | -- |
+| Windows 10/11 | `gol3d-<version>-windows-x64.exe` (or `-arm64.exe`) | Installer; a `.zip` too |
+| Linux, any distribution | `gol3d-<version>-linux-x86_64.AppImage` (or `-aarch64`) | `chmod +x` it and run |
+| Debian / Ubuntu | `gol3d_<version>_amd64.deb` (or `_arm64.deb`) | `sudo apt install ./gol3d_*.deb` |
+| Fedora / openSUSE | `gol3d-<version>-1.x86_64.rpm` (or `.aarch64.rpm`) | |
+| Arch Linux | `gol3d-<version>-1-x86_64.pkg.tar.zst` | `sudo pacman -U gol3d-*.pkg.tar.zst` |
+| macOS 11+ | `gol3d-<version>-macos-universal.dmg` | Not notarized: right-click, **Open** the first time |
+
+`SHA256SUMS` on the same page lists every file's checksum. You need a GPU driver with Vulkan support (on macOS,
+MoltenVK is bundled).
+
+The game checks GitHub for a newer release when it starts; turn that off in **Settings**. The Windows installer
+and the AppImage can update themselves after verifying the download's SHA-256. Other packages open the release
+page so your package manager can install the update.
+
+### Build from source
+
+It takes a couple of minutes, and CMake fetches GLFW and GLM for you if they aren't installed.
+
+#### Requirements
 
 - A GPU and driver with **Vulkan 1.0** support
 - **CMake 3.20+**, **Ninja** (or Visual Studio), and a **C++20** compiler
 - **`glslc`** to compile shaders (from shaderc or the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home))
 
-#### Linux (Ubuntu / Debian)
+##### Linux (Ubuntu / Debian)
 
 ```bash
 sudo apt install build-essential cmake ninja-build git glslc libvulkan-dev \
@@ -260,18 +309,18 @@ sudo apt install build-essential cmake ninja-build git glslc libvulkan-dev \
   libwayland-dev libxkbcommon-dev wayland-protocols
 ```
 
-#### Windows
+##### Windows
 
 Install Visual Studio 2022 (with "Desktop development with C++"), CMake and the
 [LunarG Vulkan SDK](https://vulkan.lunarg.com/sdk/home), which provides `glslc`. Run the commands below from a
 "x64 Native Tools" prompt so Ninja finds the compiler.
 
-#### macOS
+##### macOS
 
 Install the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home) (it includes MoltenVK and `glslc`), then
 `brew install cmake ninja`. macOS runs through MoltenVK and is the least tested platform.
 
-### Clone, build, play
+#### Clone, build, play
 
 ```bash
 git clone https://github.com/CameronWeller/3DGameOfLife-Vulkan-Edition.git
@@ -283,7 +332,7 @@ cmake --build build/prototype
 
 On Windows the last line is `build\prototype\gol3d.exe`.
 
-### Useful command-line options
+#### Useful command-line options
 
 ```bash
 ./build/prototype/gol3d --rule 2          # start with Life 4555 (rules are numbered 1-8)
@@ -293,7 +342,7 @@ On Windows the last line is `build\prototype\gol3d.exe`.
 ./build/prototype/gol3d --help            # everything else
 ```
 
-### Make an installer or package
+#### Make an installer or package
 
 ```bash
 cpack --config build/prototype/CPackConfig.cmake -G "DEB;RPM;TGZ"   # Linux
@@ -326,7 +375,8 @@ flowchart LR
 - **Rules.** A rule is two 27-bit masks: bit *n* of the survive mask is set if a live cell with *n* neighbors
   survives, and likewise for birth. See [`include/Life3DRules.h`](include/Life3DRules.h).
 - **Rendering.** Live cells are drawn as instanced cubes with per-face shading and distance fog, over a sky
-  gradient and a block grid at y = 0. Hue drifts mostly with height, with a little per-block jitter so flat walls stay readable.
+  gradient and a block grid at y = 0. Hue drifts mostly with height, with a little per-block jitter so flat
+  walls stay readable.
 - **Budget.** 2048 chunks by default (`--chunks N`, up to 16000) and about 1M drawn blocks. The first time a world
   hits the limit, the game pauses and tells you.
 - **Correctness.** `gol3d --verify` runs soups on the GPU and checks every cell against a plain CPU reference
@@ -354,7 +404,7 @@ Contributions are welcome, from typo fixes to new rules to rendering work.
 ### Running the tests
 
 ```bash
-ctest --test-dir build/prototype            # CPU rule checks + GPU-vs-CPU check
+ctest --test-dir build/prototype            # rules, tutorial patterns, updater + GPU-vs-CPU check
 ctest --test-dir build/prototype -LE gpu    # CPU only (no GPU or display needed)
 ./build/prototype/gol3d --verify            # the GPU check on its own
 ```
@@ -364,9 +414,13 @@ ctest --test-dir build/prototype -LE gpu    # CPU only (no GPU or display needed
 | Path | What it is |
 | -- | -- |
 | [`prototype/`](prototype/) | CMake project for the playable game, packaging and tests |
-| [`src/main_minimal.cpp`](src/main_minimal.cpp) | The game: Vulkan setup, player, input, UI, chunk manager |
+| [`src/main_minimal.cpp`](src/main_minimal.cpp) | The game: Vulkan setup, player, input, menus, chunk manager |
+| [`src/tutorial/`](src/tutorial/) | Tutorial lessons and the lesson panel |
+| [`src/Updater.cpp`](src/Updater.cpp) | Release checks and self-update |
 | [`include/Life3DRules.h`](include/Life3DRules.h) | The rule list and the CPU reference simulation |
+| [`include/Life3DPatterns.h`](include/Life3DPatterns.h) | Known 3D patterns: still lifes, oscillators, gliders |
 | [`shaders/life3d_*`](shaders/) | Compute and render shaders |
+| [`packaging/`](packaging/), [`release.yml`](.github/workflows/release.yml) | Icons, installers, release pipeline |
 | [`docs/PROTOTYPE.md`](docs/PROTOTYPE.md) | Detailed game documentation |
 | [`scripts/readme-media/`](scripts/readme-media/) | Scripts that regenerate every image and GIF in this README |
 
@@ -375,7 +429,8 @@ ctest --test-dir build/prototype -LE gpu    # CPU only (no GPU or display needed
 - **Add a rule.** Append an entry to `lifeRules()` in `include/Life3DRules.h` (and bump the array size). Give it
   a name, survive and birth masks, a seed density and size, and a plain-English description. It then shows up in
   the <kbd>R</kbd> cycle and the Stamps & Rules screen automatically.
-- **Add a 3D glider stamp.** Bays' rules have gliders, but there is no stamp for one yet.
+- **Add glider stamps.** Both of Bays' gliders are in `include/Life3DPatterns.h` and the tutorial, but you can't
+  place one from the hotbar yet.
 - **Pattern files.** Import and export patterns in a documented text format.
 
 ### Regenerating the README media
@@ -385,7 +440,9 @@ python3 scripts/readme-media/make_2d_media.py   # 2D Conway GIFs and the neighbo
 python3 scripts/readme-media/capture_3d.py      # in-game GIFs and screenshots (needs the built game and ffmpeg)
 ```
 
-Keep each file under 1000 KB (the pre-commit large-file limit).
+When [gamescope](https://github.com/ValveSoftware/gamescope) is installed, `capture_3d.py` runs the game inside a
+headless gamescope session, so no windows open on your desktop. Keep each file under 1000 KB (the pre-commit
+large-file limit).
 
 ### Reporting bugs
 
