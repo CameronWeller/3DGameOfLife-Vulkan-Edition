@@ -298,6 +298,58 @@ def glider(tmp):
     )
 
 
+def climb(tmp):
+    """The Glider stamp tilted with Z: it slides sideways while it climbs."""
+    world = tmp / "climb.life3d"
+    place = [
+        "--rule",
+        "1",
+        "--empty",
+        "--fly",
+        "--pos",
+        "0.5,4.5,4",
+        "--look",
+        "-90,-70",
+    ]
+    place += [
+        "--slot",
+        "9",
+        "--tilt",
+        "-1",
+        "--place",
+        "--frames",
+        "1",
+        "--save",
+        str(world),
+    ]
+    subprocess.run(
+        [str(GAME), "--resize", "320,180", *place], check=True, capture_output=True
+    )
+    frames = (
+        33  # eight periods: the tilted glider moves (+1, +1, 0) every 4 generations
+    )
+    camera = orbit_camera((4, 4, 1.5), 15, 6, math.radians(90))
+    for i in range(frames):
+        path = tmp / f"climb_{i:03d}.png"
+        shoot(
+            path,
+            (800, 450),
+            "--load",
+            world,
+            "--steps",
+            i,
+            "--fly",
+            "--slot",
+            0,
+            *camera,
+        )
+        image = crop_hotbar(Image.open(path))
+        label(image, f"Glider stamp tilted with Z   generation {i}")
+        image.save(path)
+    paths = [tmp / f"climb_{i:03d}.png" for i in range(frames)]
+    encode_gif_pillow(paths, OUT / "glider-climb.gif", 5, 560, hold_last=1, colors=192)
+
+
 def tutorial():
     """Tutorial lesson 2: every cell outlined by what happens to it next."""
     path = OUT / "tutorial-survive-birth.png"
@@ -357,6 +409,7 @@ def main():
         "rules",
         "sandbox",
         "glider",
+        "climb",
         "tutorial",
         "menus",
     }
@@ -370,6 +423,8 @@ def main():
             sandbox(tmp)
         if "glider" in wanted:
             glider(tmp)
+        if "climb" in wanted:
+            climb(tmp)
     if "tutorial" in wanted:
         tutorial()
     if "menus" in wanted:

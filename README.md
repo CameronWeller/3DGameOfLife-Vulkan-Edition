@@ -129,6 +129,14 @@ runs Conway's game, and Bays' 5766 glider turns out to be Conway's glider, two b
 Life 4555 has no such copy (its birth count, 5, is odd, and an empty cell in a two-layer slab always has an even
 count), so its glider is a different 10-cell shape. The in-game tutorial shows both.
 
+The rules treat every direction alike, so a turned glider travels a turned path. Pick the **Glider** stamp
+(<kbd>9</kbd>): on the ground it lies flat and slides diagonally across the floor, and <kbd>Q</kbd>/<kbd>E</kbd>
+choose which way. Tilt it with <kbd>Z</kbd> or <kbd>C</kbd> and it stands up, moving sideways while it climbs
+(<kbd>Z</kbd>) or dives (<kbd>C</kbd>); life can keep going below the floor. In all, a glider can head in 12
+directions, 8 of them partly up or down.
+
+![The Glider stamp tilted with Z: Bays' glider climbs one block up and one block over every 4 generations](docs/media/glider-climb.gif)
+
 Same seed, same number of generations, four different rules:
 
 ![Four rules compared side by side: Life 5766, Life 4555, Conway's numbers and Coral](docs/media/rules-compared.gif)
@@ -172,7 +180,7 @@ from the hotbar, place blocks of life, press <kbd>G</kbd>, and watch.
 
 *Three 16³ soups placed from the hotbar, then run under Life 5766.*
 
-**Hotbar stamps** (keys <kbd>1</kbd> to <kbd>8</kbd>):
+**Hotbar stamps** (keys <kbd>1</kbd> to <kbd>9</kbd>):
 
 | Key | Stamp |
 | -- | -- |
@@ -184,6 +192,7 @@ from the hotbar, place blocks of life, press <kbd>G</kbd>, and watch.
 | <kbd>6</kbd> | 5×5 wall |
 | <kbd>7</kbd> | 8-block pillar |
 | <kbd>8</kbd> | The current rule's seed soup |
+| <kbd>9</kbd> | Glider: Bays' glider for the current rule (Life 5766 or Life 4555) |
 
 Press the selected number again to empty your hand. Reach is 6 blocks. What you place lands on the face of the
 block you're looking at, or on the ground, or in the air 4 blocks ahead, in that order. A white outline shows
@@ -233,8 +242,9 @@ Simulation actions live on keys Minecraft leaves unbound.
 | -- | -- |
 | Left click | Place the selected stamp (hold to repeat) |
 | Right click | Remove the outlined block (hold to repeat) |
-| <kbd>1</kbd>–<kbd>8</kbd>, scroll wheel | Select a hotbar stamp; press the selected number again for an empty hand |
-| <kbd>Q</kbd> / <kbd>E</kbd> | Rotate the selected stamp a quarter turn |
+| <kbd>1</kbd>–<kbd>9</kbd>, scroll wheel | Select a hotbar stamp; press the selected number again for an empty hand |
+| <kbd>Q</kbd> / <kbd>E</kbd> | Rotate the selected stamp a quarter turn around the surface |
+| <kbd>Z</kbd> / <kbd>C</kbd> | Tilt the selected stamp a quarter turn around the x axis |
 | <kbd>Tab</kbd> | Stamps & Rules screen |
 
 ### Simulation
@@ -429,8 +439,6 @@ ctest --test-dir build/prototype -LE gpu    # CPU only (no GPU or display needed
 - **Add a rule.** Append an entry to `lifeRules()` in `include/Life3DRules.h` (and bump the array size). Give it
   a name, survive and birth masks, a seed density and size, and a plain-English description. It then shows up in
   the <kbd>R</kbd> cycle and the Stamps & Rules screen automatically.
-- **Add glider stamps.** Both of Bays' gliders are in `include/Life3DPatterns.h` and the tutorial, but you can't
-  place one from the hotbar yet.
 - **Pattern files.** Import and export patterns in a documented text format.
 
 ### Regenerating the README media
