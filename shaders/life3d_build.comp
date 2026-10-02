@@ -1,0 +1,207 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+
+// Runs after the last generation of a batch (and after edits). For every active
+// chunk it
+//   - counts the live cells (stats.x) and flags which neighbor chunks live cells
+//     or Ember blocks within `margin` cells of a face could reach (stats.y), so
+//     the CPU can add and free chunks and then run up to `margin` generations
+//     before it needs to look again;
+//   - appends one instance per visible block (a block with at least one face not
+//     covered by a neighbor) for life3d_blocks.vert, with its 26 neighbors for
+//     face culling and ambient occlusion. With `animate`, cells that died in the
+//     last generation are drawn too, so they can shrink away.
+
+layout(local_size_x = 32, local_size_y = 8, local_size_z = 1) in;
+
+#include "life3d_storage.glsl"
+
+layout(push_constant) uniform Params {
+    mat4 cullViewProj;  // a slightly wider view than the camera's: chunks outside it are not drawn
+    uint firstIndex;
+    uint count;
+    uint margin;       // cells from a face that count as reaching the neighbor chunk
+    uint flags;        // bit 0: animate (flag births, draw deaths), bit 1: write instances, bit 2: stats
+    uint maxInstances;
+    float cullDistance; // chunks farther than this from the camera are not drawn
+    float cameraX, cameraY, cameraZ;
+} params;
+
+layout(std430, binding = 0) readonly buffer Current { uint rows[]; } current;
+layout(std430, binding = 1) readonly buffer Previous { uint rows[]; } previous; // the generation before
+layout(std430, binding = 6) buffer Stats { uvec2 values[]; } stats;             // x population, y border mask
+// Instance: x = neighbor bits (26, center bit unused) | kind << 27 | born << 29 | dying << 30,
+//           y = x | y << 5 | z << 10 (cell in chunk) | slot << 15.
+layout(std430, binding = 7) writeonly buffer Instances { uvec2 cells[]; } instances;
+layout(std430, binding = 8) buffer Indirect { // VkDrawIndexedIndirectCommand
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int vertexOffset;
+    uint firstInstance;
+} indirect;
+layout(std430, binding = 9) readonly buffer Origins { ivec4 cell[]; } origins; // world cell of local (0, 0, 0)
+
+const uint TILE_Y = 34u, TILE_Z = 10u, TILE = TILE_Y * TILE_Z;
+// Occupied (life or any block) rows around the slab, and the rows occupied in
+// both this and the previous generation ("stable"). Faces are culled only
+// against stable neighbors, so a neighbor that is growing in or shrinking away
+// never exposes a hole.
+shared uint occWest[TILE], occRow[TILE], occEast[TILE];
+shared uint stableWest[TILE], stableRow[TILE], stableEast[TILE];
+
+uint occupied(uint k, uint row, bool before) {
+    uint chunk = nearChunk[k];
+    if (chunk == NO_CHUNK) return 0u;
+    uint life = before ? previous.rows[chunk * ROWS + row] : current.rows[chunk * ROWS + row];
+    return life | blockRow(k, row, 0u);
+}
+
+// False when all eight corners of the chunk lie outside one side of the view.
+bool chunkInView(vec3 lo) {
+    uint outside[6] = uint[6](0u, 0u, 0u, 0u, 0u, 0u);
+    for (uint i = 0u; i < 8u; i++) {
+        vec3 corner = lo + vec3(i & 1u, (i >> 1) & 1u, (i >> 2) & 1u) * float(CHUNK);
+        vec4 clip = params.cullViewProj * vec4(corner, 1.0);
+        outside[0] += uint(clip.x < -clip.w);
+        outside[1] += uint(clip.x > clip.w);
+        outside[2] += uint(clip.y < -clip.w);
+        outside[3] += uint(clip.y > clip.w);
+        outside[4] += uint(clip.z < 0.0);
+        outside[5] += uint(clip.z > clip.w);
+    }
+    for (uint p = 0u; p < 6u; p++)
+        if (outside[p] == 8u) return false;
+    return true;
+}
+
+uint borderMask(uint live, uint y, uint z) {
+    if (live == 0u) return 0u;
+    uint m = params.margin;
+    uint lowBits = (1u << m) - 1u;
+    bool xs[3] = bool[3]((live & lowBits) != 0u, true, (live & ~(0xFFFFFFFFu >> m)) != 0u);
+    bool ys[3] = bool[3](y < m, true, y >= CHUNK - m);
+    bool zs[3] = bool[3](z < m, true, z >= CHUNK - m);
+    uint mask = 0u;
+    for (uint dz = 0u; dz < 3u; dz++)
+        for (uint dy = 0u; dy < 3u; dy++)
+            for (uint dx = 0u; dx < 3u; dx++)
+                if (xs[dx] && ys[dy] && zs[dz]) mask |= 1u << (dz * 9u + dy * 3u + dx);
+    return mask & ~(1u << 13u);
+}
+
+void main() {
+    if (gl_WorkGroupID.y >= params.count) return; // uniform across the workgroup
+    uint slot = activeList.slots[params.firstIndex + gl_WorkGroupID.y];
+
+    // Whole chunks out of view skip the drawing work; a pass that only draws
+    // (after a camera move) skips them entirely. Uniform across the workgroup.
+    ivec3 origin = origins.cell[slot].xyz;
+    vec3 camera = vec3(params.cameraX, params.cameraY, params.cameraZ);
+    vec3 nearest = clamp(camera, vec3(origin), vec3(origin + int(CHUNK)));
+    bool wantDraw = (params.flags & 2u) != 0u && distance(nearest, camera) <= params.cullDistance && chunkInView(vec3(origin));
+    bool wantStats = (params.flags & 4u) != 0u;
+    if (!wantDraw && !wantStats) return;
+    loadNeighborhood(slot);
+
+    bool animate = (params.flags & 1u) != 0u;
+    int z0 = int(gl_WorkGroupID.x * 8u);
+    for (uint e = gl_LocalInvocationIndex; wantDraw && e < TILE; e += 256u) {
+        int y = int(e % TILE_Y) - 1;
+        int z = z0 + int(e / TILE_Y) - 1;
+        uint k;
+        uint row = rowAndNeighbor(y, z, 0, k);
+        uint mid = occupied(k, row, false);
+        uint west = occupied(k - 1u, row, false) >> 31;
+        uint east = occupied(k + 1u, row, false) << 31;
+        occRow[e] = mid;
+        occWest[e] = (mid << 1) | west;
+        occEast[e] = (mid >> 1) | east;
+        if (animate) {
+            mid &= occupied(k, row, true);
+            west &= occupied(k - 1u, row, true) >> 31;
+            east &= occupied(k + 1u, row, true) << 31;
+        }
+        stableRow[e] = mid;
+        stableWest[e] = (mid << 1) | west;
+        stableEast[e] = (mid >> 1) | east;
+    }
+    barrier();
+
+    uint y = gl_LocalInvocationID.x;
+    uint z = uint(z0) + gl_LocalInvocationID.y;
+    uint row = z * CHUNK + y;
+    uint index = slot * ROWS + row;
+    uint life = current.rows[index];
+    uint blocked = blockRow(13u, row, 0u);
+    uint emits = blockRow(13u, row, 1u);
+
+    // Population and reach, one atomic per subgroup.
+    if (wantStats) {
+        uint population = subgroupAdd(uint(bitCount(life)));
+        uint reach = subgroupOr(borderMask(life | emits, y, z));
+        if (subgroupElect()) {
+            if (population != 0u) atomicAdd(stats.values[slot].x, population);
+            if (reach != 0u) atomicOr(stats.values[slot].y, reach);
+        }
+    }
+    if (!wantDraw) return;
+
+    // Visible blocks: occupied cells with a face not covered by a stable neighbor.
+    uint draw = 0u;
+    uint prevLife = 0u;
+    uint c = (gl_LocalInvocationID.y + 1u) * TILE_Y + (y + 1u);
+    {
+        uint covered = stableWest[c] & stableEast[c] & stableRow[c - 1u] & stableRow[c + 1u] &
+                       stableRow[c - TILE_Y] & stableRow[c + TILE_Y];
+        draw = occRow[c] & ~covered;
+        if (animate) {
+            prevLife = previous.rows[index];
+            draw |= prevLife & ~life & ~blocked; // died last generation: shrink away
+        }
+    }
+    uint n = uint(bitCount(draw));
+    uint offset = subgroupExclusiveAdd(n);
+    uint total = subgroupAdd(n);
+    uint base = 0u;
+    if (subgroupElect() && total != 0u) base = atomicAdd(indirect.instanceCount, total);
+    base = subgroupBroadcastFirst(base) + offset;
+    if (draw == 0u) return;
+
+    // Neighbor rows: stable rows for the six faces, occupied rows for the rest (AO).
+    uint nb[27];
+    for (uint dz = 0u; dz < 3u; dz++) {
+        for (uint dy = 0u; dy < 3u; dy++) {
+            uint t = c + (dz - 1u) * TILE_Y + (dy - 1u);
+            uint k = dz * 9u + dy * 3u;
+            nb[k] = occWest[t];
+            nb[k + 1u] = occRow[t];
+            nb[k + 2u] = occEast[t];
+        }
+    }
+    nb[4] = stableRow[c - TILE_Y];
+    nb[10] = stableRow[c - 1u];
+    nb[12] = stableWest[c];
+    nb[13] = 0u;
+    nb[14] = stableEast[c];
+    nb[16] = stableRow[c + 1u];
+    nb[22] = stableRow[c + TILE_Y];
+
+    uint cellBase = (y << 5) | (z << 10) | (slot << 15);
+    while (draw != 0u) {
+        uint x = uint(findLSB(draw));
+        draw &= draw - 1u;
+        if (base >= params.maxInstances) break;
+        uint bits = 0u;
+        for (uint k = 0u; k < 27u; k++) bits |= ((nb[k] >> x) & 1u) << k;
+        uint bit = 1u << x;
+        uint kind = (emits & bit) != 0u ? 2u : ((blocked & bit) != 0u ? 1u : 0u);
+        uint born = animate && (life & bit) != 0u && (prevLife & bit) == 0u ? 1u : 0u;
+        uint dying = (life & bit) == 0u && (blocked & bit) == 0u ? 1u : 0u;
+        instances.cells[base] = uvec2(bits | (kind << 27) | (born << 29) | (dying << 30), cellBase | x);
+        base++;
+    }
+}

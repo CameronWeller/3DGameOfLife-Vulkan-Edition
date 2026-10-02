@@ -39,8 +39,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends glslc
           mkdir -p spirv
-          for s in life3d_chunks.comp life3d_world.vert life3d_world.frag life3d_screen.vert life3d_screen.frag; do
-            glslc -o "spirv/$s.spv" "shaders/$s"
+          for s in life3d_step.comp life3d_build.comp life3d_blocks.vert life3d_boxes.vert life3d_world.frag \
+                   life3d_screen.vert life3d_screen.frag; do
+            glslc --target-env=vulkan1.3 -O -o "spirv/$s.spv" "shaders/$s"
           done
       - uses: actions/upload-artifact@v4
         with:
@@ -235,13 +236,13 @@ jobs:
           | Platform | Download |
           | -- | -- |
           | Windows 10/11 (x64, ARM64) | \`gol3d-$VERSION-windows-*.exe\` installer, or the \`.zip\` |
-          | macOS 11+ (Apple silicon and Intel) | \`gol3d-$VERSION-macos-universal.dmg\` |
+          | macOS 12+ (Apple silicon and Intel) | \`gol3d-$VERSION-macos-universal.dmg\` |
           | Debian, Ubuntu, Mint | \`gol3d_$VERSION_*.deb\` |
           | Fedora, openSUSE, RHEL | \`gol3d-$VERSION-*.rpm\` |
           | Arch, Manjaro | \`gol3d-$VERSION-1-x86_64.pkg.tar.zst\` |
           | Any Linux | \`gol3d-$VERSION-linux-*.AppImage\` or the \`.tar.gz\` |
 
-          Needs a GPU driver with Vulkan support (on Linux, the Vulkan loader: \`libvulkan1\` / \`vulkan-loader\` / \`vulkan-icd-loader\`).
+          Needs a GPU driver with Vulkan 1.3 support (on Linux, the Vulkan loader: \`libvulkan1\` / \`vulkan-loader\` / \`vulkan-icd-loader\`).
           The macOS app is not notarized: the first time, right-click it and choose Open.
           Verify downloads with \`SHA256SUMS\`.
           EOF

@@ -12,7 +12,8 @@ cmake --build build/prototype
 ./build/prototype/gol3d
 ```
 
-Requirements: a Vulkan 1.0 GPU driver, `glslc` (from shaderc or the Vulkan SDK), and
+Requirements: a Vulkan 1.3 GPU driver (with compute subgroup operations, which
+every current desktop driver has), `glslc` (from shaderc or the Vulkan SDK), and
 on Linux the X11 or Wayland development headers that GLFW needs.
 
 ## Controls
@@ -23,8 +24,9 @@ click removes. Simulation actions use keys Minecraft leaves unbound.
 | Input | Action |
 | -- | -- |
 | Mouse | Look around. Click the window to grab the mouse. |
-| Esc | Pause menu (world freezes): Back to Game, Stamps & Rules, New World, Save/Load, Tutorial, Settings, Quit |
-| Tab | Stamps & Rules screen: pick a stamp or the empty hand, and switch rules (hover for descriptions) |
+| Esc | Pause menu (world freezes): Resume, run/pause, speed and fast-forward buttons, Stamps & Rules, Tutorial, New World, Save/Load, Settings, Quit |
+| Tab | Stamps & Rules screen: pick a stamp or the empty hand, a material, and switch rules (hover for descriptions) |
+| M, Shift+M | Next / previous material for stamps: Life, Stone, Ember |
 | Q / E | Rotate the selected stamp a quarter turn around the surface you place on |
 | Z / C | Tilt the selected stamp a quarter turn around the world x axis (Z climbs, C dives for a glider) |
 | W A S D | Move |
@@ -37,29 +39,34 @@ click removes. Simulation actions use keys Minecraft leaves unbound.
 | 1-9, scroll wheel | Select a hotbar stamp. Pressing the selected number again empties your hand: nothing is placed and no placement outline is shown. |
 | G | Run or pause generations |
 | N | Advance one generation (hold to repeat) |
-| [ and ] (or - and +) | Slower / faster: 0.5 to 60 generations per second (starts at 1) |
+| [ and ] (or - and +) | Half / double speed: 1/32 to 8192 generations per second, then max (starts at 1). Shift: 8x per press |
+| J, Shift+J | Fast-forward 100 / 1000 generations at full speed, then return to the set speed. J again cancels. |
 | R, Shift+R | Next / previous rule. Cells are kept. |
 | Ctrl+N, Ctrl+Shift+N | New world seeded with the rule's soup / empty world |
 | Ctrl+S, Ctrl+O | Save / load `world.life3d` in the user data folder |
 | F1 | Hide the crosshair, hotbar and outlines |
 | F2 | Screenshot (`screenshots/life3d-<time>.png` in the user data folder) |
-| F3 | Debug overlay: position, chunk, facing, live cells, chunk budget, fps |
+| F3 | Debug overlay: position, chunk, facing, chunks in use and allocated, GPU memory, blocks drawn, GPU time per generation and per block list, fps |
 | F3+G | Show chunk borders |
 | F11 | Fullscreen |
 | H | Print the controls |
 | Ctrl+Q | Quit |
 
-The top-left corner shows the rule, generation and speed, and whether the world
-is running. Selecting a stamp shows its name above the hotbar. Messages such as
-saves and rule changes appear mid-screen. The window title carries the same
+The top-left panel shows the rule and generation, whether the world is running,
+the speed (and, when the world is too big for it, the speed actually reached),
+the population with a graph of its recent history, and the building material.
+Selecting a stamp shows its name above the hotbar. Messages such as saves and
+rule changes appear mid-screen. The window title carries the same
 status.
 
 **Settings** (Esc, then Settings):
 - field of view
 - render distance (fog)
 - mouse sensitivity and invert mouse
-- GUI scale (Auto, or 1 to 4)
-- simulation speed
+- smooth lighting (ambient occlusion) and animated births and deaths
+- GUI scale (Auto scales with the window height, or 1 to 4)
+- simulation speed, and time per frame: the most milliseconds of simulation a
+  frame may use (default 8; fast-forward and max speed use at least 25)
 - HUD, chunk borders and fullscreen
 
 They save to `~/.config/gol3d/options.txt` (`%APPDATA%\gol3d` on Windows) and
@@ -181,26 +188,54 @@ copy (B5 is odd), and its glider is a different 10-cell shape.
 | Coral | S5-8/B6-7,9,12 | Survives with 5 to 8, born with 6, 7, 9 or 12 | Grows fast into coral-like branches |
 | Architecture | S4-6/B3 | Survives with 4 to 6, born with exactly 3 | Explodes and keeps churning |
 
+## Materials
+
+Stamps are made of the selected material:
+- **Life:** ordinary cells that follow the rule.
+- **Stone:** an inert block. No life is born in it and the rule does not count
+  it, so a wall one block thick stops a pattern from spreading.
+- **Ember:** a block that never changes but always counts as a live neighbor.
+
+Placing fills only empty cells; right click removes any block. Saves (`L3D2`)
+store blocks after the live cells; `L3D1` saves from earlier versions load too.
+The kinds live in `include/CellTypes.h`, which also explains how the GPU stores
+them (bit planes per behavior) and how to add more.
+
 ## How it works
 
-- **World:** cells are stored in 16³ chunks that exist only where life is or can
-  spread next. There is no wraparound; space outside the chunk set is dead.
-- **Simulation:** `shaders/life3d_chunks.comp` steps every active chunk using a
-  table of its 26 neighbor chunks. It also does three other things:
-  - appends live cells to the instance list for the indirect draw;
-  - counts each chunk's population;
-  - flags which neighbor chunks live border cells touch.
-
-  After each pass, the CPU uses that report to add chunks where life can spread
-  and free chunks that emptied.
-- **Budget:** the chunk budget defaults to 2048 chunks (`--chunks N`, up to
-  16000), and at most about 1M blocks are drawn. The window title shows
-  `(LIMIT)` or `(draw capped)` when a budget is reached. The first time a world
-  reaches the chunk limit, the game pauses and says so. Press G to continue;
-  growth then stops at the edge.
-- **Rendering:** blocks are instanced cubes with fixed per-face shading and
-  distance fog. They're drawn over a sky gradient, with a block grid on y = 0.
-- **Timeouts:** every GPU wait times out after 2 s. On timeout the game exits
+- **World:** cells are stored one bit each in 32³ chunks (1024 rows of 32 cells)
+  that exist only where life is or can reach within the next 8 generations.
+  There is no wraparound; space outside the chunk set is dead. The pool of chunk
+  slots starts at 512 and doubles as needed, up to `--chunks N` (default 32768,
+  at most 131072). When the world reaches the limit, the game pauses once and
+  says so; press G to continue, and growth then stops at the edge.
+- **Step pass:** `shaders/life3d_step.comp` computes a row of 32 cells per GPU
+  thread. A workgroup loads its 32 x 8 slab of rows plus a one-row border into
+  shared memory (across chunk borders through each chunk's table of 26
+  neighbors), sums the 26 neighbor rows with bitwise full adders into five bit
+  planes and applies the rule with a 32-way multiplexer
+  (`shaders/life3d_bits.glsl`). Up to 8 generations run per GPU submission.
+- **Build pass:** `shaders/life3d_build.comp` counts each chunk's population,
+  flags neighbor chunks that live cells or Embers within 8 cells of a face could
+  reach, and lists the visible blocks: occupied cells with an uncovered face, in
+  chunks within the render distance and a view 20 degrees wider than the
+  camera's, nearest chunks first. Each listed block carries its 26 neighbors.
+  After it, the CPU adds the flagged chunks and frees chunks that are empty and
+  unreachable.
+- **Rendering:** `shaders/life3d_blocks.vert` draws the three faces of each
+  block that can face the camera (12 vertices, indexed), drops faces covered by
+  a neighbor, darkens corners by the blocks around them and grows or shrinks
+  cells born or killed by the last change. Fog fades into a sky with a sun glow.
+  At most 4.2 million blocks are drawn.
+- **Governor:** GPU timestamps measure what a generation and a block list cost.
+  Each frame owes the simulation `speed x frame time` generations and pays only
+  what fits in the frame's time budget, so a world too big for the requested
+  speed slows the tick rate, not the frame rate. A single generation longer
+  than the budget is followed by idle frames to keep the game responsive.
+- **Vulkan 1.3:** dynamic rendering, synchronization2 and compute subgroup
+  operations, through volk. `GOL3D_VALIDATION=1` turns on the validation layers
+  when they are installed; `GOL3D_GPU=TEXT` picks a GPU by name.
+- **Timeouts:** every GPU wait times out after 4 s. On timeout the game exits
   with an error instead of hanging.
 
 ## Releases
@@ -213,7 +248,7 @@ release, versioned from `VERSION` (major.minor) plus the workflow run number:
 | Linux x86_64, aarch64 | `.deb`, `.rpm`, `.tar.gz`, AppImage |
 | Arch Linux x86_64 | `.pkg.tar.zst` (built from `packaging/arch/PKGBUILD`) |
 | Windows x64, ARM64 | NSIS installer `.exe`, `.zip` |
-| macOS 11+ (universal) | `.dmg` with MoltenVK bundled; not notarized |
+| macOS 12+ (universal) | `.dmg` with MoltenVK bundled; not notarized |
 
 A `SHA256SUMS` file is published alongside. Pull requests build the same
 packages as workflow artifacts without publishing. Locally, `cpack` in the build
@@ -222,12 +257,18 @@ directory makes the packages for the host platform.
 ## Testing
 
 ```bash
-ctest --test-dir build/prototype            # CPU rule and updater checks + GPU check
+ctest --test-dir build/prototype            # CPU rule, engine and updater checks + GPU check
 ctest --test-dir build/prototype -LE gpu    # CPU-only
 ```
 
-`gol3d --verify` steps soups centered on a chunk corner for 20 generations. It
+`gol3d --verify` steps soups with Stone and Ember blocks, centered on a chunk
+corner, for 24 generations, one generation per GPU batch and then eight. It
 compares every cell with a dense CPU reference (`include/Life3DRules.h`).
+`life3d_bits_test` runs the shader's bit-sliced arithmetic
+(`shaders/life3d_bits.glsl`, through `include/BitLife.h`) on the CPU against the
+same reference for every rule, and checks the chunk hash map, so CI covers the
+engine without a GPU. `gol3d --rule N --bench G` times G generations of the
+simulation alone.
 Scripted input drives the real picking and editing code for end-to-end
 screenshots. For example:
 
@@ -242,6 +283,9 @@ Other scripted actions:
 - `--load PATH` opens a save.
 - `--rotate N` turns the stamp N quarter turns.
 - `--tilt N` tilts the stamp N quarter turns around x.
+- `--material NAME` builds with life, stone or ember.
+- `--speed N` sets the speed in generations per second; `--view N` the render
+  distance; `--debug` shows the F3 overlay; `--hide-hud` hides the HUD.
 - `--update-feed URL` checks a releases JSON (a `file://` URL works) instead of GitHub.
 
 Run `gol3d --help` for all options.

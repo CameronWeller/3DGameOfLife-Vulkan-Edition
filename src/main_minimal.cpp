@@ -1,18 +1,22 @@
 // 3D Game of Life - playable Vulkan prototype with a Minecraft-style world.
 //
-// The world is unbounded and stored as 16^3-cell chunks that exist only where
-// life is (or is about to be). shaders/life3d_chunks.comp steps every active
-// chunk, appends live cells to an instance list, and reports per-chunk
-// population plus which neighbor chunks border cells touch; the CPU then
-// allocates and frees chunks to follow the pattern. Cells are drawn as blocks
-// with an indirect instanced draw. Controls follow Minecraft's defaults; see
-// printControls().
+// The world is unbounded and stored as 32^3-cell chunks, one bit per cell, that
+// exist only where life is (or could be within a few generations).
+// shaders/life3d_step.comp advances every active chunk a generation with
+// bit-sliced arithmetic; after the last generation of a batch,
+// shaders/life3d_build.comp lists the visible blocks for an indirect instanced
+// draw and reports per-chunk population plus which neighbor chunks life can
+// reach, and the CPU allocates and frees chunks to follow the pattern. A
+// governor sizes each frame's simulation work to the time it measures, so huge
+// worlds slow the tick rate instead of the frame rate. Controls follow
+// Minecraft's defaults; see printControls().
 //
 // Build with GLM_FORCE_DEPTH_ZERO_TO_ONE defined for the whole target (a
 // precompiled header may include GLM before this file).
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -29,8 +33,6 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #if defined(_WIN32)
@@ -56,9 +58,9 @@ static_assert(GLM_CONFIG_CLIP_CONTROL & GLM_CLIP_CONTROL_ZO_BIT,
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_vulkan.h"
 
-#include "WindowManager.h"
-#include "VulkanContext.h"
-#include "engine/vulkan/resources/ShaderManager.h"
+#include "CellTypes.h"
+#include "ChunkMap.h"
+#include "GpuContext.h"
 #include "Life3DRules.h"
 #include "Life3DPatterns.h"
 #include "MenuFont.h"
@@ -69,43 +71,58 @@ using namespace VulkanHIP;
 
 namespace {
 
-constexpr int CHUNK = 16;
-constexpr uint32_t CHUNK_CELLS = CHUNK * CHUNK * CHUNK;
+// World storage; must match shaders/life3d_storage.glsl.
+constexpr int CHUNK = 32;                  // cells along a chunk edge
+constexpr int CHUNK_SHIFT = 5;
+constexpr uint32_t CHUNK_ROWS = 1024;      // one 32-bit row of cells per (y, z)
+constexpr uint32_t BLOCK_ROWS = 2048;      // a block-pool slot: "blocked" rows, then "emits" rows
 constexpr uint32_t NO_CHUNK = 0xFFFFFFFFu;
-constexpr uint32_t MAX_INSTANCES = 1u << 20; // drawn blocks; more are simulated but not drawn
-constexpr uint64_t GPU_TIMEOUT_NS = 2'000'000'000; // treat a longer wait as a lost device
+constexpr uint32_t MAX_CHUNK_SLOTS = 1u << 17; // the instance format has 17 bits for the slot
+constexpr uint32_t DEFAULT_CHUNK_LIMIT = 32768; // 1.07 billion cells, 256 MB of cell storage
+constexpr uint32_t INITIAL_CHUNKS = 512;   // the pool doubles as the world grows
+constexpr uint32_t INITIAL_BLOCK_SLOTS = 64;
+// Generations per GPU submission. life3d_build.comp flags neighbor chunks for
+// live cells within this many cells of a face, and life spreads at most one
+// cell per generation, so that many generations can run before the CPU must
+// add chunks.
+constexpr uint32_t MAX_BATCH = 8;
+constexpr uint32_t MAX_DISPATCH = 65535;   // workgroups per dispatch dimension the spec guarantees
+constexpr uint32_t MAX_INSTANCES = 1u << 22; // drawn blocks (8 bytes each); more are simulated but not drawn
+constexpr uint32_t BLOCK_INDICES = 18;     // three camera-facing quads per block, 12 vertices (life3d_blocks.vert)
+constexpr uint32_t MAX_BOXES = 4096;       // outline boxes per frame
+constexpr uint64_t GPU_TIMEOUT_NS = 4'000'000'000; // treat a longer wait as a lost device
 
-struct IVec3Hash {
-    size_t operator()(const glm::ivec3& v) const {
-        return (size_t(uint32_t(v.x)) * 73856093u) ^ (size_t(uint32_t(v.y)) * 19349663u) ^
-               (size_t(uint32_t(v.z)) * 83492791u);
-    }
-};
-
-glm::ivec3 chunkOf(const glm::ivec3& cell) { return cell >> 4; } // floor division by 16
-uint32_t localIndex(const glm::ivec3& cell) {
+glm::ivec3 chunkOf(const glm::ivec3& cell) { return cell >> CHUNK_SHIFT; } // floor division by 32
+// Row of a cell within its chunk, and its bit in that row.
+uint32_t rowOf(const glm::ivec3& cell) {
     glm::ivec3 l = cell & (CHUNK - 1);
-    return static_cast<uint32_t>((l.z * CHUNK + l.y) * CHUNK + l.x);
+    return static_cast<uint32_t>(l.z * CHUNK + l.y);
 }
+uint32_t bitOf(const glm::ivec3& cell) { return 1u << (cell.x & (CHUNK - 1)); }
 glm::ivec3 neighborOffset(int k) { return glm::ivec3(k % 3 - 1, (k / 3) % 3 - 1, k / 9 - 1); }
 
 // Scripted input for end-to-end checks, applied in order before the first frame.
 struct ScriptAction {
-    enum Kind { Position, Look, Place, Break, Slot, Resize, Push, Rotate, Tilt } kind;
+    enum Kind { Position, Look, Place, Break, Slot, Resize, Push, Rotate, Tilt, Material } kind;
     glm::vec3 value{0.0f};
 };
 
 struct Options {
     size_t rule = 0; // Life 5766, the closest 3D analog of Conway's Life
     uint32_t seed = std::random_device{}();
-    uint32_t chunkCapacity = 2048;
+    uint32_t chunkLimit = DEFAULT_CHUNK_LIMIT;
     bool empty = false;
     bool run = false;
     bool chunkBorders = false;
+    bool debugOverlay = false;
+    bool hideHud = false;
+    int renderDistance = 0; // --view: render distance for this run (0 = the setting)
     uint32_t warmupSteps = 0;
     std::string screenshotPath;
     uint32_t exitAfterFrames = 0;
     bool verify = false;
+    uint64_t benchGenerations = 0; // --bench: time this many generations at full speed, then exit
+    int speedExponent = 0;         // simulation speed 2^N generations per second
     std::string loadPath;
     std::string savePath;
     bool fly = false;
@@ -118,11 +135,16 @@ void printUsage() {
     std::cout << "Usage: gol3d [options]\n"
                  "  --rule N          starting rule 1-" << lifeRules().size() << " (default 1, Life 5766)\n"
                  "  --seed N          random seed for soups\n"
-                 "  --chunks N        chunk budget, 64-16000 (default 2048; 16^3 cells each)\n"
+                 "  --chunks N        most chunks the world may use, 64-131072 (default 32768; 32^3 cells each)\n"
                  "  --empty           start with an empty world\n"
                  "  --run             start with the simulation running\n"
                  "  --steps N         advance N generations before the first frame\n"
+                 "  --speed N         start at N generations per second (rounded to a power of two)\n"
+                 "  --bench N         advance N generations as fast as possible, print the rate and exit\n"
                  "  --borders         show chunk borders (F3+G in game)\n"
+                 "  --debug           show the debug overlay (F3 in game)\n"
+                 "  --hide-hud        start with the HUD hidden (F1 in game)\n"
+                 "  --view N          render distance in blocks for this run, 64-1024\n"
                  "  --screenshot PATH save a PNG of the last frame (implies --frames 3)\n"
                  "  --frames N        exit after N frames\n"
                  "  --verify          check the GPU against the CPU reference and exit\n"
@@ -136,7 +158,9 @@ void printUsage() {
                  "  --pos X,Y,Z  --look YAW,PITCH  --slot N (0 = empty hand)  --place  --break  --resize W,H\n"
                  "  --push DX,DY,DZ   move the player with collision\n"
                  "  --rotate N        rotate the stamp N quarter turns (like pressing E N times)\n"
-                 "  --tilt N          tilt the stamp N quarter turns around x (like pressing C N times)\n";
+                 "  --tilt N          tilt the stamp N quarter turns around x (like pressing C N times)\n"
+                 "  --material NAME   build with life, stone or ember (like pressing M)\n"
+                 "Environment: GOL3D_VALIDATION=1 enables Vulkan validation; GOL3D_GPU=TEXT picks a GPU by name.\n";
 }
 
 glm::vec3 parseVector(const std::string& text, int components) {
@@ -163,14 +187,23 @@ Options parseOptions(int argc, char** argv) {
             options.rule = rule - 1;
         }
         else if (arg == "--seed") options.seed = static_cast<uint32_t>(std::stoul(value(i)));
-        else if (arg == "--chunks") options.chunkCapacity = std::clamp<uint32_t>(std::stoul(value(i)), 64, 16000);
+        else if (arg == "--chunks") options.chunkLimit = std::clamp<uint32_t>(std::stoul(value(i)), 64, MAX_CHUNK_SLOTS);
         else if (arg == "--empty") options.empty = true;
         else if (arg == "--run") options.run = true;
         else if (arg == "--borders") options.chunkBorders = true;
+        else if (arg == "--debug") options.debugOverlay = true;
+        else if (arg == "--hide-hud") options.hideHud = true;
+        else if (arg == "--view") options.renderDistance = std::clamp(std::stoi(value(i)), 64, 1024);
         else if (arg == "--steps") options.warmupSteps = static_cast<uint32_t>(std::stoul(value(i)));
         else if (arg == "--screenshot") options.screenshotPath = value(i);
         else if (arg == "--frames") options.exitAfterFrames = static_cast<uint32_t>(std::stoul(value(i)));
         else if (arg == "--verify") options.verify = true;
+        else if (arg == "--bench") options.benchGenerations = std::stoull(value(i));
+        else if (arg == "--speed") {
+            double speed = std::stod(value(i));
+            if (speed <= 0.0) throw std::runtime_error("--speed must be positive");
+            options.speedExponent = static_cast<int>(std::lround(std::log2(speed)));
+        }
         else if (arg == "--load") options.loadPath = value(i);
         else if (arg == "--fly") options.fly = true;
         else if (arg == "--menu") options.menu = value(i);
@@ -186,6 +219,17 @@ Options parseOptions(int argc, char** argv) {
         else if (arg == "--push") options.script.push_back({ScriptAction::Push, parseVector(value(i), 3)});
         else if (arg == "--rotate") options.script.push_back({ScriptAction::Rotate, glm::vec3(std::stof(value(i)))});
         else if (arg == "--tilt") options.script.push_back({ScriptAction::Tilt, glm::vec3(std::stof(value(i)))});
+        else if (arg == "--material") {
+            std::string name = value(i);
+            int kind = -1;
+            for (const CellType& type : cellTypes()) {
+                std::string lower = type.name;
+                for (char& ch : lower) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                if (lower == name) kind = static_cast<int>(type.kind);
+            }
+            if (kind < 0) throw std::runtime_error("--material must be life, stone or ember");
+            options.script.push_back({ScriptAction::Material, glm::vec3(static_cast<float>(kind))});
+        }
         else if (arg == "--help" || arg == "-h") { printUsage(); std::exit(0); }
         else throw std::runtime_error("Unknown option: " + arg);
     }
@@ -218,7 +262,7 @@ std::filesystem::path findShaderDirectory(const std::filesystem::path& exeDir) {
     std::error_code ec;
     for (const std::filesystem::path& dir : {exeDir / "shaders", exeDir / ".." / "share" / "gol3d" / "shaders",
                                              exeDir / ".." / "Resources" / "shaders"}) {
-        if (std::filesystem::exists(dir / "life3d_chunks.comp.spv", ec)) return dir;
+        if (std::filesystem::exists(dir / "life3d_step.comp.spv", ec)) return dir;
     }
     return "shaders";
 }
@@ -367,6 +411,9 @@ struct Settings {
     int renderDistance = 256; // blocks; fog ends here
     int guiScale = 0;        // 0 = automatic
     bool checkUpdates = true; // ask GitHub for a newer release at startup
+    bool smoothLighting = true; // ambient occlusion at block corners
+    bool animate = true;        // births grow in and deaths shrink away at slow speeds
+    int simBudget = 8;          // most milliseconds of simulation per frame (the governor's budget)
 };
 
 std::filesystem::path settingsPath() {
@@ -394,9 +441,12 @@ Settings loadSettings() {
             if (key == "fov") settings.fov = std::clamp(std::stof(value), 30.0f, 110.0f);
             else if (key == "sensitivity") settings.sensitivity = std::clamp(std::stoi(value), 10, 300);
             else if (key == "invertY") settings.invertY = value == "true";
-            else if (key == "renderDistance") settings.renderDistance = std::clamp(std::stoi(value), 64, 512);
+            else if (key == "renderDistance") settings.renderDistance = std::clamp(std::stoi(value), 64, 1024);
             else if (key == "guiScale") settings.guiScale = std::clamp(std::stoi(value), 0, 4);
             else if (key == "checkUpdates") settings.checkUpdates = value != "false";
+            else if (key == "smoothLighting") settings.smoothLighting = value != "false";
+            else if (key == "animate") settings.animate = value != "false";
+            else if (key == "simBudget") settings.simBudget = std::clamp(std::stoi(value), 2, 40);
         } catch (const std::exception&) {
             // Ignore malformed lines and keep the default.
         }
@@ -411,7 +461,9 @@ void saveSettings(const Settings& settings) {
     out << "fov:" << settings.fov << "\nsensitivity:" << settings.sensitivity
         << "\ninvertY:" << (settings.invertY ? "true" : "false") << "\nrenderDistance:" << settings.renderDistance
         << "\nguiScale:" << settings.guiScale
-        << "\ncheckUpdates:" << (settings.checkUpdates ? "true" : "false") << "\n";
+        << "\ncheckUpdates:" << (settings.checkUpdates ? "true" : "false")
+        << "\nsmoothLighting:" << (settings.smoothLighting ? "true" : "false")
+        << "\nanimate:" << (settings.animate ? "true" : "false") << "\nsimBudget:" << settings.simBudget << "\n";
 }
 
 } // namespace
@@ -423,11 +475,17 @@ public:
         ruleIndex = this->options.rule;
         simulationRunning = this->options.run;
         showChunkBorders = this->options.chunkBorders;
-        chunkCapacity = this->options.chunkCapacity;
+        showDebug = this->options.debugOverlay;
+        hudVisible = !this->options.hideHud;
+        chunkLimit = this->options.chunkLimit;
+        speedExponent = std::clamp(this->options.speedExponent, MIN_SPEED_EXPONENT, UNLIMITED_SPEED_EXPONENT);
         // Scripted and test runs use defaults so results do not depend on the player's options.
         persistSettings = this->options.script.empty() && this->options.screenshotPath.empty() &&
-                          !this->options.verify && this->options.menu.empty();
+                          !this->options.verify && this->options.menu.empty() && !this->options.benchGenerations;
         if (persistSettings) settings = loadSettings();
+        if (this->options.renderDistance) settings.renderDistance = this->options.renderDistance;
+        // Screenshots of scripted runs show finished states, not cells mid-animation.
+        capturing = this->options.exitAfterFrames != 0;
     }
 
     ~LifePrototypeApp() {
@@ -446,7 +504,8 @@ public:
         newWorld(!options.empty);
         if (!options.loadPath.empty() && !loadWorld(options.loadPath)) return 1;
         flying = options.fly;
-        for (uint32_t i = 0; i < options.warmupSteps; ++i) runPass(true);
+        advanceGenerations(options.warmupSteps);
+        if (options.benchGenerations) return runBenchmark(options.benchGenerations);
         for (const ScriptAction& action : options.script) applyScriptAction(action);
         printControls();
         setCursorCaptured(options.script.empty() && options.screenshotPath.empty() && options.menu.empty());
@@ -457,7 +516,7 @@ public:
         else if (options.menu.rfind("tutorial", 0) == 0) {
             // --menu tutorial:N opens lesson N; --steps then advances the lesson's scene.
             openTutorial(options.menu.size() > 9 ? std::stoul(options.menu.substr(9)) - 1 : 0);
-            for (uint32_t i = 0; i < options.warmupSteps; ++i) runPass(true);
+            advanceGenerations(options.warmupSteps);
         }
         else if (!options.menu.empty()) throw std::runtime_error("Unknown --menu " + options.menu);
         if (!options.updateFeed.empty() || (persistSettings && settings.checkUpdates)) {
@@ -485,33 +544,69 @@ private:
         glm::vec4 viewport;
         glm::ivec4 hotbar;
         glm::vec4 fog;
+        glm::vec4 anim;
+        glm::vec4 sun;
     };
 
-    // Matches the push constants in shaders/life3d_chunks.comp.
-    struct PassConstants {
-        uint32_t activeCount;
+    // Push constants of shaders/life3d_step.comp and shaders/life3d_build.comp.
+    struct StepConstants {
+        uint32_t firstIndex;
+        uint32_t count;
         uint32_t surviveMask;
         uint32_t birthMask;
-        uint32_t applyRule;
+    };
+    struct BuildConstants {
+        glm::mat4 cullViewProj;
+        uint32_t firstIndex;
+        uint32_t count;
+        uint32_t margin;
+        uint32_t flags; // bit 0 animate, bit 1 write instances
         uint32_t maxInstances;
+        float cullDistance;
+        float cameraX, cameraY, cameraZ;
     };
 
     struct Box {
         glm::vec4 min; // w = edge thickness
-        glm::vec4 max; // w = color id (0 target, 1 chunk border, 2 air placement)
+        glm::vec4 max; // w = color id (see shaders/life3d_boxes.vert)
     };
 
     // What the crosshair points at within reach.
     struct Target {
-        bool hit = false;       // a live block is targeted
+        bool hit = false;       // a block is targeted
         glm::ivec3 block{0};    // the targeted block
         bool canPlace = false;
         glm::ivec3 place{0};    // where a stamp's anchor goes
         glm::ivec3 normal{0, 1, 0}; // direction stamps grow into
     };
 
+    // A buffer with its memory and, when host-visible, its mapping.
+    struct GpuBuffer {
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        void* mapped = nullptr;
+        VkDeviceSize size = 0;
+        template <typename T> T* as() const { return static_cast<T*>(mapped); }
+    };
+
+    // Everything sized by the chunk pool, regrown together when the world outgrows it.
+    struct ChunkPool {
+        uint32_t capacity = 0;
+        std::array<GpuBuffer, 2> cells; // ping-pong generations
+        GpuBuffer neighbors;            // 27 slots per chunk
+        GpuBuffer active;               // slots of the active chunks
+        GpuBuffer origins;              // world cell of each chunk's local (0, 0, 0)
+        GpuBuffer blockSlots;           // block-pool slot per chunk, or NO_CHUNK
+        GpuBuffer stats;                // uvec2 per chunk: population, reach mask (GPU atomics)
+        GpuBuffer statsReadback;        // the same, copied back for the CPU after each build
+    };
+
     static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
-    static constexpr std::array<float, 8> SPEEDS = {0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 15.0f, 30.0f, 60.0f};
+    // Simulation speed is 2^exponent generations per second; the top step is "as
+    // fast as the GPU goes".
+    static constexpr int MIN_SPEED_EXPONENT = -5;  // one generation every 32 s
+    static constexpr int MAX_SPEED_EXPONENT = 13;  // 8192 generations per second
+    static constexpr int UNLIMITED_SPEED_EXPONENT = MAX_SPEED_EXPONENT + 1;
     // Minecraft scale: 1 cell = 1 block, creative flight at 10.92 blocks/s, sprint doubles it.
     static constexpr float FLY_SPEED = 10.92f;
     static constexpr float REACH = 6.0f;
@@ -527,22 +622,24 @@ private:
     static constexpr float MOUSE_DEGREES_PER_PIXEL = 0.15f; // at 100% sensitivity
     static constexpr float BREAK_REPEAT = 0.25f;
     static constexpr float PLACE_REPEAT = 0.20f;
+    static constexpr float EDIT_ANIMATION_SECONDS = 0.16f;
+    static constexpr float REBUILD_DISTANCE = 16.0f; // camera travel that refreshes the distance-culled block list
+    static inline const glm::vec3 SUN_DIRECTION = glm::normalize(glm::vec3(0.45f, 0.80f, 0.30f));
 
     Options options;
     std::filesystem::path shaderDir;
     std::filesystem::path exeDir;
     std::mt19937 rng;
 
-    WindowManager* windowManager = nullptr;
-    VulkanContext* vulkanContext = nullptr;
+    GLFWwindow* window = nullptr;
+    gol3d::GpuContext gpu;
     VkDevice device = VK_NULL_HANDLE;
-    std::unique_ptr<ShaderManager> shaderManager;
+    VkDeviceSize gpuBytes = 0; // memory allocated through createBuffer
 
-    // Swapchain and targets
+    // Swapchain and targets (dynamic rendering: no render pass or framebuffers)
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
     std::vector<VkImage> swapchainImages;
     std::vector<VkImageView> swapchainImageViews;
-    std::vector<VkFramebuffer> framebuffers;
     VkFormat swapchainImageFormat = VK_FORMAT_UNDEFINED;
     VkExtent2D swapchainExtent{};
     bool captureSupported = false;
@@ -550,27 +647,22 @@ private:
     VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
     VkImageView depthImageView = VK_NULL_HANDLE;
     VkFormat depthFormat = VK_FORMAT_UNDEFINED;
-    VkRenderPass renderPass = VK_NULL_HANDLE;
     bool framebufferResized = false;
 
     // Rendering: all pipelines share one layout and one descriptor set per frame.
     VkDescriptorSetLayout frameSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-    VkPipeline worldPipeline = VK_NULL_HANDLE;
+    VkPipeline blockPipeline = VK_NULL_HANDLE;
+    VkPipeline boxPipeline = VK_NULL_HANDLE;
     VkPipeline skyPipeline = VK_NULL_HANDLE;
     VkPipeline gridPipeline = VK_NULL_HANDLE;
     VkPipeline hudPipeline = VK_NULL_HANDLE;
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> frameSets{};
     std::vector<Vertex> cubeVertices;
-    VkBuffer vertexBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
-    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> uniformBuffers{};
-    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> uniformBuffersMemory{};
-    std::array<void*, MAX_FRAMES_IN_FLIGHT> uniformBuffersMapped{};
-    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> boxBuffers{};
-    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> boxBuffersMemory{};
-    std::array<Box*, MAX_FRAMES_IN_FLIGHT> boxBuffersMapped{};
+    GpuBuffer vertexBuffer, indexBuffer;
+    std::array<GpuBuffer, MAX_FRAMES_IN_FLIGHT> uniformBuffers;
+    std::array<GpuBuffer, MAX_FRAMES_IN_FLIGHT> boxBuffers;
 
     // Frame synchronization. Render-finished semaphores are per swapchain image
     // because presentation may still hold them after the frame fence signals.
@@ -580,36 +672,40 @@ private:
     std::vector<VkSemaphore> renderFinishedSemaphores;
     size_t currentFrame = 0;
 
-    // Chunk pool. cellBuffers ping-pong between generations; the tables are
-    // indexed by slot and rewritten by the CPU between passes.
-    uint32_t chunkCapacity = 2048;
-    std::array<VkBuffer, 2> cellBuffers{};
-    std::array<VkDeviceMemory, 2> cellMemory{};
-    std::array<uint32_t*, 2> cellsMapped{};
+    // Chunk pool. pool.cells ping-pong between generations; the tables are
+    // indexed by slot and kept current by the CPU between passes.
+    ChunkPool pool;
+    uint32_t chunkLimit = DEFAULT_CHUNK_LIMIT;
     uint32_t currentCells = 0;
-    VkBuffer neighborBuffer = VK_NULL_HANDLE, activeBuffer = VK_NULL_HANDLE, originBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory neighborMemory = VK_NULL_HANDLE, activeMemory = VK_NULL_HANDLE, originMemory = VK_NULL_HANDLE;
-    uint32_t* neighborsMapped = nullptr;
-    uint32_t* activeMapped = nullptr;
-    glm::ivec4* originsMapped = nullptr;
-    VkBuffer statsBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory statsMemory = VK_NULL_HANDLE;
-    glm::uvec2* statsMapped = nullptr;
-    VkBuffer instanceBuffer = VK_NULL_HANDLE, indirectBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory instanceMemory = VK_NULL_HANDLE, indirectMemory = VK_NULL_HANDLE;
+    GpuBuffer blockPool;        // BLOCK_ROWS words per block slot
+    uint32_t blockCapacity = 0;
+    uint32_t maxBlockSlots = 0; // largest block pool a storage buffer can hold
+    std::vector<uint32_t> freeBlockSlots;
+    GpuBuffer instanceBuffer, indirectBuffer, readbackBuffer;
 
-    std::unordered_map<glm::ivec3, uint32_t, IVec3Hash> chunkSlots;
-    std::vector<glm::ivec3> slotChunk;
+    ChunkMap chunkMap;
+    std::vector<glm::ivec3> slotChunk;   // chunk coordinate of each slot
+    std::vector<uint32_t> neighborSlots; // CPU copy of pool.neighbors (reading GPU memory back is slow)
+    std::vector<uint32_t> activeIndex;   // position of each slot in activeSlots
+    std::vector<uint32_t> blockSlotOf;   // block-pool slot of each chunk slot
+    std::vector<uint32_t> blockCount;    // static blocks in each chunk
+    std::vector<uint32_t> wantedStamp;   // last maintenance that saw life able to reach the chunk
+    uint32_t maintenanceStamp = 0;
     std::vector<uint32_t> freeSlots;
+    std::vector<uint32_t> quarantine;    // freed slots that the last block list may still draw
     std::vector<uint32_t> activeSlots;
-    bool tablesDirty = true;
     bool chunkLimitHit = false;
-    bool pausedAtLimit = false; // pause once per world when the chunk budget runs out
-    bool refreshPending = false;
+    bool pausedAtLimit = false; // pause once per world when the chunk limit is reached
+    bool refreshPending = false; // edits or camera moves need a new block list
+    bool editOpen = false;       // the previous-generation buffer holds the world before this frame's edits
+    bool blockListStale = false; // the last batch skipped the block list
+    bool capturing = false;      // a scripted run that exits after a few frames: no animations
+    double benchGpuMs = 0.0, benchCpuMs = 0.0; // time in GPU passes and in chunk bookkeeping (--bench)
 
     VkDescriptorSetLayout computeSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout computePipelineLayout = VK_NULL_HANDLE;
-    VkPipeline computePipeline = VK_NULL_HANDLE;
+    VkPipeline stepPipeline = VK_NULL_HANDLE;
+    VkPipeline buildPipeline = VK_NULL_HANDLE;
     VkDescriptorPool computeDescriptorPool = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, 2> computeSets{}; // [which cell buffer is current]
     VkCommandBuffer computeCommandBuffer = VK_NULL_HANDLE;
@@ -618,10 +714,37 @@ private:
     // Simulation
     size_t ruleIndex = 0;
     bool simulationRunning = false;
-    size_t speedIndex = 1; // SPEEDS[1]: one generation per second
-    float stepAccumulator = 0.0f;
+    int speedExponent = 0;      // 2^speedExponent generations per second
+    double stepDebt = 0.0;      // generations owed to the target speed
+    uint64_t fastForward = 0;   // generations queued by J / Shift+J
+    uint64_t fastForwardTotal = 0;
     uint64_t generation = 0;
     uint64_t population = 0;
+    uint64_t drawnBlocks = 0;
+    uint64_t visibleBlocks = 0; // before the draw cap
+    // Governor: what a generation costs (ms, smoothed) and what rate it achieves.
+    // GPU milliseconds (smoothed) per generation step, per block-list build and
+    // per stats-only build, measured with timestamps; plus the CPU side of a
+    // submission (chunk bookkeeping and waiting), from the wall clock.
+    double stepCostMs = 0.0, drawCostMs = 0.0, statsCostMs = 0.0, overheadMs = 0.0;
+    VkQueryPool timestamps = VK_NULL_HANDLE;
+    double timestampMs = 0.0; // milliseconds per timestamp tick; 0 = no timestamps on this queue
+    uint64_t timestampMask = ~0ull;
+    double simCooldownUntil = 0.0;
+    bool tickLimited = false;   // the target speed is more than the GPU can keep up with
+    double limitedSince = -1.0;
+    std::vector<std::pair<double, uint64_t>> rateSamples; // (time, generation)
+    double measuredRate = 0.0;
+    float lastSimMs = 0.0f;
+    float worstFrameMs = 0.0f;
+    // Birth/death animation of the last change
+    double lastChangeTime = -100.0;
+    float changeAnimationSeconds = 0.0f; // 0 = the last change is not animated
+    bool lastBuildAnimated = false;
+    glm::vec3 lastBuildEye{0.0f};
+    glm::vec3 lastBuildForward{1.0f, 0.0f, 0.0f};
+    glm::vec3 lastSortEye{1e9f};
+    std::vector<float> populationHistory; // one entry per generation step shown in the HUD graph
 
     // Player (creative flight)
     glm::vec3 eye{0.0f};
@@ -634,6 +757,7 @@ private:
     bool haveCursorPosition = false;
     double lastCursorX = 0.0, lastCursorY = 0.0;
     int hotbarSlot = 0; // -1 = empty hand: nothing to place, no placement outline
+    CellKind material = CellKind::Life; // what stamps are made of (M)
     int brushRotation = 0; // quarter turns around the placement surface (Q/E)
     int brushTilt = 0;     // quarter turns around the world x axis (Z/C), applied after brushRotation
     bool breakHeld = false, placeHeld = false;
@@ -656,6 +780,8 @@ private:
     double slotNameUntil = 0.0;
     std::string toast;
     double toastUntil = 0.0;
+    double menuOpenedAt = 0.0; // menus fade in
+    Screen shownScreen = Screen::Playing;
     bool showDebug = false;
     bool f3UsedInCombo = false;
     std::unique_ptr<gol3d::Updater> updater;
@@ -672,8 +798,7 @@ private:
 
     // Screenshots
     std::string pendingScreenshot;
-    VkBuffer captureBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory captureMemory = VK_NULL_HANDLE;
+    GpuBuffer captureBuffer;
 
     // HUD / timing
     std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
@@ -686,21 +811,17 @@ private:
 
     void waitFence(VkFence fence, const char* what) {
         VkResult result = vkWaitForFences(device, 1, &fence, VK_TRUE, GPU_TIMEOUT_NS);
-        if (result == VK_TIMEOUT) throw std::runtime_error(std::string("GPU did not finish ") + what + " within 2 s");
+        if (result == VK_TIMEOUT) throw std::runtime_error(std::string("GPU did not finish ") + what + " within 4 s");
         if (result != VK_SUCCESS) throw std::runtime_error(std::string("Lost the GPU while waiting for ") + what);
     }
 
     // ------------------------------------------------------------------ setup
 
     void initWindow() {
-        windowManager = &WindowManager::getInstance();
-        WindowManager::WindowConfig config{};
-        config.width = windowedWidth;
-        config.height = windowedHeight;
-        config.title = "3D Game of Life";
-        windowManager->init(config);
-
-        GLFWwindow* window = windowManager->getWindow();
+        if (!glfwInit()) throw std::runtime_error("Could not open a window (GLFW failed to start).");
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        window = glfwCreateWindow(windowedWidth, windowedHeight, "3D Game of Life", nullptr, nullptr);
+        if (!window) throw std::runtime_error("Could not open a window.");
         glfwSetWindowUserPointer(window, this);
         glfwSetFramebufferSizeCallback(window, [](GLFWwindow* w, int, int) {
             static_cast<LifePrototypeApp*>(glfwGetWindowUserPointer(w))->framebufferResized = true;
@@ -726,26 +847,17 @@ private:
     }
 
     void initVulkan() {
-        vulkanContext = &VulkanContext::getInstance();
-        uint32_t glfwExtensionCount = 0;
-        const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-        std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
-        vulkanContext->init(extensions);
-        device = vulkanContext->getDevice();
-
-        VkPhysicalDeviceProperties properties;
-        vkGetPhysicalDeviceProperties(vulkanContext->getPhysicalDevice(), &properties);
-        std::cout << "GPU: " << properties.deviceName << std::endl;
+        gpu.init(window);
+        device = gpu.device;
+        std::cout << "GPU: " << gpu.properties.deviceName << " (Vulkan " << VK_API_VERSION_MAJOR(gpu.properties.apiVersion)
+                  << "." << VK_API_VERSION_MINOR(gpu.properties.apiVersion) << ")" << std::endl;
     }
 
     void initRendering() {
-        shaderManager = std::make_unique<ShaderManager>(vulkanContext);
         createSwapchain();
         createImageViews();
         depthFormat = findDepthFormat();
         createDepthResources();
-        createRenderPass();
-        createFramebuffers();
         createPerImageSemaphores();
 
         createWorldBuffers();
@@ -754,59 +866,86 @@ private:
         createFrameSetLayout();
         createGraphicsPipelines();
         createFrameSets();
-        createComputePipeline();
+        createComputePipelines();
         createComputeSets();
         createCommandBuffers();
         createSyncObjects();
+        resetChunks();
     }
 
-    std::optional<uint32_t> findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags wanted) {
-        VkPhysicalDeviceMemoryProperties properties;
-        vkGetPhysicalDeviceMemoryProperties(vulkanContext->getPhysicalDevice(), &properties);
+    std::optional<uint32_t> findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags wanted, uint32_t skip = 0) {
+        const VkPhysicalDeviceMemoryProperties& properties = gpu.memoryProperties;
         for (uint32_t i = 0; i < properties.memoryTypeCount; ++i) {
-            if ((typeBits & (1u << i)) && (properties.memoryTypes[i].propertyFlags & wanted) == wanted) return i;
+            if ((skip & (1u << i)) == 0 && (typeBits & (1u << i)) && (properties.memoryTypes[i].propertyFlags & wanted) == wanted) return i;
         }
         return std::nullopt;
     }
 
-    // Allocates with the first memory property set in `preferences` that is available.
-    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, std::initializer_list<VkMemoryPropertyFlags> preferences,
-                      VkBuffer& buffer, VkDeviceMemory& memory, void** mapped = nullptr) {
-        VkBufferCreateInfo bufferInfo{};
-        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    // Allocates with the first memory property set in `preferences` that exists
+    // and has room (a full resizable-BAR heap falls back to the next choice).
+    // Returns false when no choice has room.
+    bool tryCreateBuffer(GpuBuffer& out, VkDeviceSize size, VkBufferUsageFlags usage,
+                         std::initializer_list<VkMemoryPropertyFlags> preferences) {
+        VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         bufferInfo.size = size;
         bufferInfo.usage = usage;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
+        if (vkCreateBuffer(device, &bufferInfo, nullptr, &out.buffer) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create buffer!");
         }
         VkMemoryRequirements requirements;
-        vkGetBufferMemoryRequirements(device, buffer, &requirements);
-        std::optional<uint32_t> type;
+        vkGetBufferMemoryRequirements(device, out.buffer, &requirements);
         for (VkMemoryPropertyFlags wanted : preferences) {
-            if ((type = findMemoryType(requirements.memoryTypeBits, wanted))) break;
+            uint32_t tried = 0;
+            while (std::optional<uint32_t> type = findMemoryType(requirements.memoryTypeBits, wanted, tried)) {
+                tried |= 1u << *type;
+                VkMemoryAllocateInfo allocInfo{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+                allocInfo.allocationSize = requirements.size;
+                allocInfo.memoryTypeIndex = *type;
+                if (vkAllocateMemory(device, &allocInfo, nullptr, &out.memory) != VK_SUCCESS) continue;
+                vkBindBufferMemory(device, out.buffer, out.memory, 0);
+                out.mapped = nullptr;
+                if ((wanted & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) &&
+                    vkMapMemory(device, out.memory, 0, VK_WHOLE_SIZE, 0, &out.mapped) != VK_SUCCESS) {
+                    throw std::runtime_error("Failed to map buffer memory!");
+                }
+                out.size = size;
+                gpuBytes += requirements.size;
+                return true;
+            }
         }
-        if (!type) throw std::runtime_error("No suitable memory type for buffer!");
-        VkMemoryAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize = requirements.size;
-        allocInfo.memoryTypeIndex = *type;
-        if (vkAllocateMemory(device, &allocInfo, nullptr, &memory) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate buffer memory!");
+        vkDestroyBuffer(device, out.buffer, nullptr);
+        out = GpuBuffer{};
+        return false;
+    }
+
+    void createBuffer(GpuBuffer& out, VkDeviceSize size, VkBufferUsageFlags usage,
+                      std::initializer_list<VkMemoryPropertyFlags> preferences) {
+        if (!tryCreateBuffer(out, size, usage, preferences)) {
+            throw std::runtime_error("Out of GPU memory (" + std::to_string(size >> 20) + " MB buffer)");
         }
-        vkBindBufferMemory(device, buffer, memory, 0);
-        if (mapped && vkMapMemory(device, memory, 0, VK_WHOLE_SIZE, 0, mapped) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to map buffer memory!");
-        }
+    }
+
+    void destroyBuffer(GpuBuffer& b) {
+        if (b.buffer == VK_NULL_HANDLE) return;
+        VkMemoryRequirements requirements;
+        vkGetBufferMemoryRequirements(device, b.buffer, &requirements);
+        gpuBytes -= std::min<VkDeviceSize>(gpuBytes, requirements.size);
+        vkDestroyBuffer(device, b.buffer, nullptr);
+        vkFreeMemory(device, b.memory, nullptr);
+        b = GpuBuffer{};
     }
 
     static constexpr VkMemoryPropertyFlags HOST = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     static constexpr VkMemoryPropertyFlags HOST_CACHED = HOST | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
     static constexpr VkMemoryPropertyFlags DEVICE_HOST = HOST | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     static constexpr VkMemoryPropertyFlags DEVICE = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    static constexpr VkBufferUsageFlags STORAGE = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    static constexpr VkBufferUsageFlags STORAGE_COPY =
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
     void createSwapchain() {
-        SwapChainSupportDetails support = vulkanContext->querySwapChainSupport(vulkanContext->getPhysicalDevice());
+        gol3d::SurfaceSupport support = gpu.querySurface();
         VkSurfaceFormatKHR surfaceFormat = support.formats[0];
         for (const auto& format : support.formats) {
             if (format.format == VK_FORMAT_B8G8R8A8_SRGB && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
@@ -818,7 +957,7 @@ private:
         VkExtent2D extent = support.capabilities.currentExtent;
         if (extent.width == UINT32_MAX) {
             int width, height;
-            glfwGetFramebufferSize(windowManager->getWindow(), &width, &height);
+            glfwGetFramebufferSize(window, &width, &height);
             extent.width = std::clamp(static_cast<uint32_t>(width), support.capabilities.minImageExtent.width,
                                       support.capabilities.maxImageExtent.width);
             extent.height = std::clamp(static_cast<uint32_t>(height), support.capabilities.minImageExtent.height,
@@ -830,26 +969,15 @@ private:
 
         captureSupported = support.capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
-        VkSwapchainCreateInfoKHR createInfo{};
-        createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-        createInfo.surface = vulkanContext->getSurface();
+        VkSwapchainCreateInfoKHR createInfo{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
+        createInfo.surface = gpu.surface;
         createInfo.minImageCount = imageCount;
         createInfo.imageFormat = surfaceFormat.format;
         createInfo.imageColorSpace = surfaceFormat.colorSpace;
         createInfo.imageExtent = extent;
         createInfo.imageArrayLayers = 1;
-        createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                                (captureSupported ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
-
-        QueueFamilyIndices indices = vulkanContext->getQueueFamilyIndices();
-        uint32_t queueFamilyIndices[] = {indices.graphicsFamily.value(), indices.presentFamily.value()};
-        if (indices.graphicsFamily != indices.presentFamily) {
-            createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
-            createInfo.queueFamilyIndexCount = 2;
-            createInfo.pQueueFamilyIndices = queueFamilyIndices;
-        } else {
-            createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        }
+        createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (captureSupported ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
+        createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE; // one queue draws and presents
         createInfo.preTransform = support.capabilities.currentTransform;
         createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
         createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR; // vsync caps the frame rate; always supported
@@ -869,8 +997,7 @@ private:
     void createImageViews() {
         swapchainImageViews.resize(swapchainImages.size());
         for (size_t i = 0; i < swapchainImages.size(); i++) {
-            VkImageViewCreateInfo createInfo{};
-            createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            VkImageViewCreateInfo createInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
             createInfo.image = swapchainImages[i];
             createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
             createInfo.format = swapchainImageFormat;
@@ -882,17 +1009,16 @@ private:
     }
 
     VkFormat findDepthFormat() {
-        for (VkFormat format : {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT}) {
+        for (VkFormat format : {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D32_SFLOAT_S8_UINT}) {
             VkFormatProperties props;
-            vkGetPhysicalDeviceFormatProperties(vulkanContext->getPhysicalDevice(), format, &props);
+            vkGetPhysicalDeviceFormatProperties(gpu.physicalDevice, format, &props);
             if (props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) return format;
         }
         throw std::runtime_error("Failed to find supported depth format!");
     }
 
     void createDepthResources() {
-        VkImageCreateInfo imageInfo{};
-        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
         imageInfo.extent = {swapchainExtent.width, swapchainExtent.height, 1};
         imageInfo.mipLevels = 1;
@@ -910,8 +1036,7 @@ private:
         vkGetImageMemoryRequirements(device, depthImage, &requirements);
         std::optional<uint32_t> type = findMemoryType(requirements.memoryTypeBits, DEVICE);
         if (!type) throw std::runtime_error("No device-local memory for the depth buffer!");
-        VkMemoryAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        VkMemoryAllocateInfo allocInfo{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
         allocInfo.allocationSize = requirements.size;
         allocInfo.memoryTypeIndex = *type;
         if (vkAllocateMemory(device, &allocInfo, nullptr, &depthImageMemory) != VK_SUCCESS) {
@@ -919,8 +1044,7 @@ private:
         }
         vkBindImageMemory(device, depthImage, depthImageMemory, 0);
 
-        VkImageViewCreateInfo viewInfo{};
-        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         viewInfo.image = depthImage;
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
         viewInfo.format = depthFormat;
@@ -930,78 +1054,8 @@ private:
         }
     }
 
-    void createRenderPass() {
-        VkAttachmentDescription colorAttachment{};
-        colorAttachment.format = swapchainImageFormat;
-        colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; // the sky pass covers every pixel
-        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-        VkAttachmentDescription depthAttachment{};
-        depthAttachment.format = depthFormat;
-        depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-        VkAttachmentReference colorRef{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-        VkAttachmentReference depthRef{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
-        VkSubpassDescription subpass{};
-        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        subpass.colorAttachmentCount = 1;
-        subpass.pColorAttachments = &colorRef;
-        subpass.pDepthStencilAttachment = &depthRef;
-
-        VkSubpassDependency dependency{};
-        dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-        dependency.dstSubpass = 0;
-        dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-        dependency.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-        dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-
-        std::array<VkAttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
-        VkRenderPassCreateInfo renderPassInfo{};
-        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-        renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-        renderPassInfo.pAttachments = attachments.data();
-        renderPassInfo.subpassCount = 1;
-        renderPassInfo.pSubpasses = &subpass;
-        renderPassInfo.dependencyCount = 1;
-        renderPassInfo.pDependencies = &dependency;
-        if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create render pass!");
-        }
-    }
-
-    void createFramebuffers() {
-        framebuffers.resize(swapchainImageViews.size());
-        for (size_t i = 0; i < swapchainImageViews.size(); i++) {
-            std::array<VkImageView, 2> attachments = {swapchainImageViews[i], depthImageView};
-            VkFramebufferCreateInfo framebufferInfo{};
-            framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-            framebufferInfo.renderPass = renderPass;
-            framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-            framebufferInfo.pAttachments = attachments.data();
-            framebufferInfo.width = swapchainExtent.width;
-            framebufferInfo.height = swapchainExtent.height;
-            framebufferInfo.layers = 1;
-            if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &framebuffers[i]) != VK_SUCCESS) {
-                throw std::runtime_error("Failed to create framebuffer!");
-            }
-        }
-    }
-
     void createPerImageSemaphores() {
-        VkSemaphoreCreateInfo semaphoreInfo{};
-        semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        VkSemaphoreCreateInfo semaphoreInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
         renderFinishedSemaphores.resize(swapchainImages.size());
         for (auto& semaphore : renderFinishedSemaphores) {
             if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &semaphore) != VK_SUCCESS) {
@@ -1013,8 +1067,6 @@ private:
     void destroySwapchainResources() {
         for (auto semaphore : renderFinishedSemaphores) vkDestroySemaphore(device, semaphore, nullptr);
         renderFinishedSemaphores.clear();
-        for (auto framebuffer : framebuffers) vkDestroyFramebuffer(device, framebuffer, nullptr);
-        framebuffers.clear();
         vkDestroyImageView(device, depthImageView, nullptr);
         vkDestroyImage(device, depthImage, nullptr);
         vkFreeMemory(device, depthImageMemory, nullptr);
@@ -1029,52 +1081,148 @@ private:
 
     void recreateSwapchain() {
         int width = 0, height = 0;
-        glfwGetFramebufferSize(windowManager->getWindow(), &width, &height);
-        while ((width == 0 || height == 0) && !windowManager->shouldClose()) {
+        glfwGetFramebufferSize(window, &width, &height);
+        while ((width == 0 || height == 0) && !glfwWindowShouldClose(window)) {
             glfwWaitEvents(); // minimized
-            glfwGetFramebufferSize(windowManager->getWindow(), &width, &height);
+            glfwGetFramebufferSize(window, &width, &height);
         }
         vkDeviceWaitIdle(device);
         destroySwapchainResources();
         createSwapchain();
         createImageViews();
         createDepthResources();
-        createFramebuffers();
         createPerImageSemaphores();
         framebufferResized = false;
     }
 
+    // Buffers whose size does not depend on the world, plus the first chunk and
+    // block pools (both grow on demand).
     void createWorldBuffers() {
-        VkDeviceSize cellBytes = VkDeviceSize(chunkCapacity) * CHUNK_CELLS * sizeof(uint32_t);
-        for (int i = 0; i < 2; ++i) {
-            // Device-local and CPU-visible (resizable BAR) when available: the GPU
-            // does the heavy reads, the CPU only touches a few cells for editing.
-            createBuffer(cellBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, {DEVICE_HOST, HOST}, cellBuffers[i], cellMemory[i],
-                         reinterpret_cast<void**>(&cellsMapped[i]));
+        // A storage buffer may not be bigger than the GPU allows (128 MB on some).
+        const uint64_t range = gpu.properties.limits.maxStorageBufferRange;
+        uint32_t fits = static_cast<uint32_t>(std::min<uint64_t>(range / (CHUNK_ROWS * sizeof(uint32_t)), MAX_CHUNK_SLOTS));
+        if (chunkLimit > fits) {
+            std::cout << "This GPU's buffers hold at most " << fits << " chunks; using that as the chunk limit." << std::endl;
+            chunkLimit = fits;
         }
-        createBuffer(VkDeviceSize(chunkCapacity) * 27 * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                     {DEVICE_HOST, HOST}, neighborBuffer, neighborMemory, reinterpret_cast<void**>(&neighborsMapped));
-        createBuffer(VkDeviceSize(chunkCapacity) * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                     {DEVICE_HOST, HOST}, activeBuffer, activeMemory, reinterpret_cast<void**>(&activeMapped));
-        createBuffer(VkDeviceSize(chunkCapacity) * sizeof(glm::ivec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                     {DEVICE_HOST, HOST}, originBuffer, originMemory, reinterpret_cast<void**>(&originsMapped));
-        createBuffer(VkDeviceSize(chunkCapacity) * sizeof(glm::uvec2),
-                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, {HOST_CACHED, HOST},
-                     statsBuffer, statsMemory, reinterpret_cast<void**>(&statsMapped));
-        createBuffer(VkDeviceSize(MAX_INSTANCES) * sizeof(glm::ivec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, {DEVICE, HOST},
-                     instanceBuffer, instanceMemory);
-        createBuffer(sizeof(VkDrawIndirectCommand),
-                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                     {DEVICE, HOST}, indirectBuffer, indirectMemory);
-
-        slotChunk.assign(chunkCapacity, glm::ivec3(0));
-        std::fill(neighborsMapped, neighborsMapped + size_t(chunkCapacity) * 27, NO_CHUNK);
-        resetChunks();
+        maxBlockSlots = static_cast<uint32_t>(std::min<uint64_t>(range / (BLOCK_ROWS * sizeof(uint32_t)), MAX_CHUNK_SLOTS));
+        createBuffer(instanceBuffer, VkDeviceSize(MAX_INSTANCES) * sizeof(glm::uvec2), STORAGE, {DEVICE, HOST});
+        createBuffer(indirectBuffer, sizeof(VkDrawIndexedIndirectCommand),
+                     STORAGE_COPY | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, {DEVICE, HOST});
+        createBuffer(readbackBuffer, sizeof(VkDrawIndexedIndirectCommand), VK_BUFFER_USAGE_TRANSFER_DST_BIT, {HOST_CACHED, HOST});
+        if (!allocateChunkPool(pool, std::min(INITIAL_CHUNKS, chunkLimit))) {
+            throw std::runtime_error("Out of GPU memory for the world");
+        }
+        resizeChunkTables(pool.capacity);
+        createBuffer(blockPool, VkDeviceSize(INITIAL_BLOCK_SLOTS) * BLOCK_ROWS * sizeof(uint32_t), STORAGE_COPY, {DEVICE_HOST, HOST});
+        blockCapacity = INITIAL_BLOCK_SLOTS;
     }
 
+    // Cells, tables and stats for `capacity` chunks. Cell storage is device-local
+    // and CPU-visible (resizable BAR) when available: the GPU does the heavy
+    // reads, the CPU only touches a few rows to edit and to collide with blocks.
+    bool allocateChunkPool(ChunkPool& p, uint32_t capacity) {
+        p.capacity = capacity;
+        bool ok = true;
+        for (GpuBuffer& cells : p.cells) {
+            ok = ok && tryCreateBuffer(cells, VkDeviceSize(capacity) * CHUNK_ROWS * sizeof(uint32_t), STORAGE_COPY, {DEVICE_HOST, HOST});
+        }
+        ok = ok && tryCreateBuffer(p.neighbors, VkDeviceSize(capacity) * 27 * sizeof(uint32_t), STORAGE_COPY, {DEVICE_HOST, HOST});
+        ok = ok && tryCreateBuffer(p.active, VkDeviceSize(capacity) * sizeof(uint32_t), STORAGE_COPY, {DEVICE_HOST, HOST});
+        ok = ok && tryCreateBuffer(p.origins, VkDeviceSize(capacity) * sizeof(glm::ivec4), STORAGE_COPY, {DEVICE_HOST, HOST});
+        ok = ok && tryCreateBuffer(p.blockSlots, VkDeviceSize(capacity) * sizeof(uint32_t), STORAGE_COPY, {DEVICE_HOST, HOST});
+        ok = ok && tryCreateBuffer(p.stats, VkDeviceSize(capacity) * sizeof(glm::uvec2), STORAGE_COPY, {DEVICE, HOST});
+        ok = ok && tryCreateBuffer(p.statsReadback, VkDeviceSize(capacity) * sizeof(glm::uvec2),
+                                   VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, {HOST_CACHED, HOST});
+        if (!ok) releaseChunkPool(p);
+        return ok;
+    }
+
+    void releaseChunkPool(ChunkPool& p) {
+        for (GpuBuffer& cells : p.cells) destroyBuffer(cells);
+        for (GpuBuffer* b : {&p.neighbors, &p.active, &p.origins, &p.blockSlots, &p.stats, &p.statsReadback}) destroyBuffer(*b);
+        p.capacity = 0;
+    }
+
+    void resizeChunkTables(uint32_t capacity) {
+        slotChunk.resize(capacity, glm::ivec3(0));
+        neighborSlots.resize(size_t(capacity) * 27, NO_CHUNK);
+        activeIndex.resize(capacity, 0);
+        blockSlotOf.resize(capacity, NO_CHUNK);
+        blockCount.resize(capacity, 0);
+        wantedStamp.resize(capacity, 0);
+    }
+
+    // Doubles the chunk pool (up to the limit), keeping every chunk in its slot.
+    // Rare and brief: it waits for the GPU and copies the old pool.
+    bool growChunkPool() {
+        if (pool.capacity >= chunkLimit) return false;
+        const uint32_t oldCapacity = pool.capacity;
+        uint32_t capacity = std::min(oldCapacity * 2, chunkLimit);
+        vkDeviceWaitIdle(device);
+        ChunkPool bigger;
+        if (!allocateChunkPool(bigger, capacity)) {
+            notify("Out of GPU memory: the world can't grow past " + std::to_string(pool.capacity) + " chunks");
+            chunkLimit = pool.capacity;
+            return false;
+        }
+        // Copied on the GPU: reading device memory back through the CPU mapping is slow.
+        VkCommandBuffer cmd = beginCompute();
+        auto copy = [&](const GpuBuffer& from, GpuBuffer& to) {
+            VkBufferCopy region{0, 0, from.size};
+            vkCmdCopyBuffer(cmd, from.buffer, to.buffer, 1, &region);
+        };
+        for (int i = 0; i < 2; ++i) copy(pool.cells[i], bigger.cells[i]);
+        copy(pool.neighbors, bigger.neighbors);
+        copy(pool.active, bigger.active);
+        copy(pool.origins, bigger.origins);
+        copy(pool.blockSlots, bigger.blockSlots);
+        copy(pool.statsReadback, bigger.statsReadback); // chunk maintenance may grow the pool while reading them
+        memoryBarrier(cmd, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_HOST_BIT,
+                      VK_ACCESS_2_HOST_READ_BIT | VK_ACCESS_2_HOST_WRITE_BIT);
+        submitCompute(cmd, "growing the world");
+        releaseChunkPool(pool);
+        pool = bigger;
+        resizeChunkTables(capacity);
+        for (uint32_t slot = capacity; slot-- > oldCapacity;) freeSlots.push_back(slot);
+        writeComputeSets();
+        writeFrameSets();
+        return true;
+    }
+
+    bool growBlockPool() {
+        uint32_t capacity = std::min(blockCapacity * 2, maxBlockSlots);
+        if (capacity <= blockCapacity) return false;
+        vkDeviceWaitIdle(device);
+        GpuBuffer bigger;
+        if (!tryCreateBuffer(bigger, VkDeviceSize(capacity) * BLOCK_ROWS * sizeof(uint32_t), STORAGE_COPY, {DEVICE_HOST, HOST})) {
+            return false;
+        }
+        VkCommandBuffer cmd = beginCompute();
+        VkBufferCopy region{0, 0, blockPool.size};
+        vkCmdCopyBuffer(cmd, blockPool.buffer, bigger.buffer, 1, &region);
+        memoryBarrier(cmd, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_HOST_BIT,
+                      VK_ACCESS_2_HOST_READ_BIT | VK_ACCESS_2_HOST_WRITE_BIT);
+        submitCompute(cmd, "growing the block pool");
+        destroyBuffer(blockPool);
+        blockPool = bigger;
+        for (uint32_t b = capacity; b-- > blockCapacity;) freeBlockSlots.push_back(b);
+        blockCapacity = capacity;
+        writeComputeSets();
+        return true;
+    }
+
+    uint32_t* cellRows(uint32_t which) const { return pool.cells[which].as<uint32_t>(); }
+    // Neighbor table entries are written to the CPU copy and through to the GPU.
+    void setNeighbor(uint32_t slot, int k, uint32_t value) {
+        size_t i = size_t(slot) * 27 + k;
+        neighborSlots[i] = value;
+        pool.neighbors.as<uint32_t>()[i] = value;
+    }
+    uint32_t* blockRows() const { return blockPool.as<uint32_t>(); }
+
     void createVertexBuffer() {
-        // One unit cube as 12 triangles with per-face normals. Culling is off,
-        // so winding does not matter.
+        // One unit cube as 12 triangles with per-face normals, for box outlines.
         const std::array<glm::vec3, 6> normals = {
             glm::vec3(1, 0, 0), glm::vec3(-1, 0, 0), glm::vec3(0, 1, 0),
             glm::vec3(0, -1, 0), glm::vec3(0, 0, 1), glm::vec3(0, 0, -1)};
@@ -1087,28 +1235,30 @@ private:
             for (int i : {0, 1, 2, 0, 2, 3}) cubeVertices.push_back({corners[i], n});
         }
         VkDeviceSize size = sizeof(Vertex) * cubeVertices.size();
-        void* data = nullptr;
-        createBuffer(size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, {DEVICE_HOST, HOST}, vertexBuffer, vertexBufferMemory, &data);
-        std::memcpy(data, cubeVertices.data(), size);
+        createBuffer(vertexBuffer, size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, {DEVICE_HOST, HOST});
+        std::memcpy(vertexBuffer.mapped, cubeVertices.data(), size);
+        // Blocks: two triangles per camera-facing quad, corners 0-1-2 and 0-2-3.
+        std::array<uint16_t, BLOCK_INDICES> indices{};
+        for (uint16_t face = 0; face < 3; ++face)
+            for (int i = 0; i < 6; ++i) indices[face * 6 + i] = static_cast<uint16_t>(face * 4 + std::array{0, 1, 2, 0, 2, 3}[i]);
+        createBuffer(indexBuffer, sizeof(indices), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, {DEVICE_HOST, HOST});
+        std::memcpy(indexBuffer.mapped, indices.data(), sizeof(indices));
     }
 
     void createFrameBuffers() {
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            createBuffer(sizeof(FrameUniforms), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, {DEVICE_HOST, HOST},
-                         uniformBuffers[i], uniformBuffersMemory[i], &uniformBuffersMapped[i]);
-            createBuffer(VkDeviceSize(chunkCapacity + 1) * sizeof(Box), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                         {DEVICE_HOST, HOST}, boxBuffers[i], boxBuffersMemory[i],
-                         reinterpret_cast<void**>(&boxBuffersMapped[i]));
+            createBuffer(uniformBuffers[i], sizeof(FrameUniforms), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, {DEVICE_HOST, HOST});
+            createBuffer(boxBuffers[i], VkDeviceSize(MAX_BOXES) * sizeof(Box), STORAGE, {DEVICE_HOST, HOST});
         }
     }
 
     void createFrameSetLayout() {
-        std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
+        std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
         bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
         bindings[1] = {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr};
         bindings[2] = {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr};
-        VkDescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        bindings[3] = {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr};
+        VkDescriptorSetLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
         layoutInfo.pBindings = bindings.data();
         if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &frameSetLayout) != VK_SUCCESS) {
@@ -1116,8 +1266,7 @@ private:
         }
 
         VkPushConstantRange pushRange{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(uint32_t)};
-        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         pipelineLayoutInfo.setLayoutCount = 1;
         pipelineLayoutInfo.pSetLayouts = &frameSetLayout;
         pipelineLayoutInfo.pushConstantRangeCount = 1;
@@ -1125,6 +1274,23 @@ private:
         if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create pipeline layout!");
         }
+    }
+
+    VkShaderModule loadShader(const char* name) {
+        std::filesystem::path path = shaderDir / name;
+        std::ifstream file(path, std::ios::binary | std::ios::ate);
+        if (!file) throw std::runtime_error("Missing shader " + path.string());
+        std::vector<char> code(static_cast<size_t>(file.tellg()));
+        file.seekg(0);
+        file.read(code.data(), static_cast<std::streamsize>(code.size()));
+        VkShaderModuleCreateInfo createInfo{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+        createInfo.codeSize = code.size();
+        createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+        VkShaderModule module = VK_NULL_HANDLE;
+        if (vkCreateShaderModule(device, &createInfo, nullptr, &module) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to load shader " + path.string());
+        }
+        return module;
     }
 
     struct PipelineSpec {
@@ -1137,19 +1303,18 @@ private:
     };
 
     VkPipeline createGraphicsPipeline(const PipelineSpec& spec) {
-        VkPipelineShaderStageCreateInfo vertStage{};
-        VkPipelineShaderStageCreateInfo fragStage{};
-        shaderManager->createShaderStages((shaderDir / spec.vertexShader).string(),
-                                          (shaderDir / spec.fragmentShader).string(), vertStage, fragStage);
-        VkPipelineShaderStageCreateInfo stages[] = {vertStage, fragStage};
+        VkShaderModule vertexModule = loadShader(spec.vertexShader);
+        VkShaderModule fragmentModule = loadShader(spec.fragmentShader);
+        std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+        stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vertexModule, "main", nullptr};
+        stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fragmentModule, "main", nullptr};
 
         VkVertexInputBindingDescription binding{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
         std::array<VkVertexInputAttributeDescription, 2> attributes{{
             {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)},
             {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)},
         }};
-        VkPipelineVertexInputStateCreateInfo vertexInput{};
-        vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
         if (spec.cubeVertices) {
             vertexInput.vertexBindingDescriptionCount = 1;
             vertexInput.pVertexBindingDescriptions = &binding;
@@ -1157,28 +1322,23 @@ private:
             vertexInput.pVertexAttributeDescriptions = attributes.data();
         }
 
-        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
         inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
-        VkPipelineViewportStateCreateInfo viewportState{};
-        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        VkPipelineViewportStateCreateInfo viewportState{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
         viewportState.viewportCount = 1;
         viewportState.scissorCount = 1;
 
-        VkPipelineRasterizationStateCreateInfo rasterizer{};
-        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        VkPipelineRasterizationStateCreateInfo rasterizer{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
         rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
         rasterizer.lineWidth = 1.0f;
-        rasterizer.cullMode = VK_CULL_MODE_NONE;
+        rasterizer.cullMode = VK_CULL_MODE_NONE; // blocks only emit camera-facing faces
         rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 
-        VkPipelineMultisampleStateCreateInfo multisampling{};
-        multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        VkPipelineMultisampleStateCreateInfo multisampling{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
         multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
-        VkPipelineDepthStencilStateCreateInfo depthStencil{};
-        depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        VkPipelineDepthStencilStateCreateInfo depthStencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
         depthStencil.depthTestEnable = spec.depthTest;
         depthStencil.depthWriteEnable = spec.depthWrite;
         depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
@@ -1195,21 +1355,19 @@ private:
             blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
             blendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
         }
-        VkPipelineColorBlendStateCreateInfo colorBlending{};
-        colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        VkPipelineColorBlendStateCreateInfo colorBlending{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
         colorBlending.attachmentCount = 1;
         colorBlending.pAttachments = &blendAttachment;
 
         std::array<VkDynamicState, 2> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-        VkPipelineDynamicStateCreateInfo dynamicState{};
-        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        VkPipelineDynamicStateCreateInfo dynamicState{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
         dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
         dynamicState.pDynamicStates = dynamicStates.data();
 
-        VkGraphicsPipelineCreateInfo pipelineInfo{};
-        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        pipelineInfo.stageCount = 2;
-        pipelineInfo.pStages = stages;
+        VkPipelineRenderingCreateInfo rendering = renderingInfo();
+        VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, &rendering};
+        pipelineInfo.stageCount = static_cast<uint32_t>(stages.size());
+        pipelineInfo.pStages = stages.data();
         pipelineInfo.pVertexInputState = &vertexInput;
         pipelineInfo.pInputAssemblyState = &inputAssembly;
         pipelineInfo.pViewportState = &viewportState;
@@ -1219,16 +1377,26 @@ private:
         pipelineInfo.pColorBlendState = &colorBlending;
         pipelineInfo.pDynamicState = &dynamicState;
         pipelineInfo.layout = pipelineLayout;
-        pipelineInfo.renderPass = renderPass;
         VkPipeline pipeline = VK_NULL_HANDLE;
-        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create graphics pipeline!");
-        }
+        VkResult result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline);
+        vkDestroyShaderModule(device, vertexModule, nullptr);
+        vkDestroyShaderModule(device, fragmentModule, nullptr);
+        if (result != VK_SUCCESS) throw std::runtime_error("Failed to create graphics pipeline!");
         return pipeline;
     }
 
+    // Attachment formats for dynamic rendering (pipelines and ImGui).
+    VkPipelineRenderingCreateInfo renderingInfo() const {
+        VkPipelineRenderingCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+        info.colorAttachmentCount = 1;
+        info.pColorAttachmentFormats = &swapchainImageFormat;
+        info.depthAttachmentFormat = depthFormat;
+        return info;
+    }
+
     void createGraphicsPipelines() {
-        worldPipeline = createGraphicsPipeline({"life3d_world.vert.spv", "life3d_world.frag.spv", true, true, true, false});
+        blockPipeline = createGraphicsPipeline({"life3d_blocks.vert.spv", "life3d_world.frag.spv", false, true, true, false});
+        boxPipeline = createGraphicsPipeline({"life3d_boxes.vert.spv", "life3d_world.frag.spv", true, true, true, false});
         skyPipeline = createGraphicsPipeline({"life3d_screen.vert.spv", "life3d_screen.frag.spv", false, false, false, false});
         gridPipeline = createGraphicsPipeline({"life3d_screen.vert.spv", "life3d_screen.frag.spv", false, true, false, true});
         hudPipeline = createGraphicsPipeline({"life3d_screen.vert.spv", "life3d_screen.frag.spv", false, false, false, true});
@@ -1236,8 +1404,7 @@ private:
 
     void writeBufferDescriptor(VkDescriptorSet set, uint32_t binding, VkDescriptorType type, VkBuffer buffer) {
         VkDescriptorBufferInfo bufferInfo{buffer, 0, VK_WHOLE_SIZE};
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         write.dstSet = set;
         write.dstBinding = binding;
         write.descriptorType = type;
@@ -1249,10 +1416,9 @@ private:
     void createFrameSets() {
         std::array<VkDescriptorPoolSize, 2> poolSizes{{
             {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES_IN_FLIGHT},
-            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_FRAMES_IN_FLIGHT * 2},
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_FRAMES_IN_FLIGHT * 3},
         }};
-        VkDescriptorPoolCreateInfo poolInfo{};
-        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
         poolInfo.pPoolSizes = poolSizes.data();
         poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT;
@@ -1260,36 +1426,42 @@ private:
             throw std::runtime_error("Failed to create descriptor pool!");
         }
         for (int frame = 0; frame < MAX_FRAMES_IN_FLIGHT; ++frame) {
-            VkDescriptorSetAllocateInfo allocInfo{};
-            allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
             allocInfo.descriptorPool = descriptorPool;
             allocInfo.descriptorSetCount = 1;
             allocInfo.pSetLayouts = &frameSetLayout;
             if (vkAllocateDescriptorSets(device, &allocInfo, &frameSets[frame]) != VK_SUCCESS) {
                 throw std::runtime_error("Failed to allocate descriptor set!");
             }
-            writeBufferDescriptor(frameSets[frame], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, uniformBuffers[frame]);
-            writeBufferDescriptor(frameSets[frame], 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, instanceBuffer);
-            writeBufferDescriptor(frameSets[frame], 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, boxBuffers[frame]);
+        }
+        writeFrameSets();
+    }
+
+    void writeFrameSets() {
+        for (int frame = 0; frame < MAX_FRAMES_IN_FLIGHT; ++frame) {
+            writeBufferDescriptor(frameSets[frame], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, uniformBuffers[frame].buffer);
+            writeBufferDescriptor(frameSets[frame], 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, instanceBuffer.buffer);
+            writeBufferDescriptor(frameSets[frame], 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, boxBuffers[frame].buffer);
+            writeBufferDescriptor(frameSets[frame], 3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, pool.origins.buffer);
         }
     }
 
-    void createComputePipeline() {
-        std::array<VkDescriptorSetLayoutBinding, 8> bindings{};
+    // The step and build passes share one set layout (life3d_storage.glsl and the
+    // bindings in each shader) and one push-constant range.
+    void createComputePipelines() {
+        std::array<VkDescriptorSetLayoutBinding, 10> bindings{};
         for (uint32_t i = 0; i < bindings.size(); ++i) {
             bindings[i] = {i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
         }
-        VkDescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        VkDescriptorSetLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
         layoutInfo.pBindings = bindings.data();
         if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &computeSetLayout) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create compute descriptor set layout!");
         }
 
-        VkPushConstantRange pushRange{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PassConstants)};
-        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        VkPushConstantRange pushRange{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(BuildConstants)};
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         pipelineLayoutInfo.setLayoutCount = 1;
         pipelineLayoutInfo.pSetLayouts = &computeSetLayout;
         pipelineLayoutInfo.pushConstantRangeCount = 1;
@@ -1297,21 +1469,27 @@ private:
         if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &computePipelineLayout) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create compute pipeline layout!");
         }
-
-        VkComputePipelineCreateInfo pipelineInfo{};
-        pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        pipelineInfo.layout = computePipelineLayout;
-        pipelineInfo.stage = shaderManager->createComputeStage((shaderDir / "life3d_chunks.comp.spv").string());
-        if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computePipeline) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create compute pipeline!");
-        }
+        stepPipeline = createComputePipeline("life3d_step.comp.spv");
+        buildPipeline = createComputePipeline("life3d_build.comp.spv");
     }
 
-    // computeSets[p] reads cellBuffers[p] and writes the other cell buffer.
+    VkPipeline createComputePipeline(const char* shader) {
+        VkShaderModule module = loadShader(shader);
+        VkComputePipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+        pipelineInfo.layout = computePipelineLayout;
+        pipelineInfo.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT, module, "main", nullptr};
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        VkResult result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline);
+        vkDestroyShaderModule(device, module, nullptr);
+        if (result != VK_SUCCESS) throw std::runtime_error(std::string("Failed to create compute pipeline ") + shader);
+        return pipeline;
+    }
+
+    // computeSets[p] reads pool.cells[p] as the current generation; binding 1 is
+    // the other buffer (the next generation for a step, the previous one for a build).
     void createComputeSets() {
-        VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16};
-        VkDescriptorPoolCreateInfo poolInfo{};
-        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 20};
+        VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         poolInfo.poolSizeCount = 1;
         poolInfo.pPoolSizes = &poolSize;
         poolInfo.maxSets = 2;
@@ -1319,16 +1497,23 @@ private:
             throw std::runtime_error("Failed to create compute descriptor pool!");
         }
         for (int parity = 0; parity < 2; ++parity) {
-            VkDescriptorSetAllocateInfo allocInfo{};
-            allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
             allocInfo.descriptorPool = computeDescriptorPool;
             allocInfo.descriptorSetCount = 1;
             allocInfo.pSetLayouts = &computeSetLayout;
             if (vkAllocateDescriptorSets(device, &allocInfo, &computeSets[parity]) != VK_SUCCESS) {
                 throw std::runtime_error("Failed to allocate compute descriptor set!");
             }
-            const std::array<VkBuffer, 8> buffers = {cellBuffers[parity], cellBuffers[1 - parity], neighborBuffer,
-                                                     activeBuffer, originBuffer, statsBuffer, instanceBuffer, indirectBuffer};
+        }
+        writeComputeSets();
+    }
+
+    void writeComputeSets() {
+        for (int parity = 0; parity < 2; ++parity) {
+            const std::array<VkBuffer, 10> buffers = {
+                pool.cells[parity].buffer, pool.cells[1 - parity].buffer, pool.neighbors.buffer, pool.active.buffer,
+                blockPool.buffer, pool.blockSlots.buffer, pool.stats.buffer, instanceBuffer.buffer,
+                indirectBuffer.buffer, pool.origins.buffer};
             for (uint32_t binding = 0; binding < buffers.size(); ++binding) {
                 writeBufferDescriptor(computeSets[parity], binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffers[binding]);
             }
@@ -1336,9 +1521,8 @@ private:
     }
 
     void createCommandBuffers() {
-        VkCommandBufferAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        allocInfo.commandPool = vulkanContext->getGraphicsCommandPool();
+        VkCommandBufferAllocateInfo allocInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        allocInfo.commandPool = gpu.commandPool;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
         if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
@@ -1351,10 +1535,8 @@ private:
     }
 
     void createSyncObjects() {
-        VkSemaphoreCreateInfo semaphoreInfo{};
-        semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-        VkFenceCreateInfo fenceInfo{};
-        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        VkSemaphoreCreateInfo semaphoreInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+        VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
@@ -1366,90 +1548,223 @@ private:
         if (vkCreateFence(device, &fenceInfo, nullptr, &computeFence) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create compute fence!");
         }
+        // Timestamps around the step and build passes, for the governor.
+        uint32_t familyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(gpu.physicalDevice, &familyCount, nullptr);
+        std::vector<VkQueueFamilyProperties> families(familyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(gpu.physicalDevice, &familyCount, families.data());
+        if (families[gpu.queueFamily].timestampValidBits > 0 && gpu.properties.limits.timestampPeriod > 0.0f) {
+            VkQueryPoolCreateInfo queryInfo{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+            queryInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+            queryInfo.queryCount = 3;
+            if (vkCreateQueryPool(device, &queryInfo, nullptr, &timestamps) == VK_SUCCESS) {
+                timestampMs = gpu.properties.limits.timestampPeriod / 1e6;
+                uint32_t bits = families[gpu.queueFamily].timestampValidBits;
+                timestampMask = bits >= 64 ? ~0ull : (1ull << bits) - 1;
+            }
+        }
     }
 
     // ----------------------------------------------------------------- chunks
 
     void resetChunks() {
-        chunkSlots.clear();
+        // Frames still drawing the old world read chunk origins this reset rewrites.
+        vkDeviceWaitIdle(device);
+        chunkMap.clear();
         freeSlots.clear();
-        for (uint32_t slot = chunkCapacity; slot-- > 0;) freeSlots.push_back(slot); // hand out low slots first
+        quarantine.clear();
+        for (uint32_t slot = pool.capacity; slot-- > 0;) freeSlots.push_back(slot); // hand out low slots first
         activeSlots.clear();
-        tablesDirty = true;
+        freeBlockSlots.clear();
+        for (uint32_t b = blockCapacity; b-- > 0;) freeBlockSlots.push_back(b);
+        std::fill(blockSlotOf.begin(), blockSlotOf.end(), NO_CHUNK);
+        std::fill(blockCount.begin(), blockCount.end(), 0u);
         chunkLimitHit = false;
         pausedAtLimit = false;
+        editOpen = false;
+        populationHistory.clear();
     }
 
-    uint32_t findChunk(const glm::ivec3& key) const {
-        auto it = chunkSlots.find(key);
-        return it == chunkSlots.end() ? NO_CHUNK : it->second;
-    }
+    uint32_t findChunk(const glm::ivec3& key) const { return chunkMap.find(key.x, key.y, key.z); }
 
+    // The chunk's slot, allocating it (and linking it to its neighbors) if needed.
+    // NO_CHUNK when the world has reached its chunk limit.
     uint32_t ensureChunk(const glm::ivec3& key) {
         uint32_t slot = findChunk(key);
         if (slot != NO_CHUNK) return slot;
-        if (freeSlots.empty()) {
+        if (!ChunkMap::inRange(key.x, key.y, key.z) || (freeSlots.empty() && !growChunkPool())) {
             chunkLimitHit = true;
             return NO_CHUNK;
         }
         slot = freeSlots.back();
         freeSlots.pop_back();
-        std::memset(cellsMapped[currentCells] + size_t(slot) * CHUNK_CELLS, 0, CHUNK_CELLS * sizeof(uint32_t));
-        originsMapped[slot] = glm::ivec4(key * CHUNK, 0);
+        for (uint32_t which = 0; which < 2; ++which) {
+            std::memset(cellRows(which) + size_t(slot) * CHUNK_ROWS, 0, CHUNK_ROWS * sizeof(uint32_t));
+        }
+        pool.origins.as<glm::ivec4>()[slot] = glm::ivec4(key * CHUNK, 0);
+        pool.blockSlots.as<uint32_t>()[slot] = NO_CHUNK;
         slotChunk[slot] = key;
-        chunkSlots.emplace(key, slot);
-        tablesDirty = true;
+        blockSlotOf[slot] = NO_CHUNK;
+        blockCount[slot] = 0;
+        chunkMap.insert(key.x, key.y, key.z, slot);
+        for (int k = 0; k < 27; ++k) {
+            if (k == 13) {
+                setNeighbor(slot, 13, slot);
+                continue;
+            }
+            uint32_t neighbor = findChunk(key + neighborOffset(k));
+            setNeighbor(slot, k, neighbor);
+            if (neighbor != NO_CHUNK) setNeighbor(neighbor, 26 - k, slot); // the opposite offset
+        }
+        activeIndex[slot] = static_cast<uint32_t>(activeSlots.size());
+        pool.active.as<uint32_t>()[activeSlots.size()] = slot;
+        activeSlots.push_back(slot);
         return slot;
     }
 
     void freeChunk(uint32_t slot) {
-        chunkSlots.erase(slotChunk[slot]);
-        freeSlots.push_back(slot);
-        tablesDirty = true;
-    }
-
-    void rebuildChunkTables() {
-        activeSlots.clear();
-        for (const auto& entry : chunkSlots) activeSlots.push_back(entry.second);
-        std::sort(activeSlots.begin(), activeSlots.end());
-        std::copy(activeSlots.begin(), activeSlots.end(), activeMapped);
-        for (uint32_t slot : activeSlots) {
-            for (int k = 0; k < 27; ++k) {
-                neighborsMapped[size_t(slot) * 27 + k] = findChunk(slotChunk[slot] + neighborOffset(k));
-            }
+        for (int k = 0; k < 27; ++k) {
+            uint32_t neighbor = neighborSlots[size_t(slot) * 27 + k];
+            if (k != 13 && neighbor != NO_CHUNK) setNeighbor(neighbor, 26 - k, NO_CHUNK);
         }
-        tablesDirty = false;
+        const glm::ivec3& key = slotChunk[slot];
+        chunkMap.erase(key.x, key.y, key.z);
+        if (blockSlotOf[slot] != NO_CHUNK) releaseBlockSlot(slot);
+        uint32_t index = activeIndex[slot];
+        uint32_t last = activeSlots.back();
+        activeSlots[index] = last;
+        pool.active.as<uint32_t>()[index] = last;
+        activeIndex[last] = index;
+        activeSlots.pop_back();
+        quarantine.push_back(slot);
     }
 
-    // After a pass: keep chunks that hold life, add chunks that live border cells
-    // can spread into, and free the rest.
+    uint32_t ensureBlockSlot(uint32_t slot) {
+        if (blockSlotOf[slot] != NO_CHUNK) return blockSlotOf[slot];
+        if (freeBlockSlots.empty() && !growBlockPool()) return NO_CHUNK;
+        uint32_t b = freeBlockSlots.back();
+        freeBlockSlots.pop_back();
+        std::memset(blockRows() + size_t(b) * BLOCK_ROWS, 0, BLOCK_ROWS * sizeof(uint32_t));
+        blockSlotOf[slot] = b;
+        pool.blockSlots.as<uint32_t>()[slot] = b;
+        return b;
+    }
+
+    void releaseBlockSlot(uint32_t slot) {
+        freeBlockSlots.push_back(blockSlotOf[slot]);
+        blockSlotOf[slot] = NO_CHUNK;
+        pool.blockSlots.as<uint32_t>()[slot] = NO_CHUNK;
+        blockCount[slot] = 0;
+    }
+
+    // After a build: keep chunks that hold life or blocks, add chunks that life
+    // can reach within MAX_BATCH generations, and free the rest. Slots freed
+    // here are reused only after the next build, because the block list drawn
+    // until then may still show cells of the freed chunk shrinking away.
     void maintainChunks() {
+        freeSlots.insert(freeSlots.end(), quarantine.begin(), quarantine.end());
+        quarantine.clear();
+        ++maintenanceStamp;
         population = 0;
-        std::unordered_set<glm::ivec3, IVec3Hash> wanted;
-        for (uint32_t slot : activeSlots) {
-            glm::uvec2 stats = statsMapped[slot];
+        const std::vector<uint32_t> processed = activeSlots;
+        for (uint32_t slot : processed) {
+            glm::uvec2 stats = pool.statsReadback.as<glm::uvec2>()[slot];
             population += stats.x;
-            for (int k = 0; k < 27; ++k) {
-                if (stats.y & (1u << k)) wanted.insert(slotChunk[slot] + neighborOffset(k));
+            for (uint32_t reach = stats.y; reach != 0; reach &= reach - 1) {
+                int k = std::countr_zero(reach);
+                uint32_t neighbor = neighborSlots[size_t(slot) * 27 + k];
+                if (neighbor == NO_CHUNK) neighbor = ensureChunk(slotChunk[slot] + neighborOffset(k));
+                if (neighbor != NO_CHUNK) wantedStamp[neighbor] = maintenanceStamp;
             }
         }
-        for (uint32_t slot : activeSlots) {
-            if (statsMapped[slot].x == 0 && !wanted.count(slotChunk[slot])) freeChunk(slot);
+        for (uint32_t slot : processed) {
+            if (pool.statsReadback.as<glm::uvec2>()[slot].x == 0 && blockCount[slot] == 0 && wantedStamp[slot] != maintenanceStamp) {
+                freeChunk(slot);
+            }
         }
-        for (const glm::ivec3& key : wanted) ensureChunk(key);
     }
 
-    bool cellAlive(const glm::ivec3& cell) const {
+    // What occupies a cell: -1 when empty, else its CellKind.
+    int cellKind(const glm::ivec3& cell) const {
         uint32_t slot = findChunk(chunkOf(cell));
-        return slot != NO_CHUNK && cellsMapped[currentCells][size_t(slot) * CHUNK_CELLS + localIndex(cell)] != 0;
+        if (slot == NO_CHUNK) return -1;
+        uint32_t row = rowOf(cell), bit = bitOf(cell);
+        if (cellRows(currentCells)[size_t(slot) * CHUNK_ROWS + row] & bit) return static_cast<int>(CellKind::Life);
+        uint32_t b = blockSlotOf[slot];
+        if (b == NO_CHUNK || !(blockRows()[size_t(b) * BLOCK_ROWS + row] & bit)) return -1;
+        bool emits = blockRows()[size_t(b) * BLOCK_ROWS + CHUNK_ROWS + row] & bit;
+        return static_cast<int>(emits ? CellKind::Ember : CellKind::Stone);
     }
 
-    // CPU edits land in the current generation; the next pass picks them up.
-    void setCell(const glm::ivec3& cell, bool alive) {
+    bool occupied(const glm::ivec3& cell) const { return cellKind(cell) >= 0; }
+    bool cellAlive(const glm::ivec3& cell) const { return cellKind(cell) == static_cast<int>(CellKind::Life); }
+
+    // Before the first edit of a frame, saves the world into the previous-generation
+    // buffer so the next block list shows placed cells growing in and removed
+    // ones shrinking away.
+    void beginEdit() {
+        refreshPending = true;
+        if (editOpen || !animations()) return;
+        editOpen = true;
+        if (activeSlots.empty()) return; // new chunks start empty in both buffers
+        std::vector<VkBufferCopy> regions;
+        regions.reserve(activeSlots.size());
+        for (uint32_t slot : activeSlots) {
+            VkDeviceSize offset = VkDeviceSize(slot) * CHUNK_ROWS * sizeof(uint32_t);
+            regions.push_back({offset, offset, CHUNK_ROWS * sizeof(uint32_t)});
+        }
+        VkCommandBuffer cmd = beginCompute();
+        vkCmdCopyBuffer(cmd, pool.cells[currentCells].buffer, pool.cells[1 - currentCells].buffer,
+                        static_cast<uint32_t>(regions.size()), regions.data());
+        memoryBarrier(cmd, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_HOST_BIT,
+                      VK_ACCESS_2_HOST_READ_BIT | VK_ACCESS_2_HOST_WRITE_BIT);
+        submitCompute(cmd, "saving the world before an edit");
+    }
+
+    // CPU edits land in the current generation; the next build picks them up.
+    void setLife(const glm::ivec3& cell, bool alive) {
         uint32_t slot = alive ? ensureChunk(chunkOf(cell)) : findChunk(chunkOf(cell));
         if (slot == NO_CHUNK) return;
-        cellsMapped[currentCells][size_t(slot) * CHUNK_CELLS + localIndex(cell)] = alive ? 1u : 0u;
-        refreshPending = true;
+        uint32_t row = rowOf(cell), bit = bitOf(cell);
+        if (alive && blockSlotOf[slot] != NO_CHUNK && (blockRows()[size_t(blockSlotOf[slot]) * BLOCK_ROWS + row] & bit)) return;
+        uint32_t& word = cellRows(currentCells)[size_t(slot) * CHUNK_ROWS + row];
+        word = alive ? word | bit : word & ~bit;
+    }
+
+    // Puts a block of `kind` into an empty cell. Placing never replaces what is there.
+    bool placeCell(const glm::ivec3& cell, CellKind kind) {
+        if (occupied(cell)) return false;
+        beginEdit();
+        if (kind == CellKind::Life) {
+            setLife(cell, true);
+            return true;
+        }
+        uint32_t slot = ensureChunk(chunkOf(cell));
+        if (slot == NO_CHUNK) return false;
+        uint32_t b = ensureBlockSlot(slot);
+        if (b == NO_CHUNK) return false;
+        uint32_t row = rowOf(cell), bit = bitOf(cell);
+        blockRows()[size_t(b) * BLOCK_ROWS + row] |= bit;
+        if (cellType(kind).countsAsNeighbor) blockRows()[size_t(b) * BLOCK_ROWS + CHUNK_ROWS + row] |= bit;
+        ++blockCount[slot];
+        return true;
+    }
+
+    // Empties a cell, whatever is in it.
+    void clearCell(const glm::ivec3& cell) {
+        int kind = cellKind(cell);
+        if (kind < 0) return;
+        beginEdit();
+        if (kind == static_cast<int>(CellKind::Life)) {
+            setLife(cell, false);
+            return;
+        }
+        uint32_t slot = findChunk(chunkOf(cell));
+        uint32_t b = blockSlotOf[slot];
+        uint32_t row = rowOf(cell), bit = bitOf(cell);
+        blockRows()[size_t(b) * BLOCK_ROWS + row] &= ~bit;
+        blockRows()[size_t(b) * BLOCK_ROWS + CHUNK_ROWS + row] &= ~bit;
+        if (--blockCount[slot] == 0) releaseBlockSlot(slot);
     }
 
     void seedSoup(const glm::ivec3& minCorner, const glm::ivec3& size, float density) {
@@ -1457,7 +1772,8 @@ private:
         for (int z = 0; z < size.z; ++z)
             for (int y = 0; y < size.y; ++y)
                 for (int x = 0; x < size.x; ++x)
-                    if (chance(rng) < density) setCell(minCorner + glm::ivec3(x, y, z), true);
+                    if (chance(rng) < density) setLife(minCorner + glm::ivec3(x, y, z), true);
+        refreshPending = true;
     }
 
     void newWorld(bool seed) {
@@ -1465,10 +1781,12 @@ private:
         resetChunks();
         generation = 0;
         population = 0;
+        stepDebt = 0.0;
+        fastForward = fastForwardTotal = 0;
         int size = rule().seedSize;
         // The seed soup rests on the ground (y = 0), like a structure in a superflat world.
         if (seed) seedSoup(glm::ivec3(-size / 2, 0, -size / 2), glm::ivec3(size), rule().seedDensity);
-        runPass(false);
+        rebuild(Rebuild::Reset);
         // Spawn on the ground at a distance, facing the seed.
         float distance = std::max(20.0f, 1.6f * static_cast<float>(size));
         eye = glm::vec3(0.6f * distance, EYE_HEIGHT, 0.8f * distance);
@@ -1479,22 +1797,40 @@ private:
         verticalSpeed = 0.0f;
     }
 
-    // Save format: "L3D1", rule index, generation, player pose, then live cells
-    // as int32 x,y,z triples. All values little-endian as written by this machine.
-    bool saveWorld(const std::string& path) {
-        std::vector<glm::ivec3> cells;
-        const uint32_t* current = cellsMapped[currentCells];
-        for (const auto& [key, slot] : chunkSlots) {
-            const uint32_t* chunk = current + size_t(slot) * CHUNK_CELLS;
-            for (uint32_t i = 0; i < CHUNK_CELLS; ++i) {
-                if (!chunk[i]) continue;
-                glm::ivec3 local(i % CHUNK, (i / CHUNK) % CHUNK, i / (CHUNK * CHUNK));
-                cells.push_back(key * CHUNK + local);
+    // Visits every occupied cell: fn(cell, kind).
+    template <typename Fn> void forEachCell(Fn&& fn) const {
+        const uint32_t* current = cellRows(currentCells);
+        for (uint32_t slot : activeSlots) {
+            glm::ivec3 origin = slotChunk[slot] * CHUNK;
+            uint32_t b = blockSlotOf[slot];
+            for (uint32_t row = 0; row < CHUNK_ROWS; ++row) {
+                glm::ivec3 base = origin + glm::ivec3(0, row % CHUNK, row / CHUNK);
+                for (uint32_t bits = current[size_t(slot) * CHUNK_ROWS + row]; bits; bits &= bits - 1) {
+                    fn(base + glm::ivec3(std::countr_zero(bits), 0, 0), CellKind::Life);
+                }
+                if (b == NO_CHUNK) continue;
+                const uint32_t emits = blockRows()[size_t(b) * BLOCK_ROWS + CHUNK_ROWS + row];
+                for (uint32_t bits = blockRows()[size_t(b) * BLOCK_ROWS + row]; bits; bits &= bits - 1) {
+                    int x = std::countr_zero(bits);
+                    fn(base + glm::ivec3(x, 0, 0), (emits >> x & 1u) ? CellKind::Ember : CellKind::Stone);
+                }
             }
         }
+    }
+
+    // Save format "L3D2": rule index, generation, player pose, live cells as
+    // int32 x,y,z triples, then blocks as x,y,z,kind (kind is a CellKind value).
+    // Little-endian as written by this machine. "L3D1" saves (no blocks) still load.
+    bool saveWorld(const std::string& path) {
+        std::vector<glm::ivec3> cells;
+        std::vector<glm::ivec4> blocks;
+        forEachCell([&](const glm::ivec3& cell, CellKind kind) {
+            if (kind == CellKind::Life) cells.push_back(cell);
+            else blocks.emplace_back(cell, static_cast<int>(kind));
+        });
         std::ofstream out(path, std::ios::binary);
         auto put = [&](const auto& value) { out.write(reinterpret_cast<const char*>(&value), sizeof(value)); };
-        out.write("L3D1", 4);
+        out.write("L3D2", 4);
         put(static_cast<uint32_t>(ruleIndex));
         put(static_cast<uint64_t>(generation));
         put(eye);
@@ -1502,11 +1838,14 @@ private:
         put(pitch);
         put(static_cast<uint64_t>(cells.size()));
         out.write(reinterpret_cast<const char*>(cells.data()), std::streamsize(cells.size() * sizeof(glm::ivec3)));
+        put(static_cast<uint64_t>(blocks.size()));
+        out.write(reinterpret_cast<const char*>(blocks.data()), std::streamsize(blocks.size() * sizeof(glm::ivec4)));
         if (!out) {
             std::cerr << "Failed to save " << path << std::endl;
             return false;
         }
-        std::cout << "Saved " << cells.size() << " cells to " << std::filesystem::absolute(path).string() << std::endl;
+        std::cout << "Saved " << cells.size() << " cells and " << blocks.size() << " blocks to "
+                  << std::filesystem::absolute(path).string() << std::endl;
         return true;
     }
 
@@ -1514,162 +1853,500 @@ private:
         std::ifstream in(path, std::ios::binary);
         char magic[4] = {};
         uint32_t savedRule = 0;
-        uint64_t savedGeneration = 0, count = 0;
+        uint64_t savedGeneration = 0, count = 0, blockTotal = 0;
         glm::vec3 savedEye(0.0f);
         float savedYaw = 0.0f, savedPitch = 0.0f;
         auto get = [&](auto& value) { in.read(reinterpret_cast<char*>(&value), sizeof(value)); };
         in.read(magic, 4);
+        std::string format(magic, 4);
         get(savedRule);
         get(savedGeneration);
         get(savedEye);
         get(savedYaw);
         get(savedPitch);
         get(count);
-        if (!in || std::string(magic, 4) != "L3D1" || savedRule >= lifeRules().size() || count > (1ull << 32)) {
+        // Never trust a count further than the file reaches.
+        std::streamoff here = in.tellg();
+        in.seekg(0, std::ios::end);
+        const uint64_t remaining = in ? static_cast<uint64_t>(in.tellg() - here) : 0;
+        in.seekg(here);
+        if (!in || (format != "L3D1" && format != "L3D2") || savedRule >= lifeRules().size() ||
+            count > remaining / sizeof(glm::ivec3)) {
             std::cerr << "Not a 3D Life save: " << path << std::endl;
             return false;
         }
         std::vector<glm::ivec3> cells(count);
         in.read(reinterpret_cast<char*>(cells.data()), std::streamsize(count * sizeof(glm::ivec3)));
+        std::vector<glm::ivec4> blocks;
+        if (format == "L3D2") {
+            get(blockTotal);
+            if (blockTotal > remaining / sizeof(glm::ivec4)) in.setstate(std::ios::failbit);
+            else {
+                blocks.resize(blockTotal);
+                in.read(reinterpret_cast<char*>(blocks.data()), std::streamsize(blockTotal * sizeof(glm::ivec4)));
+            }
+        }
         if (!in) {
             std::cerr << "Truncated save: " << path << std::endl;
             return false;
         }
         tutorialPanel.close();
         resetChunks();
-        for (const glm::ivec3& cell : cells) setCell(cell, true);
+        for (const glm::ivec4& block : blocks) {
+            if (block.w > 0 && block.w < static_cast<int>(cellTypes().size())) placeCell(glm::ivec3(block), static_cast<CellKind>(block.w));
+        }
+        for (const glm::ivec3& cell : cells) setLife(cell, true);
         ruleIndex = savedRule;
         generation = savedGeneration;
         eye = savedEye;
         yaw = savedYaw;
         pitch = savedPitch;
         verticalSpeed = 0.0f;
-        runPass(false);
-        std::cout << "Loaded " << population << " cells from " << path
-                  << (chunkLimitHit ? " (chunk budget reached; some cells were dropped)" : "") << std::endl;
+        stepDebt = 0.0;
+        fastForward = fastForwardTotal = 0;
+        rebuild(Rebuild::Reset);
+        std::cout << "Loaded " << population << " cells and " << blocks.size() << " blocks from " << path
+                  << (chunkLimitHit ? " (chunk limit reached; some cells were dropped)" : "") << std::endl;
         return true;
     }
 
-    // One GPU pass: advance a generation (applyRule) or just rebuild the drawn
-    // instances and chunk stats after edits.
-    void runPass(bool applyRule) {
-        if (tablesDirty) rebuildChunkTables();
-        const uint32_t activeCount = static_cast<uint32_t>(activeSlots.size());
+    // ------------------------------------------------------------ GPU passes
 
+    VkCommandBuffer beginCompute() {
         vkResetCommandBuffer(computeCommandBuffer, 0);
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(computeCommandBuffer, &beginInfo);
-
-        // Earlier frames may still be drawing the instance list this pass rewrites.
-        VkMemoryBarrier before{VK_STRUCTURE_TYPE_MEMORY_BARRIER, nullptr, VK_ACCESS_SHADER_WRITE_BIT,
-                               VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT};
-        vkCmdPipelineBarrier(computeCommandBuffer,
-                             VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &before, 0, nullptr, 0, nullptr);
-        vkCmdFillBuffer(computeCommandBuffer, statsBuffer, 0, VK_WHOLE_SIZE, 0);
-        const VkDrawIndirectCommand emptyDraw{static_cast<uint32_t>(cubeVertices.size()), 0, 0, 0};
-        vkCmdUpdateBuffer(computeCommandBuffer, indirectBuffer, 0, sizeof(emptyDraw), &emptyDraw);
-        VkMemoryBarrier cleared{VK_STRUCTURE_TYPE_MEMORY_BARRIER, nullptr, VK_ACCESS_TRANSFER_WRITE_BIT,
-                                VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT};
-        vkCmdPipelineBarrier(computeCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             0, 1, &cleared, 0, nullptr, 0, nullptr);
-
-        if (activeCount > 0) {
-            vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
-            vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1,
-                                    &computeSets[currentCells], 0, nullptr);
-            PassConstants constants{activeCount, rule().surviveMask, rule().birthMask, applyRule ? 1u : 0u, MAX_INSTANCES};
-            vkCmdPushConstants(computeCommandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                               sizeof(constants), &constants);
-            vkCmdDispatch(computeCommandBuffer, CHUNK / 4, CHUNK / 4, (CHUNK / 4) * activeCount);
-        }
-
-        // Make results visible to the indirect draw, the vertex shader and the CPU.
-        VkMemoryBarrier after{VK_STRUCTURE_TYPE_MEMORY_BARRIER, nullptr, VK_ACCESS_SHADER_WRITE_BIT,
-                              VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_HOST_READ_BIT};
-        vkCmdPipelineBarrier(computeCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_HOST_BIT,
-                             0, 1, &after, 0, nullptr, 0, nullptr);
-        vkEndCommandBuffer(computeCommandBuffer);
-
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &computeCommandBuffer;
-        vkResetFences(device, 1, &computeFence);
-        if (vkQueueSubmit(vulkanContext->getGraphicsQueue(), 1, &submitInfo, computeFence) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to submit compute work!");
-        }
-        waitFence(computeFence, "the simulation pass");
-
-        if (applyRule) {
-            currentCells = 1 - currentCells;
-            generation++;
-        }
-        refreshPending = false;
-        maintainChunks();
+        return computeCommandBuffer;
     }
 
+    void submitCompute(VkCommandBuffer cmd, const char* what) {
+        vkEndCommandBuffer(cmd);
+        VkCommandBufferSubmitInfo commandInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+        commandInfo.commandBuffer = cmd;
+        VkSubmitInfo2 submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+        submitInfo.commandBufferInfoCount = 1;
+        submitInfo.pCommandBufferInfos = &commandInfo;
+        vkResetFences(device, 1, &computeFence);
+        if (vkQueueSubmit2(gpu.queue, 1, &submitInfo, computeFence) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to submit compute work!");
+        }
+        waitFence(computeFence, what);
+    }
+
+    static void memoryBarrier(VkCommandBuffer cmd, VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess,
+                              VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess) {
+        VkMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+        barrier.srcStageMask = srcStage;
+        barrier.srcAccessMask = srcAccess;
+        barrier.dstStageMask = dstStage;
+        barrier.dstAccessMask = dstAccess;
+        VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dependency.memoryBarrierCount = 1;
+        dependency.pMemoryBarriers = &barrier;
+        vkCmdPipelineBarrier2(cmd, &dependency);
+    }
+
+    // Dispatches a compute pass over the active list in ranges of at most
+    // MAX_DISPATCH chunks; each chunk is four 32 x 8 slabs.
+    template <typename Constants> void dispatchChunks(VkCommandBuffer cmd, Constants constants) {
+        const uint32_t total = static_cast<uint32_t>(activeSlots.size());
+        for (uint32_t first = 0; first < total; first += MAX_DISPATCH) {
+            constants.firstIndex = first;
+            constants.count = std::min(MAX_DISPATCH, total - first);
+            vkCmdPushConstants(cmd, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants), &constants);
+            vkCmdDispatch(cmd, CHUNK / 8, constants.count, 1);
+        }
+    }
+
+    // Advances `steps` generations (at most MAX_BATCH) in one GPU submission,
+    // then refreshes the chunk stats, updates the chunk set and, with `draw`,
+    // rebuilds the block list. With steps = 0 it only rebuilds (after edits or
+    // camera moves). `animate` flags births and draws deaths of the last change
+    // so they can be animated. Batches that are not the last of a frame skip the
+    // block list; nobody would see it. `stats` = false skips the per-chunk stats
+    // and chunk bookkeeping, for draws of a world that has not changed since the
+    // last pass with stats (camera moves, the draw after a frame's steps).
+    void runBatch(uint32_t steps, bool animate, bool draw = true, bool stats = true) {
+        stats = stats || steps > 0;
+        if (draw && glm::distance(eye, lastSortEye) > REBUILD_DISTANCE) sortChunksByDistance();
+        const auto wallStart = std::chrono::steady_clock::now();
+        VkCommandBuffer cmd = beginCompute();
+        if (timestamps) {
+            vkCmdResetQueryPool(cmd, timestamps, 0, 3);
+            vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, timestamps, 0);
+        }
+        // Earlier frames may still be drawing the block list this pass rewrites.
+        memoryBarrier(cmd, VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                      VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_CLEAR_BIT | VK_PIPELINE_STAGE_2_COPY_BIT,
+                      VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        uint32_t parity = currentCells;
+        if (steps > 0 && !activeSlots.empty()) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, stepPipeline);
+            for (uint32_t s = 0; s < steps; ++s) {
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeSets[parity], 0, nullptr);
+                dispatchChunks(cmd, StepConstants{0, 0, rule().surviveMask, rule().birthMask});
+                memoryBarrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
+                              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+                parity = 1 - parity;
+            }
+        } else if (steps > 0) {
+            parity = (parity + steps) & 1u; // an empty world stays empty
+        }
+        if (timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, timestamps, 1);
+
+        if (stats) vkCmdFillBuffer(cmd, pool.stats.buffer, 0, VK_WHOLE_SIZE, 0);
+        const VkDrawIndexedIndirectCommand emptyDraw{BLOCK_INDICES, 0, 0, 0, 0};
+        if (draw) vkCmdUpdateBuffer(cmd, indirectBuffer.buffer, 0, sizeof(emptyDraw), &emptyDraw);
+        memoryBarrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT | VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+        if (!activeSlots.empty()) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, buildPipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeSets[parity], 0, nullptr);
+            float cull = static_cast<float>(settings.renderDistance) + 2.0f * REBUILD_DISTANCE;
+            uint32_t flags = (animate ? 1u : 0u) | (draw ? 2u : 0u) | (stats ? 4u : 0u);
+            dispatchChunks(cmd, BuildConstants{cullingViewProjection(), 0, 0, MAX_BATCH, flags, MAX_INSTANCES, cull,
+                                               eye.x, eye.y, eye.z});
+        }
+        if (timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, timestamps, 2);
+        // Results go to the indirect draw, the vertex shader and the CPU.
+        memoryBarrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_COPY_BIT |
+                          VK_PIPELINE_STAGE_2_HOST_BIT,
+                      VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_TRANSFER_READ_BIT |
+                          VK_ACCESS_2_HOST_READ_BIT);
+        VkBufferCopy copy{0, 0, sizeof(VkDrawIndexedIndirectCommand)};
+        vkCmdCopyBuffer(cmd, indirectBuffer.buffer, readbackBuffer.buffer, 1, &copy);
+        if (stats) {
+            VkBufferCopy statsCopy{0, 0, pool.stats.size};
+            vkCmdCopyBuffer(cmd, pool.stats.buffer, pool.statsReadback.buffer, 1, &statsCopy);
+        }
+        memoryBarrier(cmd, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_HOST_BIT,
+                      VK_ACCESS_2_HOST_READ_BIT);
+        auto t0 = std::chrono::steady_clock::now();
+        submitCompute(cmd, steps ? "the simulation pass" : "the block list");
+        auto t1 = std::chrono::steady_clock::now();
+        benchGpuMs += std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+        currentCells = parity;
+        generation += steps;
+        editOpen = false;
+        measureBatch(steps, draw && !stats, wallStart);
+        blockListStale = !draw;
+        if (draw) {
+            visibleBlocks = readbackBuffer.as<VkDrawIndexedIndirectCommand>()->instanceCount;
+            drawnBlocks = std::min<uint64_t>(visibleBlocks, MAX_INSTANCES);
+            refreshPending = false;
+            lastBuildEye = eye;
+            lastBuildForward = forward();
+            lastBuildAnimated = animate;
+        }
+        if (!stats) return;
+        auto t2 = std::chrono::steady_clock::now();
+        maintainChunks();
+        benchCpuMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t2).count();
+        if (steps > 0) recordPopulation();
+    }
+
+    // Updates the governor's cost estimates from the batch that just finished.
+    void measureBatch(uint32_t steps, bool draw, std::chrono::steady_clock::time_point wallStart) {
+        auto smooth = [](double& estimate, double sample) { estimate = estimate > 0.0 ? 0.8 * estimate + 0.2 * sample : sample; };
+        double wall = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wallStart).count();
+        uint64_t ticks[3] = {};
+        if (timestamps && vkGetQueryPoolResults(device, timestamps, 0, 3, sizeof(ticks), ticks, sizeof(uint64_t),
+                                                VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+            // Counters may wrap past their valid bits; a pass never reads as free.
+            double stepMs = std::max(1e-4, static_cast<double>((ticks[1] - ticks[0]) & timestampMask) * timestampMs);
+            double buildMs = std::max(1e-4, static_cast<double>((ticks[2] - ticks[1]) & timestampMask) * timestampMs);
+            if (steps > 0) smooth(stepCostMs, stepMs / steps);
+            smooth(draw ? drawCostMs : statsCostMs, buildMs);
+            smooth(overheadMs, std::max(0.0, wall - stepMs - buildMs));
+        } else { // no timestamps: charge everything to the steps
+            if (steps > 0) smooth(stepCostMs, std::max(1e-4, wall / steps));
+            else smooth(draw ? drawCostMs : statsCostMs, wall);
+        }
+    }
+
+    // Orders the active list nearest first. The build pass appends blocks roughly
+    // in that order, so the depth test rejects most hidden fragments early and,
+    // past the draw cap, the blocks left out are the far ones.
+    void sortChunksByDistance() {
+        lastSortEye = eye;
+        glm::vec3 center = eye - float(CHUNK) * 0.5f;
+        auto distance2 = [&](uint32_t slot) {
+            glm::vec3 d = glm::vec3(slotChunk[slot] * CHUNK) - center;
+            return glm::dot(d, d);
+        };
+        std::vector<std::pair<float, uint32_t>> order;
+        order.reserve(activeSlots.size());
+        for (uint32_t slot : activeSlots) order.emplace_back(distance2(slot), slot);
+        std::sort(order.begin(), order.end());
+        uint32_t* mapped = pool.active.as<uint32_t>();
+        for (size_t i = 0; i < order.size(); ++i) {
+            activeSlots[i] = order[i].second;
+            activeIndex[order[i].second] = static_cast<uint32_t>(i);
+            mapped[i] = order[i].second;
+        }
+    }
+
+    // Why the block list is rebuilt without a generation step.
+    enum class Rebuild {
+        Edit,   // the player changed blocks: animate them if animations are on
+        Camera, // the camera moved: keep any animation in progress
+        Reset,  // a new world, a load or a tutorial scene: nothing animates
+    };
+
+    void rebuild(Rebuild reason) {
+        const double now = glfwGetTime();
+        bool animate = false;
+        if (reason == Rebuild::Edit && editOpen) {
+            lastChangeTime = now;
+            changeAnimationSeconds = EDIT_ANIMATION_SECONDS;
+            animate = true;
+        } else if (reason == Rebuild::Camera) {
+            animate = lastBuildAnimated && now < lastChangeTime + changeAnimationSeconds;
+        } else {
+            changeAnimationSeconds = 0.0f;
+        }
+        runBatch(0, animate, true, reason != Rebuild::Camera);
+    }
+
+    void recordPopulation() {
+        constexpr size_t HISTORY = 240;
+        populationHistory.push_back(static_cast<float>(population));
+        if (populationHistory.size() > HISTORY) populationHistory.erase(populationHistory.begin());
+    }
+
+    // Runs n generations as fast as possible, in full batches (scripts, --steps).
+    void advanceGenerations(uint64_t n) {
+        while (n > 0) {
+            uint32_t batch = static_cast<uint32_t>(std::min<uint64_t>(n, MAX_BATCH));
+            n -= batch;
+            runBatch(batch, false, n == 0);
+        }
+    }
+
+    // ------------------------------------------------------------ simulation speed
+
+    bool animations() const { return settings.animate && !capturing; }
+
+    double targetRate() const { return std::ldexp(1.0, speedExponent); }
+    bool unlimitedSpeed() const { return speedExponent >= UNLIMITED_SPEED_EXPONENT; }
+
+    static std::string formatRate(double rate) {
+        std::ostringstream out;
+        if (rate >= 1.0 || rate <= 0.0) out << std::lround(rate);
+        else out << "1/" << std::lround(1.0 / rate);
+        return out.str();
+    }
+
+    std::string speedLabel() const {
+        return unlimitedSpeed() ? std::string("max") : formatRate(targetRate()) + " gen/s";
+    }
+
+    void changeSpeed(int steps) {
+        speedExponent = std::clamp(speedExponent + steps, MIN_SPEED_EXPONENT, UNLIMITED_SPEED_EXPONENT);
+        stepDebt = std::min(stepDebt, 1.0);
+        notify("Speed: " + (unlimitedSpeed() ? std::string("as fast as possible") : speedLabel()));
+    }
+
+    void queueFastForward(uint64_t generations) {
+        if (fastForward > 0) {
+            fastForward = fastForwardTotal = 0;
+            notify("Fast-forward cancelled");
+            return;
+        }
+        fastForward = fastForwardTotal = generations;
+        notify("Fast-forward " + std::to_string(generations) + " generations (J to cancel)");
+    }
+
+    // The governor. Each frame it owes the simulation `rate * dt` generations (or
+    // a fast-forward's), and spends at most the frame budget paying them, using
+    // the measured cost of a generation to size GPU batches. When the world is too
+    // big to keep up, the tick rate drops to what fits instead of the frame rate:
+    // the backlog is dropped and the HUD shows the speed actually reached. A
+    // single generation that blows the budget is followed by enough idle frames
+    // to keep the game at least half responsive.
     void updateSimulation(float deltaTime) {
-        if (!simulationRunning) return;
-        stepAccumulator += deltaTime * SPEEDS[speedIndex];
-        int steps = 0;
-        while (stepAccumulator >= 1.0f && steps < 4) {
-            runPass(true);
-            stepAccumulator -= 1.0f;
-            ++steps;
+        const double now = glfwGetTime();
+        // Edits since the last pass must reach chunk bookkeeping before any step,
+        // or births next to new cells could fall into chunks that don't exist yet.
+        if (refreshPending) rebuild(Rebuild::Edit);
+        uint64_t due = fastForward;
+        if (simulationRunning) {
+            stepDebt = unlimitedSpeed() ? 1e12 : stepDebt + deltaTime * targetRate();
+            due += static_cast<uint64_t>(std::min(stepDebt, 1e12));
+        }
+        sampleRate(now);
+        if (due == 0) return;
+        if (now < simCooldownUntil) {
+            noteLimited(now, true);
+            return;
+        }
+        const bool flatOut = unlimitedSpeed() || fastForward > 0;
+        const double budgetMs = flatOut ? std::max(settings.simBudget, 25) : settings.simBudget;
+        // The GPU runs frames and the simulation in order; let the last frame
+        // finish first so its drawing is not counted as simulation time.
+        waitFence(inFlightFences[(currentFrame + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT], "a frame");
+        const auto start = std::chrono::steady_clock::now();
+        auto elapsedMs = [&] { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(); };
+        // Steps run in batches without a block list; one build at the end draws
+        // the result, so its cost is set aside first.
+        const double reserve = drawCostMs + overheadMs;
+        // At slow speeds a single generation's births and deaths are animated over
+        // most of the tick. That generation draws in its own batch, before chunk
+        // bookkeeping frees chunks whose last cells are still shrinking away.
+        const bool animate = animations() && !flatOut && due == 1 && targetRate() <= 16.0;
+        uint64_t done = 0;
+        if (animate) {
+            runBatch(1, true, true);
+            done = 1;
+        }
+        while (done < due) {
+            uint32_t batch = static_cast<uint32_t>(std::min<uint64_t>(due - done, MAX_BATCH));
+            const double elapsed = elapsedMs();
+            if (done > 0 && elapsed >= budgetMs) break;
+            if (stepCostMs > 0.0) {
+                double room = budgetMs - elapsed - reserve - statsCostMs - overheadMs;
+                double affordable = room > 0.0 ? std::floor(room / stepCostMs) : 0.0;
+                if (done > 0 && affordable < 1.0) break;
+                batch = static_cast<uint32_t>(std::clamp(affordable, 1.0, static_cast<double>(batch)));
+            }
+            runBatch(batch, false, false);
+            done += batch;
             if (chunkLimitHit && !pausedAtLimit) {
-                // Past the budget, growth freezes at the edge; stop and say so instead.
+                // Past the limit, growth freezes at the edge; stop and say so instead.
                 pausedAtLimit = true;
                 simulationRunning = false;
-                std::cout << "Chunk budget of " << chunkCapacity << " reached at generation " << generation
-                          << ": paused. Press G to keep going (growth stops at the edge), or start with --chunks N."
-                          << std::endl;
+                fastForward = 0;
+                notify("Chunk limit of " + std::to_string(chunkLimit) + " reached at generation " + std::to_string(generation) +
+                       ": paused. G continues (growth stops at the edge); --chunks N raises the limit.");
                 break;
             }
         }
-        stepAccumulator = std::min(stepAccumulator, 1.0f); // drop backlog instead of spiraling
+        // The block list for what the frame will show.
+        if (!animate) runBatch(0, false, true, false);
+        if (animate) {
+            lastChangeTime = glfwGetTime();
+            changeAnimationSeconds = static_cast<float>(std::min(0.22, 0.75 / targetRate()));
+        } else {
+            changeAnimationSeconds = 0.0f;
+        }
+        const uint64_t fromJump = std::min(done, fastForward);
+        fastForward -= fromJump;
+        if (fastForward == 0) fastForwardTotal = 0;
+        if (simulationRunning) stepDebt = std::max(0.0, stepDebt - static_cast<double>(done - fromJump));
+        const bool behind = done < due && !flatOut;
+        if (behind) stepDebt = std::min(stepDebt, 1.0); // drop the backlog: slow down instead of spiraling
+        if (unlimitedSpeed()) stepDebt = 0.0;
+        noteLimited(now, behind);
+        lastSimMs = static_cast<float>(elapsedMs());
+        if (lastSimMs > 1.5 * budgetMs) simCooldownUntil = now + lastSimMs / 1000.0; // keep at least half the time for frames
     }
 
-    // Compares the chunked GPU world with the dense CPU reference. The soup is
-    // centered on a chunk corner so neighbor lookups and chunk growth are exercised.
+    void noteLimited(double now, bool limited) {
+        // Hysteresis so the HUD does not flicker between the two states.
+        if (limited) {
+            limitedSince = now;
+            tickLimited = true;
+        } else if (tickLimited && now - limitedSince > 1.0) {
+            tickLimited = false;
+        }
+    }
+
+    // Generations per second actually reached over the last second or so.
+    void sampleRate(double now) {
+        rateSamples.emplace_back(now, generation);
+        while (rateSamples.size() > 2 && now - rateSamples.front().first > 1.5) rateSamples.erase(rateSamples.begin());
+        double span = now - rateSamples.front().first;
+        measuredRate = span > 0.25 ? static_cast<double>(generation - rateSamples.front().second) / span : measuredRate;
+    }
+
+    // ---------------------------------------------------------------- checks
+
+    // Compares the chunked GPU world with the dense CPU reference, for every rule,
+    // with Stone and Ember blocks mixed into the soup, one generation per batch
+    // and full batches. The soup is centered on a chunk corner so neighbor
+    // lookups, chunk growth and the reach margin are exercised.
     bool verifyAgainstReference() {
-        constexpr int BOX = 80, HALF = BOX / 2, SOUP = 12, STEPS = 20;
+        constexpr int BOX = 96, HALF = BOX / 2, SOUP = 14, STEPS = 24;
         bool ok = true;
-        std::vector<uint32_t> expected(BOX * BOX * BOX), scratch;
-        for (size_t r = 0; r < lifeRules().size(); ++r) {
-            ruleIndex = r;
-            resetChunks();
-            generation = 0;
-            seedSoup(glm::ivec3(-SOUP / 2), glm::ivec3(SOUP), std::max(rule().seedDensity, 0.25f));
-            runPass(false);
-            for (int z = 0; z < BOX; ++z)
-                for (int y = 0; y < BOX; ++y)
-                    for (int x = 0; x < BOX; ++x)
-                        expected[(z * BOX + y) * BOX + x] = cellAlive(glm::ivec3(x, y, z) - HALF) ? 1u : 0u;
-            size_t mismatches = 0;
-            for (int step = 0; step < STEPS; ++step) {
-                stepLifeReference(expected, scratch, BOX, BOX, BOX, rule());
-                expected.swap(scratch);
-                runPass(true);
-                uint64_t expectedPopulation = 0;
+        std::vector<uint32_t> expected(size_t(BOX) * BOX * BOX), scratch;
+        std::vector<uint8_t> blocks(expected.size());
+        auto index = [&](int x, int y, int z) { return (size_t(z) * BOX + y) * BOX + x; };
+        for (uint32_t batch : {1u, MAX_BATCH}) {
+            for (size_t r = 0; r < lifeRules().size(); ++r) {
+                ruleIndex = r;
+                resetChunks();
+                generation = 0;
+                rng.seed(options.seed + static_cast<uint32_t>(r));
+                std::uniform_real_distribution<float> chance(0.0f, 1.0f);
+                float density = std::max(rule().seedDensity, 0.25f);
+                for (int z = -SOUP / 2; z < SOUP / 2; ++z)
+                    for (int y = -SOUP / 2; y < SOUP / 2; ++y)
+                        for (int x = -SOUP / 2; x < SOUP / 2; ++x) {
+                            float roll = chance(rng);
+                            if (roll < 0.015f) placeCell({x, y, z}, CellKind::Stone);
+                            else if (roll < 0.03f) placeCell({x, y, z}, CellKind::Ember);
+                            else if (roll < 0.03f + density) setLife({x, y, z}, true);
+                        }
+                runBatch(0, false);
                 for (int z = 0; z < BOX; ++z)
                     for (int y = 0; y < BOX; ++y)
                         for (int x = 0; x < BOX; ++x) {
-                            uint32_t want = expected[(z * BOX + y) * BOX + x];
-                            expectedPopulation += want;
-                            mismatches += (cellAlive(glm::ivec3(x, y, z) - HALF) ? 1u : 0u) != want;
+                            int kind = cellKind(glm::ivec3(x, y, z) - HALF);
+                            expected[index(x, y, z)] = kind == static_cast<int>(CellKind::Life) ? 1u : 0u;
+                            blocks[index(x, y, z)] = kind > 0 ? static_cast<uint8_t>(kind) : 0;
                         }
-                mismatches += expectedPopulation != population; // catches stray cells outside the box
+                size_t mismatches = 0;
+                for (int step = 0; step < STEPS; step += static_cast<int>(batch)) {
+                    for (uint32_t i = 0; i < batch; ++i) {
+                        stepLifeReference(expected, scratch, BOX, BOX, BOX, rule(), &blocks);
+                        expected.swap(scratch);
+                    }
+                    runBatch(batch, false);
+                    uint64_t expectedPopulation = 0;
+                    for (int z = 0; z < BOX; ++z)
+                        for (int y = 0; y < BOX; ++y)
+                            for (int x = 0; x < BOX; ++x) {
+                                uint32_t want = expected[index(x, y, z)];
+                                expectedPopulation += want;
+                                mismatches += (cellAlive(glm::ivec3(x, y, z) - HALF) ? 1u : 0u) != want;
+                            }
+                    mismatches += expectedPopulation != population; // catches stray cells outside the box
+                }
+                std::cout << "verify " << rule().name << " " << describeRule(rule()) << ", " << batch
+                          << (batch == 1 ? " generation" : " generations") << " per batch: "
+                          << (mismatches ? "FAIL" : "ok") << " (" << mismatches << " mismatches, population "
+                          << population << ", " << activeSlots.size() << " chunks)" << std::endl;
+                ok = ok && mismatches == 0;
             }
-            std::cout << "verify " << rule().name << " " << describeRule(rule()) << ": "
-                      << (mismatches ? "FAIL" : "ok") << " (" << mismatches << " mismatches, population " << population
-                      << ", " << chunkSlots.size() << " chunks)" << std::endl;
-            ok = ok && mismatches == 0;
         }
         return ok;
+    }
+
+    // --bench N: the simulation alone, as fast as it goes, from the starting world.
+    int runBenchmark(uint64_t generations) {
+        uint64_t peakChunks = activeSlots.size(), startPopulation = population;
+        auto start = std::chrono::steady_clock::now();
+        uint64_t done = 0;
+        while (done < generations && !(chunkLimitHit && pausedAtLimit)) {
+            uint32_t batch = static_cast<uint32_t>(std::min<uint64_t>(generations - done, MAX_BATCH));
+            done += batch;
+            runBatch(batch, false, done >= generations);
+            peakChunks = std::max<uint64_t>(peakChunks, activeSlots.size());
+            if (chunkLimitHit) pausedAtLimit = true;
+        }
+        if (blockListStale) runBatch(0, false);
+        double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        std::cout << std::fixed << std::setprecision(1) << "bench: " << rule().name << ", " << done << " generations in "
+                  << seconds << " s = " << static_cast<double>(done) / seconds << " gen/s; population " << startPopulation
+                  << " -> " << population << ", peak " << peakChunks << " chunks (" << pool.capacity
+                  << " allocated), " << drawnBlocks << " blocks drawn, GPU memory " << (gpuBytes >> 20) << " MB"
+                  << (chunkLimitHit ? " (chunk limit reached)" : "") << std::endl;
+        std::cout << "bench: " << benchGpuMs << " ms in GPU passes, " << benchCpuMs << " ms in chunk bookkeeping" << std::endl;
+        return 0;
     }
 
     // ----------------------------------------------------------------- player
@@ -1690,9 +2367,24 @@ private:
         return projection() * glm::lookAt(eye, eye + forward(), glm::vec3(0, 1, 0));
     }
 
+    // The view the block list is culled to: CULL_MARGIN_DEGREES wider than the
+    // camera's on every side and starting a little behind it, so turning a
+    // little or stepping back does not uncover missing blocks before the next
+    // rebuild (see mainLoop).
+    static constexpr float CULL_MARGIN_DEGREES = 20.0f;
+    glm::mat4 cullingViewProjection() const {
+        float aspect = swapchainExtent.height ? float(swapchainExtent.width) / float(swapchainExtent.height) : 1.0f;
+        float halfY = glm::radians(settings.fov * 0.5f);
+        float halfX = std::atan(std::tan(halfY) * aspect);
+        float wideY = std::min(halfY + glm::radians(CULL_MARGIN_DEGREES), glm::radians(85.0f));
+        float wideX = std::min(halfX + glm::radians(CULL_MARGIN_DEGREES), glm::radians(85.0f));
+        glm::mat4 proj = glm::perspective(2.0f * wideY, std::tan(wideX) / std::tan(wideY), 0.05f, 4096.0f);
+        glm::vec3 back = eye - forward() * (2.0f * REBUILD_DISTANCE);
+        return proj * glm::lookAt(back, back + forward(), glm::vec3(0, 1, 0));
+    }
+
     // Keyboard input only counts while the mouse is captured; gravity always applies.
     void updateMovement(float deltaTime) {
-        GLFWwindow* window = windowManager->getWindow();
         auto down = [&](int key) { return cursorCaptured && glfwGetKey(window, key) == GLFW_PRESS; };
         float y = glm::radians(yaw);
         glm::vec3 flatForward(std::cos(y), 0.0f, std::sin(y));
@@ -1725,10 +2417,7 @@ private:
     static glm::vec3 playerMin(const glm::vec3& at) { return at - glm::vec3(0.3f, EYE_HEIGHT, 0.3f); }
     static glm::vec3 playerMax(const glm::vec3& at) { return at + glm::vec3(0.3f, 1.8f - EYE_HEIGHT, 0.3f); }
 
-    // Moves one axis at a time (y first, like Minecraft) and stops at live blocks
-    // the player was not already inside. Blocks born inside the player never trap
-    // it. While walking, the y = 0 ground is solid.
-    // True when a live block or the ground is directly under the player's feet.
+    // True when a block or the ground is directly under the player's feet.
     bool standingOnSomething() const {
         constexpr float PROBE = 0.01f;
         glm::vec3 lo = playerMin(eye), hi = playerMax(eye);
@@ -1737,10 +2426,13 @@ private:
         if (below >= static_cast<int>(std::floor(lo.y))) return false; // feet are not near a block top
         for (int z = static_cast<int>(std::floor(lo.z)); z < static_cast<int>(std::ceil(hi.z)); ++z)
             for (int x = static_cast<int>(std::floor(lo.x)); x < static_cast<int>(std::ceil(hi.x)); ++x)
-                if (cellAlive(glm::ivec3(x, below, z))) return true;
+                if (occupied(glm::ivec3(x, below, z))) return true;
         return false;
     }
 
+    // Moves one axis at a time (y first, like Minecraft) and stops at blocks the
+    // player was not already inside. Blocks born inside the player never trap it.
+    // While walking, the y = 0 ground is solid.
     void moveWithCollision(const glm::vec3& delta) {
         constexpr float GAP = 1e-3f;
         for (int axis : {1, 0, 2}) {
@@ -1760,7 +2452,7 @@ private:
                         glm::vec3 c(x, yy, z);
                         bool wasInside = c.x < oldHi.x && c.x + 1 > oldLo.x && c.y < oldHi.y && c.y + 1 > oldLo.y &&
                                          c.z < oldHi.z && c.z + 1 > oldLo.z;
-                        if (wasInside || !cellAlive(glm::ivec3(x, yy, z))) continue;
+                        if (wasInside || !occupied(glm::ivec3(x, yy, z))) continue;
                         blocked = true;
                         stop = delta[axis] > 0 ? std::min(stop, c[axis]) : std::max(stop, c[axis] + 1.0f);
                     }
@@ -1800,7 +2492,7 @@ private:
         int lastAxis = -1;
         float t = 0.0f;
         while (t <= REACH) {
-            if (cellAlive(cell)) {
+            if (occupied(cell)) {
                 target.hit = true;
                 target.block = cell;
                 if (lastAxis >= 0) {
@@ -1899,15 +2591,16 @@ private:
         return c.x < hi.x && c.x + 1.0f > lo.x && c.y < hi.y && c.y + 1.0f > lo.y && c.z < hi.z && c.z + 1.0f > lo.z;
     }
 
+    // Stamps are made of the selected material (M) and only fill empty cells.
     void placeStamp() {
         if (!target.canPlace || hotbarSlot < 0) return;
         for (const glm::ivec3& cell : stampCells(static_cast<Stamp>(hotbarSlot), target.place, target.normal)) {
-            if (!overlapsPlayer(cell)) setCell(cell, true);
+            if (!overlapsPlayer(cell)) placeCell(cell, material);
         }
     }
 
     void breakBlock() {
-        if (target.hit) setCell(target.block, false);
+        if (target.hit) clearCell(target.block);
     }
 
     void applyScriptAction(const ScriptAction& action) {
@@ -1926,12 +2619,15 @@ private:
             case ScriptAction::Tilt:
                 tiltBrush(static_cast<int>(action.value.x));
                 break;
+            case ScriptAction::Material:
+                material = static_cast<CellKind>(static_cast<int>(action.value.x));
+                break;
             case ScriptAction::Push:
                 moveWithCollision(action.value);
                 std::cout << "push: feet at " << eye.x << " " << eye.y - EYE_HEIGHT << " " << eye.z << std::endl;
                 break;
             case ScriptAction::Resize:
-                glfwSetWindowSize(windowManager->getWindow(), static_cast<int>(action.value.x), static_cast<int>(action.value.y));
+                glfwSetWindowSize(window, static_cast<int>(action.value.x), static_cast<int>(action.value.y));
                 break;
             case ScriptAction::Place:
             case ScriptAction::Break: {
@@ -1948,7 +2644,7 @@ private:
                               << std::endl;
                 }
                 if (action.kind == ScriptAction::Place) placeStamp(); else breakBlock();
-                if (refreshPending) runPass(false);
+                if (refreshPending) rebuild(Rebuild::Edit);
                 std::cout << (action.kind == ScriptAction::Place ? "place " : "break ") << handName()
                           << (target.hit ? " at block face" : " in air") << ": population " << before << " -> "
                           << population << std::endl;
@@ -1962,12 +2658,11 @@ private:
     void setCursorCaptured(bool captured) {
         cursorCaptured = captured;
         haveCursorPosition = false;
-        glfwSetInputMode(windowManager->getWindow(), GLFW_CURSOR, captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+        glfwSetInputMode(window, GLFW_CURSOR, captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
         if (!captured) breakHeld = placeHeld = false;
     }
 
     void toggleFullscreen() {
-        GLFWwindow* window = windowManager->getWindow();
         fullscreen = !fullscreen;
         if (fullscreen) {
             glfwGetWindowPos(window, &windowedX, &windowedY);
@@ -1985,6 +2680,7 @@ private:
 
     std::string handLabel() const {
         std::string label = handName();
+        if (hotbarSlot >= 0 && material != CellKind::Life) label += std::string(" of ") + cellType(material).name;
         if (hotbarSlot >= 0 && brushRotation != 0) label += " (rotated " + std::to_string(brushRotation * 90) + " deg)";
         if (hotbarSlot >= 0 && brushTilt != 0) label += " (tilted " + std::to_string(brushTilt * 90) + " deg)";
         return label;
@@ -2022,7 +2718,7 @@ private:
     void resumeGame() {
         screen = Screen::Playing;
         simulationRunning = runningBeforePause;
-        stepAccumulator = 0.0f;
+        stepDebt = 0.0;
         setCursorCaptured(true);
     }
 
@@ -2043,7 +2739,6 @@ private:
     }
 
     void onKey(int key, int action, int mods) {
-        GLFWwindow* window = windowManager->getWindow();
         const bool ctrl = mods & GLFW_MOD_CONTROL, shift = mods & GLFW_MOD_SHIFT;
         if (action == GLFW_PRESS && ctrl && key == GLFW_KEY_Q) {
             glfwSetWindowShouldClose(window, GLFW_TRUE);
@@ -2071,8 +2766,8 @@ private:
             if (action == GLFW_RELEASE && !f3UsedInCombo) showDebug = !showDebug;
             return;
         }
-        if (action == GLFW_REPEAT && key == GLFW_KEY_N) {
-            runPass(true);
+        if (action == GLFW_REPEAT && key == GLFW_KEY_N && !ctrl) {
+            stepOnce();
             return;
         }
         if (action != GLFW_PRESS) return;
@@ -2115,7 +2810,7 @@ private:
                     f3UsedInCombo = true;
                 } else {
                     simulationRunning = !simulationRunning;
-                    stepAccumulator = 0.0f;
+                    stepDebt = 0.0;
                 }
                 break;
             case GLFW_KEY_N:
@@ -2123,24 +2818,27 @@ private:
                     newWorld(!shift);
                     notify(shift ? "New empty world" : std::string("New world: ") + rule().name);
                 } else {
-                    runPass(true);
+                    stepOnce();
                 }
                 break;
+            case GLFW_KEY_J: queueFastForward(shift ? 1000 : 100); break;
+            case GLFW_KEY_M: cycleMaterial(shift ? -1 : 1); break;
             case GLFW_KEY_R: {
                 size_t count = lifeRules().size();
                 ruleIndex = shift ? (ruleIndex + count - 1) % count : (ruleIndex + 1) % count;
                 notify(std::string("Rule: ") + rule().name + " " + describeRule(rule()));
                 break;
             }
+            // Speed doubles or halves per press; Shift makes it 8x.
             case GLFW_KEY_EQUAL:
             case GLFW_KEY_KP_ADD:
             case GLFW_KEY_RIGHT_BRACKET:
-                speedIndex = std::min(speedIndex + 1, SPEEDS.size() - 1);
+                changeSpeed(shift ? 3 : 1);
                 break;
             case GLFW_KEY_MINUS:
             case GLFW_KEY_KP_SUBTRACT:
             case GLFW_KEY_LEFT_BRACKET:
-                speedIndex = speedIndex > 0 ? speedIndex - 1 : 0;
+                changeSpeed(shift ? -3 : -1);
                 break;
             case GLFW_KEY_F1: hudVisible = !hudVisible; break;
             case GLFW_KEY_F2: requestScreenshot(timestampedScreenshotName()); break;
@@ -2148,6 +2846,22 @@ private:
             case GLFW_KEY_H: printControls(); break;
             default: break;
         }
+    }
+
+    // One generation (N), animated at the speed of a slow tick.
+    void stepOnce() {
+        if (refreshPending) rebuild(Rebuild::Edit); // see updateSimulation
+        bool animate = animations();
+        runBatch(1, animate);
+        lastChangeTime = glfwGetTime();
+        changeAnimationSeconds = animate ? 0.22f : 0.0f;
+    }
+
+    void cycleMaterial(int direction) {
+        int count = static_cast<int>(cellTypes().size());
+        material = static_cast<CellKind>(((static_cast<int>(material) + direction) % count + count) % count);
+        notify(std::string("Building with ") + cellType(material).name);
+        slotNameUntil = glfwGetTime() + 2.0;
     }
 
     void saveWorldWithMessage() {
@@ -2222,7 +2936,10 @@ private:
                   << " / scroll  hotbar (press the selected number again for an empty hand):\n ";
         for (size_t i = 0; i < STAMP_NAMES.size(); ++i) std::cout << "  " << (i + 1) << " " << STAMP_NAMES[i];
         std::cout << "\n"
-                     "  G  run/pause generations   N  single generation   [ ]  slower/faster\n"
+                     "  M / Shift+M  building material: Life, Stone (inert wall), Ember (permanent live neighbor)\n"
+                     "  G  run/pause generations   N  single generation\n"
+                     "  [ ]  half / double speed (1/32 to 8192 gen/s, then max; Shift: 8x)\n"
+                     "  J / Shift+J  fast-forward 100 / 1000 generations (J again cancels)\n"
                      "  R / Shift+R  next/previous rule   Ctrl+N  new world   Ctrl+Shift+N  empty world\n"
                      "  Ctrl+S  save the world   Ctrl+O  load it (user data folder)\n"
                      "  F1  hide HUD   F2  screenshot   F3  debug info   F3+G  chunk borders   F11  fullscreen\n"
@@ -2245,24 +2962,24 @@ private:
         applyMenuStyle();
         baseStyle = ImGui::GetStyle();
         // Installed after the game's GLFW callbacks, which ImGui then chains to.
-        ImGui_ImplGlfw_InitForVulkan(windowManager->getWindow(), true);
+        ImGui_ImplGlfw_InitForVulkan(window, true);
 
-        VkInstance instance = vulkanContext->getVkInstance();
-        ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_0, [](const char* name, void* user) {
+        VkInstance instance = gpu.instance;
+        ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_3, [](const char* name, void* user) {
             return vkGetInstanceProcAddr(*static_cast<VkInstance*>(user), name);
         }, &instance);
         ImGui_ImplVulkan_InitInfo info{};
-        info.ApiVersion = VK_API_VERSION_1_0;
-        info.Instance = vulkanContext->getVkInstance();
-        info.PhysicalDevice = vulkanContext->getPhysicalDevice();
+        info.ApiVersion = VK_API_VERSION_1_3;
+        info.Instance = gpu.instance;
+        info.PhysicalDevice = gpu.physicalDevice;
         info.Device = device;
-        info.QueueFamily = vulkanContext->getQueueFamilyIndices().graphicsFamily.value();
-        info.Queue = vulkanContext->getGraphicsQueue();
-        info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE + 4;
-        info.RenderPass = renderPass;
+        info.QueueFamily = gpu.queueFamily;
+        info.Queue = gpu.queue;
+        info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE + IMGUI_IMPL_VULKAN_MINIMUM_SAMPLER_POOL_SIZE + 4;
         info.MinImageCount = 2;
         info.ImageCount = std::max<uint32_t>(2, static_cast<uint32_t>(swapchainImages.size()));
-        info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+        info.UseDynamicRendering = true;
+        info.PipelineInfoMain.PipelineRenderingCreateInfo = renderingInfo();
         if (!ImGui_ImplVulkan_Init(&info)) throw std::runtime_error("Failed to initialize the menu renderer!");
         imguiReady = true;
     }
@@ -2326,31 +3043,35 @@ private:
         }
     }
 
+    // Auto scales with the window height (1x at 720 lines), in quarter steps;
+    // fonts are rasterized at the final size, so any scale stays sharp.
     float effectiveUiScale() const {
         if (settings.guiScale > 0) return static_cast<float>(settings.guiScale);
-        return std::max(1.0f, std::round(static_cast<float>(swapchainExtent.height) / 500.0f));
+        float scale = std::round(4.0f * static_cast<float>(swapchainExtent.height) / 720.0f) / 4.0f;
+        return std::clamp(scale, 1.0f, 4.0f);
     }
 
-    // Rebuilds the fonts at the GUI scale so text stays crisp.
+    // Applies the GUI scale. Dear ImGui bakes glyphs at whatever size is drawn,
+    // so text stays crisp at every scale without rebuilding the font atlas.
     void updateUiScale() {
         float scale = effectiveUiScale();
         if (scale == uiScale) return;
-        if (uiScale != 0.0f) {
-            vkDeviceWaitIdle(device);
-            ImGui_ImplVulkan_DestroyFontsTexture(); // recreated by the next NewFrame
+        if (uiScale == 0.0f) {
+            ImFontConfig font;
+            font.FontDataOwnedByAtlas = false; // the TTF lives in the executable (MenuFont.h)
+            void* ttf = const_cast<unsigned char*>(MENU_FONT_TTF);
+            titleFont = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(ttf, MENU_FONT_TTF_SIZE, BODY_FONT_SIZE, &font);
         }
-        ImGuiIO& io = ImGui::GetIO();
-        io.Fonts->Clear();
-        ImFontConfig font;
-        font.FontDataOwnedByAtlas = false; // the TTF lives in the executable (MenuFont.h)
-        font.OversampleH = 2;
-        void* ttf = const_cast<unsigned char*>(MENU_FONT_TTF);
-        io.Fonts->AddFontFromMemoryTTF(ttf, MENU_FONT_TTF_SIZE, 15.0f * scale, &font);
-        titleFont = io.Fonts->AddFontFromMemoryTTF(ttf, MENU_FONT_TTF_SIZE, 22.0f * scale, &font);
-        ImGui::GetStyle() = baseStyle;
-        ImGui::GetStyle().ScaleAllSizes(scale);
+        ImGuiStyle& style = ImGui::GetStyle();
+        style = baseStyle;
+        style.ScaleAllSizes(scale);
+        style.FontSizeBase = BODY_FONT_SIZE;
+        style.FontScaleMain = scale;
         uiScale = scale;
     }
+
+    static constexpr float BODY_FONT_SIZE = 15.0f;
+    static constexpr float TITLE_FONT_SIZE = 22.0f;
 
     float px(float value) const { return value * uiScale; }
 
@@ -2363,6 +3084,13 @@ private:
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+        if (screen != shownScreen) {
+            shownScreen = screen;
+            menuOpenedAt = glfwGetTime();
+        }
+        // Menus fade in over a short moment instead of popping up.
+        float fade = capturing ? 1.0f : static_cast<float>(std::clamp((glfwGetTime() - menuOpenedAt) / 0.14, 0.0, 1.0));
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, screen == Screen::Playing ? 1.0f : fade * (2.0f - fade));
         switch (screen) {
             case Screen::Playing:
                 drawHudOverlay();
@@ -2373,6 +3101,7 @@ private:
             case Screen::Inventory: drawInventory(); break;
             case Screen::NewWorld: drawNewWorldMenu(); break;
         }
+        ImGui::PopStyleVar();
         if (updater && !updateAnnounced && updater->state() == gol3d::Updater::State::Available) {
             updateAnnounced = true;
             notify("Update available: 3D Life " + updater->release().version + ". Press Esc for details.");
@@ -2388,42 +3117,123 @@ private:
         draw->AddText(pos, textColor, text.c_str());
     }
 
+    static std::string withCommas(uint64_t value) {
+        std::string digits = std::to_string(value), out;
+        for (size_t i = 0; i < digits.size(); ++i) {
+            if (i && (digits.size() - i) % 3 == 0) out += ',';
+            out += digits[i];
+        }
+        return out;
+    }
+
+    static ImU32 materialColor(CellKind kind, int alpha = 255) {
+        const uint8_t* rgb = cellType(kind).rgb;
+        return color(rgb[0], rgb[1], rgb[2], alpha);
+    }
+
+    // Top-left status panel: run state and speed (with what the governor actually
+    // reaches), population with its recent history, the building material, a
+    // fast-forward's progress, and the F3 details.
     void drawHudOverlay() {
         if (!hudVisible) return;
         ImDrawList* draw = ImGui::GetForegroundDrawList();
         ImVec2 size = ImGui::GetIO().DisplaySize;
-        float line = ImGui::GetTextLineHeight();
+        const float line = ImGui::GetTextLineHeight();
+        const ImU32 white = IM_COL32(255, 255, 255, 255), muted = color(170, 182, 200), amber = color(255, 196, 90);
 
-        // Status line, and more when F3 is on.
-        std::ostringstream status;
-        status << rule().name << "  |  gen " << generation << "  |  " << SPEEDS[speedIndex] << " gen/s "
-               << (simulationRunning ? "running" : "paused (G)");
-        std::vector<std::string> lines = {status.str()};
+        struct Row {
+            std::string text;
+            ImU32 color;
+        };
+        std::vector<Row> rows;
+        std::string title = std::string(rule().name) + "   gen " + withCommas(generation);
+        std::string speed;
+        ImU32 speedColor = muted;
+        if (fastForward > 0) {
+            speed = "fast-forward  " + withCommas(fastForwardTotal - fastForward) + " / " + withCommas(fastForwardTotal);
+            speedColor = accentColor();
+        } else if (!simulationRunning) {
+            speed = "paused  (" + speedLabel() + ", G to run)";
+        } else if (unlimitedSpeed()) {
+            speed = "max speed  " + formatRate(measuredRate) + " gen/s";
+            speedColor = accentColor();
+        } else if (tickLimited) {
+            speed = speedLabel() + "  ->  " + formatRate(measuredRate) + " gen/s (slowed to keep up)";
+            speedColor = amber;
+        } else {
+            speed = speedLabel();
+            speedColor = accentColor();
+        }
+        rows.push_back({speed, speedColor});
+        std::string material = std::string("building with ") + cellType(this->material).name;
+        rows.push_back({withCommas(population) + " alive", white});
         if (showDebug) {
-            std::ostringstream a, b, c, d;
+            std::ostringstream a, b, c, d, e, f;
             a << std::fixed << std::setprecision(3) << "XYZ: " << eye.x << " / " << eye.y - EYE_HEIGHT << " / " << eye.z;
             glm::ivec3 chunk = chunkOf(glm::ivec3(glm::floor(eye)));
             b << "Chunk: " << chunk.x << " " << chunk.y << " " << chunk.z << "  |  " << (flying ? "flying" : "walking")
               << (onGround ? ", on ground" : "");
             c << std::fixed << std::setprecision(1) << "Facing: yaw " << yaw << ", pitch " << pitch;
-            d << population << " alive" << (population > MAX_INSTANCES ? " (draw capped)" : "") << "  |  "
-              << chunkSlots.size() << " / " << chunkCapacity << " chunks" << (chunkLimitHit ? " (LIMIT)" : "")
-              << "  |  " << std::lround(fps) << " fps";
-            lines.insert(lines.end(), {describeRule(rule()), a.str(), b.str(), c.str(), d.str()});
-            if (target.hit) lines.push_back("Targeted block: " + std::to_string(target.block.x) + " " +
-                                            std::to_string(target.block.y) + " " + std::to_string(target.block.z));
+            d << withCommas(activeSlots.size()) << " chunks of " << withCommas(pool.capacity) << " (limit "
+              << withCommas(chunkLimit) << ")" << (chunkLimitHit ? " LIMIT" : "") << "  |  GPU " << (gpuBytes >> 20) << " MB";
+            e << withCommas(drawnBlocks) << " blocks drawn" << (visibleBlocks > drawnBlocks ? " (capped)" : "");
+            f << std::fixed << std::setprecision(2) << "GPU " << stepCostMs << " ms/gen, " << drawCostMs
+              << " ms/block list  |  sim " << std::setprecision(1) << lastSimMs << " ms/frame  |  " << std::lround(fps) << " fps";
+            for (const std::string& text : {describeRule(rule()), a.str(), b.str(), c.str(), d.str(), e.str(), f.str()})
+                rows.push_back({text, color(200, 210, 225)});
+            if (target.hit) {
+                int kind = cellKind(target.block);
+                rows.push_back({"Targeted: " + std::string(kind >= 0 ? cellTypes()[kind].name : "?") + " at " +
+                                    std::to_string(target.block.x) + " " + std::to_string(target.block.y) + " " +
+                                    std::to_string(target.block.z),
+                                color(200, 210, 225)});
+            }
         }
-        // One rounded panel behind all lines, with an accent bar on the left.
-        float width = 0.0f;
-        for (const std::string& text : lines) width = std::max(width, ImGui::CalcTextSize(text.c_str()).x);
-        ImVec2 min(px(6), px(6));
-        ImVec2 max(min.x + width + px(16), min.y + line * static_cast<float>(lines.size()) + px(8));
-        draw->AddRectFilled(min, max, color(14, 18, 28, 170), px(6));
-        draw->AddRectFilled(min, ImVec2(min.x + px(3), max.y), accentColor(), px(6), ImDrawFlags_RoundCornersLeft);
-        for (size_t i = 0; i < lines.size(); ++i) {
-            ImVec2 pos(min.x + px(10), min.y + px(4) + line * static_cast<float>(i));
-            draw->AddText(pos, i == 0 ? IM_COL32(255, 255, 255, 255) : color(200, 210, 225), lines[i].c_str());
+
+        // Panel geometry: title, rows, material line, then the population graph.
+        const float icon = line;
+        float width = ImGui::CalcTextSize(title.c_str()).x + icon + px(6);
+        for (const Row& row : rows) width = std::max(width, ImGui::CalcTextSize(row.text.c_str()).x);
+        width = std::max(width, ImGui::CalcTextSize(material.c_str()).x + line);
+        width = std::max(width, px(200));
+        const float graphHeight = line * 1.6f;
+        const bool graph = populationHistory.size() >= 2;
+        ImVec2 min(px(8), px(8));
+        float height = line * static_cast<float>(rows.size() + 2) + px(12) + (graph ? graphHeight + px(6) : 0.0f) +
+                       (fastForward > 0 ? px(8) : 0.0f);
+        ImVec2 max(min.x + width + px(22), min.y + height);
+        draw->AddRectFilled(min, max, color(14, 18, 28, 180), px(8));
+        draw->AddRect(min, max, color(120, 140, 180, 50), px(8), px(1));
+        draw->AddRectFilled(min, ImVec2(min.x + px(3), max.y), speedColor, px(8), ImDrawFlags_RoundCornersLeft);
+
+        // Run state icon (play triangle or pause bars) then the title.
+        float x = min.x + px(12), y = min.y + px(6);
+        if (simulationRunning || fastForward > 0) {
+            draw->AddTriangleFilled(ImVec2(x, y + icon * 0.15f), ImVec2(x, y + icon * 0.85f), ImVec2(x + icon * 0.62f, y + icon * 0.5f), speedColor);
+        } else {
+            draw->AddRectFilled(ImVec2(x, y + icon * 0.18f), ImVec2(x + icon * 0.22f, y + icon * 0.82f), muted, px(1));
+            draw->AddRectFilled(ImVec2(x + icon * 0.4f, y + icon * 0.18f), ImVec2(x + icon * 0.62f, y + icon * 0.82f), muted, px(1));
         }
+        draw->AddText(ImVec2(x + icon * 0.62f + px(6), y), white, title.c_str());
+        y += line;
+        for (const Row& row : rows) {
+            draw->AddText(ImVec2(x, y), row.color, row.text.c_str());
+            y += line;
+        }
+        // Material swatch.
+        float swatch = line * 0.62f;
+        ImVec2 swatchMin(x, y + (line - swatch) * 0.5f);
+        draw->AddRectFilled(swatchMin, ImVec2(swatchMin.x + swatch, swatchMin.y + swatch), materialColor(this->material), px(2));
+        draw->AddText(ImVec2(x + swatch + px(6), y), muted, material.c_str());
+        y += line;
+        if (fastForward > 0 && fastForwardTotal > 0) {
+            float done = static_cast<float>(fastForwardTotal - fastForward) / static_cast<float>(fastForwardTotal);
+            ImVec2 barMin(x, y + px(2)), barMax(min.x + width + px(10), y + px(6));
+            draw->AddRectFilled(barMin, barMax, color(40, 49, 70), px(2));
+            draw->AddRectFilled(barMin, ImVec2(barMin.x + (barMax.x - barMin.x) * done, barMax.y), accentColor(), px(2));
+            y += px(8);
+        }
+        if (graph) drawPopulationGraph(draw, ImVec2(x, y + px(4)), ImVec2(min.x + width + px(10), y + px(4) + graphHeight));
 
         // Selected stamp name above the hotbar, fading out (hotbar metrics match life3d_screen.frag).
         double remaining = slotNameUntil - glfwGetTime();
@@ -2438,6 +3248,29 @@ private:
         }
     }
 
+    // Population over the last steps as a filled sparkline, scaled to its peak.
+    void drawPopulationGraph(ImDrawList* draw, ImVec2 min, ImVec2 max) {
+        float peak = 1.0f;
+        for (float v : populationHistory) peak = std::max(peak, v);
+        const size_t n = populationHistory.size();
+        auto point = [&](size_t i) {
+            float t = static_cast<float>(i) / static_cast<float>(n - 1);
+            return ImVec2(min.x + t * (max.x - min.x), max.y - (max.y - min.y) * populationHistory[i] / peak);
+        };
+        draw->AddLine(ImVec2(min.x, max.y), max, color(120, 140, 180, 60), px(1));
+        for (size_t i = 0; i + 1 < n; ++i) {
+            ImVec2 a = point(i), b = point(i + 1);
+            draw->AddQuadFilled(ImVec2(a.x, max.y), a, b, ImVec2(b.x, max.y), accentColor(46));
+        }
+        std::vector<ImVec2> points(n);
+        for (size_t i = 0; i < n; ++i) points[i] = point(i);
+        draw->AddPolyline(points.data(), static_cast<int>(n), accentColor(220), px(1.5f));
+        std::string label = "peak " + withCommas(static_cast<uint64_t>(peak));
+        ImVec2 textSize = ImGui::CalcTextSize(label.c_str());
+        draw->AddText(ImGui::GetFont(), ImGui::GetFontSize() * 0.8f, ImVec2(max.x - textSize.x * 0.8f, min.y - px(2)),
+                      color(170, 182, 200, 200), label.c_str());
+    }
+
     // A rounded message pill near the top of the screen.
     void drawToast() {
         double remaining = toastUntil - glfwGetTime();
@@ -2450,7 +3283,7 @@ private:
         ImVec2 min(pos.x - px(14), pos.y - px(6)), max(pos.x + textSize.x + px(14), pos.y + textSize.y + px(6));
         float radius = (max.y - min.y) * 0.5f;
         draw->AddRectFilled(min, max, color(14, 18, 28, alpha * 9 / 10), radius);
-        draw->AddRect(min, max, accentColor(alpha * 2 / 3), radius, 0, px(1));
+        draw->AddRect(min, max, accentColor(alpha * 2 / 3), radius, px(1));
         draw->AddText(pos, IM_COL32(255, 255, 255, alpha), toast.c_str());
     }
 
@@ -2462,12 +3295,20 @@ private:
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(viewport->Pos);
         ImGui::SetNextWindowSize(viewport->Size);
-        ImGui::SetNextWindowBgAlpha(0.5f);
+        ImGui::SetNextWindowBgAlpha(0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
         ImGui::Begin((std::string(id) + "-backdrop").c_str(), nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                          ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav);
+        // Dim the world, darker toward the top and bottom edges, so the card stands out.
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        ImVec2 lo = viewport->Pos, hi(viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y);
+        float band = viewport->Size.y * 0.35f;
+        ImU32 dim = color(8, 10, 18, 120), dark = color(8, 10, 18, 200);
+        draw->AddRectFilled(lo, hi, dim);
+        draw->AddRectFilledMultiColor(lo, ImVec2(hi.x, lo.y + band), dark, dark, color(8, 10, 18, 0), color(8, 10, 18, 0));
+        draw->AddRectFilledMultiColor(ImVec2(lo.x, hi.y - band), hi, color(8, 10, 18, 0), color(8, 10, 18, 0), dark, dark);
         ImGui::End();
         ImGui::PopStyleVar(2);
         ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
@@ -2479,8 +3320,9 @@ private:
     // The 3D Life mark (Conway's glider in the accent color), a title, and an
     // optional muted subtitle on the right.
     void cardHeader(const char* title, const char* subtitle = nullptr) {
-        ImFont* font = titleFont ? titleFont : ImGui::GetFont();
-        float height = font->FontSize;
+        ImGui::PushFont(titleFont, TITLE_FONT_SIZE);
+        float height = ImGui::GetFontSize();
+        ImGui::PopFont();
         float cell = std::floor(height / 3.4f);
         ImVec2 at = ImGui::GetCursorScreenPos();
         float top = at.y + std::floor((height - 3.0f * cell) * 0.5f);
@@ -2493,18 +3335,24 @@ private:
         }
         ImGui::Dummy(ImVec2(3.0f * cell + px(6), height));
         ImGui::SameLine();
-        ImGui::PushFont(font);
+        ImGui::PushFont(titleFont, TITLE_FONT_SIZE);
         ImGui::TextUnformatted(title);
         ImGui::PopFont();
         if (subtitle) {
             ImVec2 size = ImGui::CalcTextSize(subtitle);
-            ImGui::SameLine(ImGui::GetContentRegionMax().x - size.x);
+            rightAlignNext(size.x);
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (height - size.y) * 0.5f);
             ImGui::TextDisabled("%s", subtitle);
         }
         ImGui::Dummy(ImVec2(0, px(2)));
         ImGui::Separator();
         ImGui::Dummy(ImVec2(0, px(2)));
+    }
+
+    // Places the next item on this line, flush with the right edge of the window.
+    static void rightAlignNext(float width) {
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, ImGui::GetContentRegionAvail().x - width));
     }
 
     // A small accent-colored heading inside a card.
@@ -2575,15 +3423,75 @@ private:
 
     // ------------------------------------------------------------------ screens
 
+    // A row of small labeled values ("GENERATION 1,204") in rounded boxes.
+    void statChips(std::initializer_list<std::pair<const char*, std::string>> chips) {
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        const float gap = px(6), count = static_cast<float>(chips.size());
+        const float width = (ImGui::GetContentRegionAvail().x - gap * (count - 1.0f)) / count;
+        const float label = ImGui::GetFontSize() * 0.72f, height = label + ImGui::GetFontSize() + px(14);
+        ImVec2 at = ImGui::GetCursorScreenPos();
+        for (const auto& [name, value] : chips) {
+            draw->AddRectFilled(at, ImVec2(at.x + width, at.y + height), color(255, 255, 255, 10), px(6));
+            draw->AddRect(at, ImVec2(at.x + width, at.y + height), color(120, 140, 180, 50), px(6), px(1));
+            draw->AddText(ImGui::GetFont(), label, ImVec2(at.x + px(8), at.y + px(5)), color(138, 149, 170), name);
+            draw->AddText(ImVec2(at.x + px(8), at.y + px(7) + label), IM_COL32(255, 255, 255, 255), value.c_str());
+            at.x += width + gap;
+        }
+        ImGui::Dummy(ImVec2(0, height));
+    }
+
+    // Run/pause, slower/faster and fast-forward, for players who don't know the keys.
+    void simulationControls(bool& running) {
+        const float gap = ImGui::GetStyle().ItemSpacing.x;
+        const float full = ImGui::GetContentRegionAvail().x, h = buttonHeight();
+        const float small = h * 1.15f;
+        if (running) pushAccentButton();
+        bool toggle = ImGui::Button(running ? "Running" : "Paused", ImVec2(full * 0.34f, h));
+        if (running) ImGui::PopStyleColor(4);
+        if (toggle) {
+            running = !running;
+            stepDebt = 0.0;
+        }
+        hint("G in game");
+        ImGui::SameLine();
+        if (ImGui::Button("-##slower", ImVec2(small, h))) changeSpeed(-1);
+        hint("Half as fast ([)");
+        ImGui::SameLine();
+        std::string label = unlimitedSpeed() ? std::string("max speed") : speedLabel();
+        float labelWidth = full - full * 0.34f - 2.0f * small - 3.0f * gap;
+        ImVec2 at = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(labelWidth, h));
+        ImVec2 size = ImGui::CalcTextSize(label.c_str());
+        ImGui::GetWindowDrawList()->AddText(ImVec2(at.x + (labelWidth - size.x) * 0.5f, at.y + (h - size.y) * 0.5f),
+                                            IM_COL32(255, 255, 255, 255), label.c_str());
+        ImGui::SameLine();
+        if (ImGui::Button("+##faster", ImVec2(small, h))) changeSpeed(1);
+        hint("Twice as fast (])");
+        const float half = (full - gap) * 0.5f;
+        bool forwarding = fastForward > 0;
+        if (ImGui::Button(forwarding ? "Cancel fast-forward" : "Skip 100 generations", ImVec2(forwarding ? full : half, h))) {
+            queueFastForward(100);
+        }
+        if (!forwarding) {
+            hint("J in game. Runs as fast as the GPU allows, then returns to the set speed.");
+            ImGui::SameLine();
+            if (ImGui::Button("Skip 1,000", ImVec2(half, h))) queueFastForward(1000);
+            hint("Shift+J in game");
+        }
+    }
+
     void drawPauseMenu() {
-        if (beginCard("##pause", 300)) {
+        if (beginCard("##pause", 340)) {
             cardHeader("3D Life", "Paused");
-            std::ostringstream status;
-            status << rule().name << "  |  gen " << generation << "  |  " << population << " alive";
-            mutedText(status.str());
-            ImGui::Dummy(ImVec2(0, px(4)));
+            statChips({{"RULE", rule().name}, {"GENERATION", withCommas(generation)}, {"ALIVE", withCommas(population)}});
+            ImGui::Dummy(ImVec2(0, px(2)));
             if (menuItem("Resume", "Esc", ButtonKind::Primary)) resumeGame();
-            ImGui::Dummy(ImVec2(0, px(4)));
+            ImGui::Dummy(ImVec2(0, px(2)));
+            sectionLabel("Simulation");
+            simulationControls(runningBeforePause);
+            ImGui::Dummy(ImVec2(0, px(2)));
+            ImGui::Separator();
+            ImGui::Dummy(ImVec2(0, px(2)));
             if (menuItem("Stamps & Rules", "Tab")) screen = Screen::Inventory;
             if (menuItem("Tutorial")) openTutorial(tutorialPanel.lessonIndex());
             if (menuItem("New World...")) openNewWorldScreen();
@@ -2593,7 +3501,7 @@ private:
             ImGui::Dummy(ImVec2(0, px(2)));
             ImGui::Separator();
             ImGui::Dummy(ImVec2(0, px(2)));
-            if (menuItem("Quit", "Ctrl+Q", ButtonKind::Danger)) glfwSetWindowShouldClose(windowManager->getWindow(), GLFW_TRUE);
+            if (menuItem("Quit", "Ctrl+Q", ButtonKind::Danger)) glfwSetWindowShouldClose(window, GLFW_TRUE);
             drawUpdatePanel();
         }
         ImGui::End();
@@ -2626,12 +3534,12 @@ private:
                     note("Updated to " + release.version + ". Restart to use it.", accentColor());
                     if (menuItem("Restart Now", nullptr, ButtonKind::Primary)) {
                         restartPath = updater->appImagePath();
-                        glfwSetWindowShouldClose(windowManager->getWindow(), GLFW_TRUE);
+                        glfwSetWindowShouldClose(window, GLFW_TRUE);
                     }
                 } else {
                     note("3D Life " + release.version + " is downloaded and verified.", accentColor());
                     if (menuItem("Install and Restart", nullptr, ButtonKind::Primary) && updater->launchInstaller()) {
-                        glfwSetWindowShouldClose(windowManager->getWindow(), GLFW_TRUE);
+                        glfwSetWindowShouldClose(window, GLFW_TRUE);
                     }
                 }
                 break;
@@ -2676,10 +3584,16 @@ private:
                 optionRow("Field of view");
                 ImGui::SliderFloat("##fov", &settings.fov, 30.0f, 110.0f, "%.0f");
                 optionRow("Render distance");
-                ImGui::SliderInt("##render", &settings.renderDistance, 64, 512, "%d blocks");
+                if (ImGui::SliderInt("##render", &settings.renderDistance, 64, 1024, "%d blocks")) refreshPending = true;
                 optionRow("Fullscreen");
                 bool wantFullscreen = fullscreen;
                 if (ImGui::Checkbox("##fullscreen", &wantFullscreen)) toggleFullscreen();
+                optionRow("Smooth lighting");
+                ImGui::Checkbox("##ao", &settings.smoothLighting);
+                hint("Shades block corners by the blocks around them.");
+                optionRow("Animate changes");
+                ImGui::Checkbox("##animate", &settings.animate);
+                hint("At slow speeds, newborn cells grow in and dying ones shrink away.");
 
                 optionSection("Mouse");
                 optionRow("Sensitivity");
@@ -2697,11 +3611,14 @@ private:
 
                 optionSection("Simulation");
                 optionRow("Speed");
-                int speed = static_cast<int>(speedIndex);
-                std::string format = formatSpeed(SPEEDS[speedIndex]) + " gen/s";
-                if (ImGui::SliderInt("##speed", &speed, 0, static_cast<int>(SPEEDS.size()) - 1, format.c_str())) {
-                    speedIndex = static_cast<size_t>(speed);
-                }
+                std::string format = unlimitedSpeed() ? std::string("As fast as possible") : speedLabel();
+                ImGui::SliderInt("##speed", &speedExponent, MIN_SPEED_EXPONENT, UNLIMITED_SPEED_EXPONENT, format.c_str());
+                hint("[ and ] halve or double it in game; Shift jumps 8x.");
+                optionRow("Time per frame");
+                ImGui::SliderInt("##budget", &settings.simBudget, 2, 40, "%d ms");
+                hint("Most time each frame may spend simulating. When a world needs more, the "
+                     "simulation slows down instead of the frame rate. Fast-forward (J) and max "
+                     "speed use at least 25 ms.");
 
                 optionSection("Updates");
                 optionRow("Check at startup");
@@ -2727,10 +3644,13 @@ private:
         ImGui::End();
     }
 
-    static std::string formatSpeed(float speed) {
-        std::ostringstream out;
-        out << speed;
-        return out.str();
+    // A tooltip on the control just drawn.
+    static void hint(const char* text) {
+        if (!ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) return;
+        ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 18.0f, 0));
+        ImGui::BeginTooltip();
+        ImGui::TextWrapped("%s", text);
+        ImGui::EndTooltip();
     }
 
     void drawStampIcon(ImDrawList* draw, ImVec2 min, float size, int stamp, ImU32 color) {
@@ -2743,17 +3663,71 @@ private:
                                         ImVec2(origin.x + (x + 1) * cell, origin.y + (y + 1) * cell), color);
     }
 
+    // An isometric cube: lit top, mid left face, dark right face.
+    static void drawCubeIcon(ImDrawList* draw, ImVec2 center, float size, CellKind kind) {
+        const uint8_t* rgb = cellType(kind).rgb;
+        auto shade = [&](float f) { return color(int(rgb[0] * f), int(rgb[1] * f), int(rgb[2] * f)); };
+        float w = size * 0.5f, h = size * 0.29f;
+        ImVec2 top(center.x, center.y - 2.0f * h), left(center.x - w, center.y - h), right(center.x + w, center.y - h);
+        ImVec2 mid(center.x, center.y), bottomLeft(center.x - w, center.y + h), bottomRight(center.x + w, center.y + h);
+        ImVec2 bottom(center.x, center.y + 2.0f * h);
+        draw->AddQuadFilled(top, right, mid, left, shade(1.0f));
+        draw->AddQuadFilled(left, mid, bottom, bottomLeft, shade(0.72f));
+        draw->AddQuadFilled(mid, right, bottomRight, bottom, shade(0.52f));
+    }
+
+    // What stamps are made of: Life follows the rule, the others are static blocks.
+    void drawMaterialPicker() {
+        sectionLabel("Material");
+        mutedText("What stamps are made of. M cycles through them in game.");
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        const float gap = px(6), count = static_cast<float>(cellTypes().size());
+        const float width = std::floor((ImGui::GetContentRegionAvail().x - gap * (count - 1.0f)) / count);
+        const float height = ImGui::GetFrameHeight() * 1.9f;
+        for (const CellType& type : cellTypes()) {
+            if (type.kind != CellKind::Life) ImGui::SameLine(0, gap);
+            ImGui::PushID(static_cast<int>(type.kind));
+            ImVec2 min = ImGui::GetCursorScreenPos(), max(min.x + width, min.y + height);
+            bool clicked = ImGui::InvisibleButton("material", ImVec2(width, height));
+            bool hovered = ImGui::IsItemHovered(), selected = type.kind == material;
+            draw->AddRectFilled(min, max, ImGui::GetColorU32(hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg), px(6));
+            if (selected) {
+                draw->AddRectFilled(min, max, materialColor(type.kind, 36), px(6));
+                draw->AddRect(min, max, materialColor(type.kind), px(6), px(2));
+            }
+            float icon = height * 0.5f;
+            drawCubeIcon(draw, ImVec2(min.x + px(10) + icon * 0.5f, min.y + height * 0.5f), icon, type.kind);
+            ImVec2 text = ImGui::CalcTextSize(type.name);
+            draw->AddText(ImVec2(min.x + px(18) + icon, min.y + (height - text.y) * 0.5f), IM_COL32(255, 255, 255, 255), type.name);
+            if (hovered) {
+                ImGui::SetNextWindowSize(ImVec2(px(300), 0));
+                ImGui::BeginTooltip();
+                ImGui::TextWrapped("%s", type.description);
+                ImGui::EndTooltip();
+            }
+            if (clicked) material = type.kind;
+            ImGui::PopID();
+        }
+        note(std::string(cellType(material).name) + ": " + cellType(material).description, IM_COL32(255, 255, 255, 255));
+    }
+
     void drawInventory() {
-        if (beginCard("##inventory", 470)) {
+        if (beginCard("##inventory", 760)) {
             cardHeader("Stamps & Rules", "Tab to close");
+            // Two columns: what to build on the left, the rule on the right.
+            ImGui::BeginTable("##inventory-columns", 2, ImGuiTableFlags_BordersInnerV);
+            ImGui::TableSetupColumn("build", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            ImGui::TableSetupColumn("rule", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
             sectionLabel("Stamps");
             mutedText("Left click places, right click removes. Q/E rotate, Z/C tilt around x.");
             ImDrawList* draw = ImGui::GetWindowDrawList();
-            const int tiles = static_cast<int>(STAMP_NAMES.size()) + 1;
+            const int perRow = 5;
             const float gap = px(6);
-            const float tile = std::floor((ImGui::GetContentRegionAvail().x - gap * (tiles - 1)) / tiles);
+            const float tile = std::floor((ImGui::GetContentRegionAvail().x - gap * (perRow - 1)) / perRow);
             for (int i = -1; i < static_cast<int>(STAMP_NAMES.size()); ++i) {
-                if (i != -1) ImGui::SameLine(0, gap);
+                if ((i + 1) % perRow != 0) ImGui::SameLine(0, gap);
                 ImGui::PushID(i);
                 ImVec2 min = ImGui::GetCursorScreenPos();
                 ImVec2 max(min.x + tile, min.y + tile);
@@ -2763,10 +3737,10 @@ private:
                 draw->AddRectFilled(min, max, ImGui::GetColorU32(hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg), px(6));
                 if (selected) {
                     draw->AddRectFilled(min, max, accentColor(40), px(6));
-                    draw->AddRect(min, max, accentColor(), px(6), 0, px(2));
+                    draw->AddRect(min, max, accentColor(), px(6), px(2));
                 }
                 if (i >= 0) {
-                    drawStampIcon(draw, min, tile, i, accentColor());
+                    drawStampIcon(draw, min, tile, i, materialColor(material));
                 } else { // empty hand: a slashed circle
                     ImVec2 center(min.x + tile * 0.5f, min.y + tile * 0.5f);
                     float radius = tile * 0.22f;
@@ -2788,6 +3762,9 @@ private:
                  IM_COL32(255, 255, 255, 255));
 
             ImGui::Dummy(ImVec2(0, px(6)));
+            drawMaterialPicker();
+
+            ImGui::TableSetColumnIndex(1);
             sectionLabel("Rule");
             mutedText("Switching rules keeps the current cells.");
             float listHeight = ImGui::GetTextLineHeightWithSpacing() * static_cast<float>(lifeRules().size()) +
@@ -2809,13 +3786,14 @@ private:
                     ImGui::TextWrapped("%s", candidate.description);
                     ImGui::EndTooltip();
                 }
-                ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::CalcTextSize(notation.c_str()).x);
+                rightAlignNext(ImGui::CalcTextSize(notation.c_str()).x);
                 ImGui::TextDisabled("%s", notation.c_str());
                 ImGui::PopID();
             }
             ImGui::EndChild();
             note(std::string(rule().name) + ": " + explainRule(rule()), IM_COL32(255, 255, 255, 255));
             mutedText(rule().description);
+            ImGui::EndTable();
             ImGui::Dummy(ImVec2(0, px(6)));
             switch (buttonPair("New World with This Rule", "Done", ButtonKind::Primary)) {
                 case 1:
@@ -2902,14 +3880,16 @@ private:
         ruleIndex = lesson.rule;
         resetChunks();
         generation = 0;
-        for (const PatternCell& cell : lesson.cells) setCell(glm::ivec3(cell.x, cell.y, cell.z), true);
-        runPass(false);
+        for (const PatternCell& cell : lesson.cells) setLife(glm::ivec3(cell.x, cell.y, cell.z), true);
+        rebuild(Rebuild::Reset);
         eye = glm::vec3(lesson.eye[0], lesson.eye[1], lesson.eye[2]);
         tutorial::lookAngles(lesson, yaw, pitch);
         flying = true;
         verticalSpeed = 0.0f;
         simulationRunning = runningBeforePause = false;
-        stepAccumulator = 0.0f;
+        stepDebt = 0.0;
+        fastForward = fastForwardTotal = 0;
+        material = CellKind::Life;
         hotbarSlot = -1; // an empty hand keeps the placement outline out of the scene
     }
 
@@ -2921,10 +3901,12 @@ private:
 
     void mainLoop() {
         auto lastTime = std::chrono::steady_clock::now();
-        while (!windowManager->shouldClose()) {
+        while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
             auto now = std::chrono::steady_clock::now();
-            float deltaTime = std::min(std::chrono::duration<float>(now - lastTime).count(), 0.25f);
+            float frameSeconds = std::chrono::duration<float>(now - lastTime).count();
+            if (framesRendered > 2) worstFrameMs = std::max(worstFrameMs, frameSeconds * 1000.0f);
+            float deltaTime = std::min(frameSeconds, 0.25f);
             lastTime = now;
 
             if (!worldFrozen()) {
@@ -2934,8 +3916,11 @@ private:
             updateTarget();
             if (screen == Screen::Playing) updateHeldButtons(deltaTime);
             if (refreshPending) {
-                runPass(false);
+                rebuild(Rebuild::Edit);
                 updateTarget();
+            } else if (glm::distance(eye, lastBuildEye) > REBUILD_DISTANCE ||
+                       glm::dot(forward(), lastBuildForward) < std::cos(glm::radians(0.75f * CULL_MARGIN_DEGREES))) {
+                rebuild(Rebuild::Camera); // the block list only covers what the camera could see
             }
             if (options.exitAfterFrames && framesRendered + 1 == options.exitAfterFrames && !options.screenshotPath.empty()) {
                 requestScreenshot(options.screenshotPath);
@@ -2948,10 +3933,16 @@ private:
         vkDeviceWaitIdle(device);
         float seconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - startTime).count();
         std::cout << "Exit: " << framesRendered << " frames in " << std::fixed << std::setprecision(1) << seconds
-                  << " s, generation " << generation << ", " << population << " alive, " << chunkSlots.size()
+                  << " s, generation " << generation << ", " << population << " alive, " << activeSlots.size()
                   << " chunks, " << swapchainExtent.width << "x" << swapchainExtent.height << ", feet at "
                   << std::setprecision(2) << eye.x << " " << eye.y - EYE_HEIGHT << " " << eye.z
                   << (flying ? " (flying)" : onGround ? " (on ground)" : " (airborne)") << std::endl;
+        if (simulationRunning || generation > 0) {
+            std::cout << "Speed: target " << speedLabel() << ", reached " << std::setprecision(1) << measuredRate
+                      << " gen/s" << (tickLimited ? " (slowed to keep up)" : "") << ", " << std::setprecision(2)
+                      << stepCostMs << " ms/gen + " << drawCostMs << " ms/block list on the GPU, worst frame "
+                      << std::setprecision(1) << worstFrameMs << " ms" << std::endl;
+        }
     }
 
     void updateHud(float deltaTime) {
@@ -2965,13 +3956,12 @@ private:
         title << std::fixed << std::setprecision(1)
               << "3D Life  |  " << rule().name << " " << describeRule(rule())
               << "  |  gen " << generation << "  |  " << population << " alive"
-              << (population > MAX_INSTANCES ? " (draw capped)" : "")
-              << "  |  " << chunkSlots.size() << " chunks" << (chunkLimitHit ? " (LIMIT)" : "")
-              << "  |  " << SPEEDS[speedIndex] << " gen/s " << (simulationRunning ? "running" : "paused")
+              << "  |  " << activeSlots.size() << " chunks" << (chunkLimitHit ? " (LIMIT)" : "")
+              << "  |  " << speedLabel() << " " << (simulationRunning ? "running" : "paused")
               << "  |  " << (flying ? "flying" : "walking") << " XYZ " << eye.x << " " << eye.y - EYE_HEIGHT << " " << eye.z
               << "  |  " << (hotbarSlot + 1) << " " << handName()
               << "  |  " << std::lround(fps) << " fps";
-        glfwSetWindowTitle(windowManager->getWindow(), title.str().c_str());
+        glfwSetWindowTitle(window, title.str().c_str());
     }
 
     void requestScreenshot(const std::string& path) {
@@ -2984,30 +3974,36 @@ private:
 
     uint32_t writeBoxes(Box* boxes) {
         uint32_t count = 0;
+        auto add = [&](const Box& box) {
+            if (count < MAX_BOXES) boxes[count++] = box;
+        };
         if (hudVisible && target.hit) {
-            boxes[count++] = {glm::vec4(glm::vec3(target.block) - 0.004f, 0.03f), glm::vec4(glm::vec3(target.block) + 1.004f, 0.0f)};
+            add({glm::vec4(glm::vec3(target.block) - 0.004f, 0.03f), glm::vec4(glm::vec3(target.block) + 1.004f, 0.0f)});
         }
         if (hudVisible && target.canPlace && hotbarSlot >= 0) {
-            // White outline around the whole (rotated) stamp.
+            // Outline around the whole (rotated) stamp, in the material's color.
             glm::ivec3 lo(std::numeric_limits<int>::max()), hi(std::numeric_limits<int>::lowest());
             for (const glm::ivec3& cell : stampCells(static_cast<Stamp>(hotbarSlot), target.place, target.normal, true)) {
                 lo = glm::min(lo, cell);
                 hi = glm::max(hi, cell);
             }
-            boxes[count++] = {glm::vec4(glm::vec3(lo) + 0.02f, 0.03f), glm::vec4(glm::vec3(hi) + 0.98f, 2.0f)};
-        }
-        if (showChunkBorders) {
-            for (const auto& entry : chunkSlots) {
-                glm::vec3 lo(entry.first * CHUNK);
-                boxes[count++] = {glm::vec4(lo, 0.08f), glm::vec4(lo + float(CHUNK), 1.0f)};
-            }
+            float colorId = material == CellKind::Stone ? 7.0f : material == CellKind::Ember ? 8.0f : 2.0f;
+            add({glm::vec4(glm::vec3(lo) + 0.02f, 0.03f), glm::vec4(glm::vec3(hi) + 0.98f, colorId)});
         }
         if (hudVisible && tutorialPanel.active()) {
             for (const tutorial::MarkedCell& mark : tutorialPanel.lesson().marks) {
-                if (count > chunkCapacity) break; // the box buffer holds chunkCapacity + 1 boxes
                 glm::vec3 cell(mark.cell.x, mark.cell.y, mark.cell.z);
                 float colorId = static_cast<float>(tutorial::FIRST_MARK_COLOR_ID + static_cast<int>(mark.mark));
-                boxes[count++] = {glm::vec4(cell - 0.03f, 0.05f), glm::vec4(cell + 1.03f, colorId)}; // outside live blocks
+                add({glm::vec4(cell - 0.03f, 0.05f), glm::vec4(cell + 1.03f, colorId)}); // outside live blocks
+            }
+        }
+        if (showChunkBorders) {
+            // The chunks around the player; a large world has far more than fit.
+            const float reach = 4.0f * CHUNK;
+            for (uint32_t slot : activeSlots) {
+                glm::vec3 lo(slotChunk[slot] * CHUNK);
+                if (glm::distance(glm::clamp(eye, lo, lo + float(CHUNK)), eye) > reach) continue;
+                add({glm::vec4(lo, 0.08f), glm::vec4(lo + float(CHUNK), 1.0f)});
             }
         }
         return count;
@@ -3029,17 +4025,24 @@ private:
         }
         vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
+        const double now = glfwGetTime();
         glm::mat4 viewProj = viewProjection();
         FrameUniforms uniforms{};
         uniforms.viewProj = viewProj;
         uniforms.invViewProj = glm::inverse(viewProj);
         uniforms.camera = glm::vec4(eye, std::chrono::duration<float>(std::chrono::steady_clock::now() - startTime).count());
-        uniforms.viewport = glm::vec4(swapchainExtent.width, swapchainExtent.height, hudVisible ? 1.0f : 0.0f, float(MAX_INSTANCES));
-        uniforms.hotbar = glm::ivec4(hotbarSlot, static_cast<int>(STAMP_NAMES.size()), 0, 0);
+        uniforms.viewport = glm::vec4(swapchainExtent.width, swapchainExtent.height, hudVisible ? 1.0f : 0.0f,
+                                      float(std::min<uint64_t>(drawnBlocks, MAX_INSTANCES)));
+        uniforms.hotbar = glm::ivec4(hotbarSlot, static_cast<int>(STAMP_NAMES.size()), static_cast<int>(material), 0);
         float renderDistance = static_cast<float>(settings.renderDistance);
         uniforms.fog = glm::vec4(0.45f * renderDistance, renderDistance, 0.0f, 0.0f);
-        std::memcpy(uniformBuffersMapped[currentFrame], &uniforms, sizeof(uniforms));
-        uint32_t boxCount = writeBoxes(boxBuffersMapped[currentFrame]);
+        float progress = changeAnimationSeconds > 0.0f
+                             ? static_cast<float>(std::clamp((now - lastChangeTime) / changeAnimationSeconds, 0.0, 1.0))
+                             : 1.0f;
+        uniforms.anim = glm::vec4(progress, settings.smoothLighting ? 1.0f : 0.0f, 0.0f, 0.0f);
+        uniforms.sun = glm::vec4(SUN_DIRECTION, 0.0f);
+        std::memcpy(uniformBuffers[currentFrame].mapped, &uniforms, sizeof(uniforms));
+        uint32_t boxCount = writeBoxes(boxBuffers[currentFrame].as<Box>());
 
         std::string screenshot;
         screenshot.swap(pendingScreenshot);
@@ -3049,28 +4052,32 @@ private:
         vkResetCommandBuffer(cmd, 0);
         recordCommandBuffer(cmd, imageIndex, boxCount, !screenshot.empty());
 
-        VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.waitSemaphoreCount = 1;
-        submitInfo.pWaitSemaphores = &imageAvailableSemaphores[currentFrame];
-        submitInfo.pWaitDstStageMask = &waitStage;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &cmd;
-        submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores = &renderFinishedSemaphores[imageIndex];
-        if (vkQueueSubmit(vulkanContext->getGraphicsQueue(), 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS) {
+        VkSemaphoreSubmitInfo waitInfo{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+        waitInfo.semaphore = imageAvailableSemaphores[currentFrame];
+        waitInfo.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        VkSemaphoreSubmitInfo signalInfo{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+        signalInfo.semaphore = renderFinishedSemaphores[imageIndex];
+        signalInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        VkCommandBufferSubmitInfo commandInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+        commandInfo.commandBuffer = cmd;
+        VkSubmitInfo2 submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+        submitInfo.waitSemaphoreInfoCount = 1;
+        submitInfo.pWaitSemaphoreInfos = &waitInfo;
+        submitInfo.commandBufferInfoCount = 1;
+        submitInfo.pCommandBufferInfos = &commandInfo;
+        submitInfo.signalSemaphoreInfoCount = 1;
+        submitInfo.pSignalSemaphoreInfos = &signalInfo;
+        if (vkQueueSubmit2(gpu.queue, 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS) {
             throw std::runtime_error("Failed to submit draw command buffer!");
         }
 
-        VkPresentInfoKHR presentInfo{};
-        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        VkPresentInfoKHR presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
         presentInfo.waitSemaphoreCount = 1;
         presentInfo.pWaitSemaphores = &renderFinishedSemaphores[imageIndex];
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = &swapchain;
         presentInfo.pImageIndices = &imageIndex;
-        result = vkQueuePresentKHR(vulkanContext->getPresentQueue(), &presentInfo);
+        result = vkQueuePresentKHR(gpu.queue, &presentInfo);
 
         if (!screenshot.empty()) saveCapture(screenshot, currentFrame);
 
@@ -3083,24 +4090,61 @@ private:
         }
     }
 
+    static void imageBarrier(VkCommandBuffer cmd, VkImage image, VkImageAspectFlags aspect, VkImageLayout from,
+                             VkImageLayout to, VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess,
+                             VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess) {
+        VkImageMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+        barrier.srcStageMask = srcStage;
+        barrier.srcAccessMask = srcAccess;
+        barrier.dstStageMask = dstStage;
+        barrier.dstAccessMask = dstAccess;
+        barrier.oldLayout = from;
+        barrier.newLayout = to;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = image;
+        barrier.subresourceRange = {aspect, 0, 1, 0, 1};
+        VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dependency.imageMemoryBarrierCount = 1;
+        dependency.pImageMemoryBarriers = &barrier;
+        vkCmdPipelineBarrier2(cmd, &dependency);
+    }
+
     void recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, uint32_t boxCount, bool capture) {
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         if (vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS) {
             throw std::runtime_error("Failed to begin recording command buffer!");
         }
+        VkImage image = swapchainImages[imageIndex];
+        // The sky pass covers every pixel, so the old contents can be discarded.
+        imageBarrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                     VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                     VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+        imageBarrier(cmd, depthImage, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+                     VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                     VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                     VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                     VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
 
-        std::array<VkClearValue, 2> clearValues{};
-        clearValues[1].depthStencil = {1.0f, 0};
-        VkRenderPassBeginInfo renderPassInfo{};
-        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        renderPassInfo.renderPass = renderPass;
-        renderPassInfo.framebuffer = framebuffers[imageIndex];
-        renderPassInfo.renderArea.extent = swapchainExtent;
-        renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
-        renderPassInfo.pClearValues = clearValues.data();
-        vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        VkRenderingAttachmentInfo colorAttachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        colorAttachment.imageView = swapchainImageViews[imageIndex];
+        colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        VkRenderingAttachmentInfo depthAttachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        depthAttachment.imageView = depthImageView;
+        depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthAttachment.clearValue.depthStencil = {1.0f, 0};
+        VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};
+        rendering.renderArea.extent = swapchainExtent;
+        rendering.layerCount = 1;
+        rendering.colorAttachmentCount = 1;
+        rendering.pColorAttachments = &colorAttachment;
+        rendering.pDepthAttachment = &depthAttachment;
+        vkCmdBeginRendering(cmd, &rendering);
 
         VkViewport viewport{0.0f, 0.0f, float(swapchainExtent.width), float(swapchainExtent.height), 0.0f, 1.0f};
         VkRect2D scissor{{0, 0}, swapchainExtent};
@@ -3116,13 +4160,13 @@ private:
         setMode(0);
         vkCmdDraw(cmd, 3, 1, 0, 0);
 
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipeline);
-        VkDeviceSize offset = 0;
-        vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
-        setMode(0);
-        vkCmdDrawIndirect(cmd, indirectBuffer, 0, 1, sizeof(VkDrawIndirectCommand));
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, blockPipeline);
+        vkCmdBindIndexBuffer(cmd, indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdDrawIndexedIndirect(cmd, indirectBuffer.buffer, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
         if (boxCount > 0) {
-            setMode(1);
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, boxPipeline);
+            VkDeviceSize offset = 0;
+            vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer.buffer, &offset);
             vkCmdDraw(cmd, static_cast<uint32_t>(cubeVertices.size()), boxCount * 12, 0, 0);
         }
 
@@ -3135,11 +4179,27 @@ private:
         vkCmdDraw(cmd, 3, 1, 0, 0);
         if (imguiReady) {
             ImDrawData* drawData = ImGui::GetDrawData();
-            if (drawData && drawData->CmdListsCount > 0) ImGui_ImplVulkan_RenderDrawData(drawData, cmd);
+            if (drawData && drawData->CmdLists.Size > 0) ImGui_ImplVulkan_RenderDrawData(drawData, cmd);
         }
-        vkCmdEndRenderPass(cmd);
+        vkCmdEndRendering(cmd);
 
-        if (capture) recordCapture(cmd, swapchainImages[imageIndex]);
+        if (capture) {
+            imageBarrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+            VkBufferImageCopy region{};
+            region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            region.imageExtent = {swapchainExtent.width, swapchainExtent.height, 1};
+            vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, captureBuffer.buffer, 1, &region);
+            memoryBarrier(cmd, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_HOST_BIT,
+                          VK_ACCESS_2_HOST_READ_BIT);
+            imageBarrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                         VK_PIPELINE_STAGE_2_COPY_BIT, 0, VK_PIPELINE_STAGE_2_NONE, 0);
+        } else {
+            imageBarrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_NONE, 0);
+        }
 
         if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
             throw std::runtime_error("Failed to record command buffer!");
@@ -3149,54 +4209,15 @@ private:
     // ------------------------------------------------------------ screenshots
 
     void prepareCaptureBuffer() {
-        destroyBuffer(captureBuffer, captureMemory);
-        createBuffer(VkDeviceSize(swapchainExtent.width) * swapchainExtent.height * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                     {HOST_CACHED, HOST}, captureBuffer, captureMemory);
-    }
-
-    void recordCapture(VkCommandBuffer cmd, VkImage image) {
-        VkImageMemoryBarrier toTransfer{};
-        toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        toTransfer.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        toTransfer.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toTransfer.image = image;
-        toTransfer.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-                             0, nullptr, 0, nullptr, 1, &toTransfer);
-
-        VkBufferImageCopy region{};
-        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        region.imageExtent = {swapchainExtent.width, swapchainExtent.height, 1};
-        vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, captureBuffer, 1, &region);
-
-        VkImageMemoryBarrier toPresent = toTransfer;
-        toPresent.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        toPresent.dstAccessMask = 0;
-        toPresent.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        toPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        VkBufferMemoryBarrier toHost{};
-        toHost.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-        toHost.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        toHost.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-        toHost.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toHost.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toHost.buffer = captureBuffer;
-        toHost.size = VK_WHOLE_SIZE;
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                             VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT | VK_PIPELINE_STAGE_HOST_BIT, 0,
-                             0, nullptr, 1, &toHost, 1, &toPresent);
+        destroyBuffer(captureBuffer);
+        createBuffer(captureBuffer, VkDeviceSize(swapchainExtent.width) * swapchainExtent.height * 4,
+                     VK_BUFFER_USAGE_TRANSFER_DST_BIT, {HOST_CACHED, HOST});
     }
 
     void saveCapture(const std::string& path, size_t frame) {
         waitFence(inFlightFences[frame], "the screenshot frame");
         const uint32_t width = swapchainExtent.width, height = swapchainExtent.height;
-        void* data = nullptr;
-        vkMapMemory(device, captureMemory, 0, VK_WHOLE_SIZE, 0, &data);
-        const uint8_t* pixels = static_cast<const uint8_t*>(data);
+        const uint8_t* pixels = captureBuffer.as<const uint8_t>();
         bool bgr = swapchainImageFormat == VK_FORMAT_B8G8R8A8_SRGB || swapchainImageFormat == VK_FORMAT_B8G8R8A8_UNORM;
         std::vector<uint8_t> rgb(size_t(width) * height * 3);
         for (size_t i = 0; i < size_t(width) * height; ++i) {
@@ -3204,55 +4225,22 @@ private:
             rgb[i * 3 + 1] = pixels[i * 4 + 1];
             rgb[i * 3 + 2] = pixels[i * 4 + (bgr ? 0 : 2)];
         }
-        vkUnmapMemory(device, captureMemory);
+        destroyBuffer(captureBuffer); // a full-screen buffer is too big to keep around
         if (writePng(path, width, height, rgb)) std::cout << "Saved screenshot " << path << std::endl;
         else std::cerr << "Failed to write screenshot " << path << std::endl;
     }
 
     // ---------------------------------------------------------------- cleanup
 
-    void destroyBuffer(VkBuffer& buffer, VkDeviceMemory& memory) {
-        vkDestroyBuffer(device, buffer, nullptr);
-        vkFreeMemory(device, memory, nullptr);
-        buffer = VK_NULL_HANDLE;
-        memory = VK_NULL_HANDLE;
-    }
-
     void cleanup() {
-        if (!vulkanContext || device == VK_NULL_HANDLE) {
-            if (windowManager) windowManager->cleanup();
+        if (device == VK_NULL_HANDLE) {
+            gpu.destroy();
+            if (window) glfwDestroyWindow(window);
+            window = nullptr;
+            glfwTerminate();
             return;
         }
         vkDeviceWaitIdle(device);
-
-        destroyBuffer(captureBuffer, captureMemory);
-        vkDestroyFence(device, computeFence, nullptr);
-        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
-            vkDestroyFence(device, inFlightFences[i], nullptr);
-            destroyBuffer(uniformBuffers[i], uniformBuffersMemory[i]);
-            destroyBuffer(boxBuffers[i], boxBuffersMemory[i]);
-        }
-        vkDestroyPipeline(device, computePipeline, nullptr);
-        vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
-        vkDestroyDescriptorPool(device, computeDescriptorPool, nullptr);
-        vkDestroyDescriptorSetLayout(device, computeSetLayout, nullptr);
-        for (VkPipeline pipeline : {worldPipeline, skyPipeline, gridPipeline, hudPipeline}) {
-            vkDestroyPipeline(device, pipeline, nullptr);
-        }
-        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-        vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-        vkDestroyDescriptorSetLayout(device, frameSetLayout, nullptr);
-        destroyBuffer(vertexBuffer, vertexBufferMemory);
-        for (int i = 0; i < 2; ++i) destroyBuffer(cellBuffers[i], cellMemory[i]);
-        destroyBuffer(neighborBuffer, neighborMemory);
-        destroyBuffer(activeBuffer, activeMemory);
-        destroyBuffer(originBuffer, originMemory);
-        destroyBuffer(statsBuffer, statsMemory);
-        destroyBuffer(instanceBuffer, instanceMemory);
-        destroyBuffer(indirectBuffer, indirectMemory);
-        destroySwapchainResources();
-        vkDestroyRenderPass(device, renderPass, nullptr);
 
         if (imguiReady) {
             ImGui_ImplVulkan_Shutdown();
@@ -3260,13 +4248,34 @@ private:
             ImGui::DestroyContext();
             imguiReady = false;
         }
-        if (shaderManager) {
-            shaderManager->cleanup();
-            shaderManager.reset();
+        destroyBuffer(captureBuffer);
+        vkDestroyFence(device, computeFence, nullptr);
+        if (timestamps) vkDestroyQueryPool(device, timestamps, nullptr);
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
+            vkDestroyFence(device, inFlightFences[i], nullptr);
+            destroyBuffer(uniformBuffers[i]);
+            destroyBuffer(boxBuffers[i]);
         }
-        vulkanContext->cleanup();
-        windowManager->cleanup();
+        for (VkPipeline pipeline : {stepPipeline, buildPipeline, blockPipeline, boxPipeline, skyPipeline, gridPipeline, hudPipeline}) {
+            vkDestroyPipeline(device, pipeline, nullptr);
+        }
+        vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
+        vkDestroyDescriptorPool(device, computeDescriptorPool, nullptr);
+        vkDestroyDescriptorSetLayout(device, computeSetLayout, nullptr);
+        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+        vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+        vkDestroyDescriptorSetLayout(device, frameSetLayout, nullptr);
+        destroyBuffer(vertexBuffer);
+        destroyBuffer(indexBuffer);
+        releaseChunkPool(pool);
+        for (GpuBuffer* b : {&blockPool, &instanceBuffer, &indirectBuffer, &readbackBuffer}) destroyBuffer(*b);
+        destroySwapchainResources();
         device = VK_NULL_HANDLE;
+        gpu.destroy();
+        if (window) glfwDestroyWindow(window);
+        window = nullptr;
+        glfwTerminate();
     }
 };
 

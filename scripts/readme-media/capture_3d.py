@@ -16,6 +16,7 @@ GOL3D_CAPTURE_VISIBLE=1 to use your own display instead.
 
 import math
 import os
+import random
 import shutil
 import struct
 import subprocess
@@ -149,7 +150,7 @@ def hero(tmp):
     for i in range(frames):
         path = tmp / f"hero_{i:03d}.png"
         shoot(
-            path, (960, 540), "--rule", 1, "--steps", i, "--fly", "--slot", 0, *camera
+            path, (960, 540), "--rule", 1, "--steps", i, "--fly", "--hide-hud", *camera
         )
         image = crop_hotbar(Image.open(path))
         label(image, f"Life 5766  S5-7/B6   generation {i}")
@@ -182,8 +183,7 @@ def rules_grid(tmp):
                 "--steps",
                 i,
                 "--fly",
-                "--slot",
-                0,
+                "--hide-hud",
                 *orbit_camera(center, radius, height, math.radians(40)),
             )
             image = crop_hotbar(Image.open(path)).resize(tile, Image.LANCZOS)
@@ -268,6 +268,77 @@ def write_save(path, rule_index, cells):
     path.write_bytes(header + b"".join(struct.pack("<3i", *c) for c in cells))
 
 
+def write_save_with_blocks(path, rule_index, cells, blocks):
+    """A world with static blocks ("L3D2"): blocks are (x, y, z, kind), kind 1 Stone, 2 Ember."""
+    header = struct.pack(
+        "<4sIQ3fffQ", b"L3D2", rule_index, 0, 0, 2, 0, 0, 0, len(cells)
+    )
+    body = b"".join(struct.pack("<3i", *c) for c in cells)
+    body += struct.pack("<Q", len(blocks)) + b"".join(
+        struct.pack("<4i", *b) for b in blocks
+    )
+    path.write_bytes(header + body)
+
+
+def materials(tmp):
+    """Coral grown inside an open-topped Stone box: it fills the box and can only leave by the top."""
+    size, height = 7, 16
+    blocks = []
+    for x in range(-size, size + 1):
+        for z in range(-size, size + 1):
+            blocks.append((x, -1, z, 1))
+            if abs(x) == size or abs(z) == size:
+                blocks += [(x, y, z, 1) for y in range(height)]
+    rng = random.Random(3)
+    cells = [
+        (x, y, z)
+        for x in range(-4, 4)
+        for y in range(8)
+        for z in range(-4, 4)
+        if rng.random() < 0.3
+    ]
+    world = tmp / "box.life3d"
+    write_save_with_blocks(world, 6, cells, blocks)  # rule 7, Coral
+    frames = 31
+    camera = ["--pos", "21,25,21", "--look", "-135,-36"]
+    for i in range(frames):
+        path = tmp / f"box_{i:03d}.png"
+        gen = i * 2
+        shoot(path, (800, 450), "--load", world, "--steps", gen, "--fly", "--hide-hud", *camera)
+        image = crop_hotbar(Image.open(path))
+        label(image, f"Coral in a Stone box   generation {gen}")
+        image.save(path)
+    paths = [tmp / f"box_{i:03d}.png" for i in range(frames)]
+    encode_gif_pillow(paths, OUT / "stone-box.gif", 6, 560, hold_last=1.5, colors=160)
+
+
+def massive(tmp):
+    """Architecture after 300 generations: 11.5 million cells, with the debug overlay."""
+    path = OUT / "massive-world.png"
+    shoot(
+        path,
+        (1280, 720),
+        "--rule",
+        8,
+        "--steps",
+        300,
+        "--fly",
+        "--slot",
+        0,
+        "--debug",
+        "--view",
+        900,
+        "--pos",
+        "-430,250,-430",
+        "--look",
+        "45,-22",
+    )
+    Image.open(path).convert("RGB").resize((960, 540), Image.LANCZOS).save(
+        path, optimize=True
+    )
+    print(f"wrote {path.relative_to(ROOT)}")
+
+
 def glider(tmp):
     """Bays' Life 5766 glider: Conway's glider, two layers thick (include/Life3DPatterns.h)."""
     conway = [(1, 0), (2, 1), (0, 2), (1, 2), (2, 2)]
@@ -285,8 +356,7 @@ def glider(tmp):
             "--steps",
             i,
             "--fly",
-            "--slot",
-            0,
+            "--hide-hud",
             *camera,
         )
         image = crop_hotbar(Image.open(path))
@@ -339,8 +409,7 @@ def climb(tmp):
             "--steps",
             i,
             "--fly",
-            "--slot",
-            0,
+            "--hide-hud",
             *camera,
         )
         image = crop_hotbar(Image.open(path))
@@ -412,6 +481,8 @@ def main():
         "climb",
         "tutorial",
         "menus",
+        "materials",
+        "massive",
     }
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
@@ -425,6 +496,10 @@ def main():
             glider(tmp)
         if "climb" in wanted:
             climb(tmp)
+        if "materials" in wanted:
+            materials(tmp)
+        if "massive" in wanted:
+            massive(tmp)
     if "tutorial" in wanted:
         tutorial()
     if "menus" in wanted:

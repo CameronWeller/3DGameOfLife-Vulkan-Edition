@@ -35,7 +35,26 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET 11.0)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET 12.0) # the bundled MoltenVK 1.4 needs macOS 12
+endif()
+
+# Release builds: link-time optimization across the game and its libraries, and
+# unused functions and data dropped at link time.
+option(GOL3D_LTO "Link-time optimization for optimized builds" ON)
+if(GOL3D_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT GOL3D_IPO_SUPPORTED LANGUAGES C CXX)
+    if(GOL3D_IPO_SUPPORTED)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL ON)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO ON)
+    endif()
+endif()
+if(APPLE)
+    add_link_options($<$<NOT:$<CONFIG:Debug>>:-Wl,-dead_strip>)
+elseif(NOT MSVC)
+    add_compile_options(-ffunction-sections -fdata-sections)
+    add_link_options($<$<NOT:$<CONFIG:Debug>>:-Wl,--gc-sections>)
 endif()
 
 include(FetchContent)
@@ -43,15 +62,15 @@ include(FetchContent)
 # ---------------------------------------------------------------- dependencies
 
 FetchContent_Declare(vulkan_headers
-    URL https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.304.tar.gz
-    URL_HASH SHA256=5e1a06b3f27e7581b55d1dea176fd97ee0a2f299406db2f437c1d2f297ceba5b)
+    URL https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/vulkan-sdk-1.4.363.0.tar.gz
+    URL_HASH SHA256=4a078be12bef21cfebc09d878b77a63cff9d68f899254a0b00d0e37ef73e7f7e)
 FetchContent_Declare(volk
-    URL https://github.com/zeux/volk/archive/refs/tags/1.4.304.tar.gz
-    URL_HASH SHA256=ab3d4a8ccaeb32652259cdd008399504a41792675b0421d90b67729ee274746f
+    URL https://github.com/zeux/volk/archive/refs/tags/vulkan-sdk-1.4.363.0.tar.gz
+    URL_HASH SHA256=1547d8d74395d4048fb3f4a6313da56db626e89b55db238d0d7e8944c8a645f3
     SOURCE_SUBDIR no-cmake) # only volk.c/volk.h are used, not volk's own CMake
 FetchContent_Declare(imgui
-    URL https://github.com/ocornut/imgui/archive/refs/tags/v1.91.9.tar.gz
-    URL_HASH SHA256=3872a5f90df78fced023c1945f4466b654fd74573370b77b17742149763a7a7c)
+    URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.9.tar.gz
+    URL_HASH SHA256=af97ed649182c39314320514a672b82008ab462b9293fe23d37b30bfa5d05519)
 FetchContent_MakeAvailable(vulkan_headers volk imgui)
 
 if(NOT GOL3D_BUNDLE_DEPS)
@@ -64,14 +83,14 @@ if(NOT glfw3_FOUND)
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(glfw
-        URL https://github.com/glfw/glfw/releases/download/3.4/glfw-3.4.zip
-        URL_HASH SHA256=b5ec004b2712fd08e8861dc271428f048775200a2df719ccf575143ba749a3e9)
+        URL https://github.com/glfw/glfw/releases/download/3.5.1/glfw-3.5.1.zip
+        URL_HASH SHA256=ea79bc5feffc254c87291980c2d0bce9acebb68c4983b79f961dcd2cb8a611a0)
     FetchContent_MakeAvailable(glfw)
 endif()
 if(NOT glm_FOUND)
     FetchContent_Declare(glm
-        URL https://github.com/g-truc/glm/archive/refs/tags/1.0.1.tar.gz
-        URL_HASH SHA256=9f3174561fd26904b23f0db5e560971cbf9b3cbda0b280f04d5c379d03bf234c)
+        URL https://github.com/g-truc/glm/archive/refs/tags/1.0.3.tar.gz
+        URL_HASH SHA256=6775e47231a446fd086d660ecc18bcd076531cfedd912fbd66e576b118607001)
     FetchContent_MakeAvailable(glm)
 endif()
 
@@ -91,20 +110,20 @@ add_library(gol3d_imgui STATIC
     ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp)
 target_include_directories(gol3d_imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 # GLFW_INCLUDE_NONE: nothing here uses OpenGL, so the build needs no GL headers.
-target_compile_definitions(gol3d_imgui PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES GLFW_INCLUDE_NONE)
+# The game embeds its own font and never shows ImGui's demo or debug windows, so
+# those (and ImGui's shell and default-font code) are left out of the binary.
+target_compile_definitions(gol3d_imgui PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES GLFW_INCLUDE_NONE
+    IMGUI_DISABLE_DEMO_WINDOWS IMGUI_DISABLE_DEBUG_TOOLS IMGUI_DISABLE_DEFAULT_FONT
+    IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
 target_link_libraries(gol3d_imgui PUBLIC Vulkan::Headers glfw)
 
 # ------------------------------------------------------------------------ game
 
 set(GOL3D_SOURCES
     ${GOL_ROOT}/src/main_minimal.cpp
+    ${GOL_ROOT}/src/GpuContext.cpp
     ${GOL_ROOT}/src/tutorial/Tutorial.cpp
     ${GOL_ROOT}/src/tutorial/TutorialLessons.cpp
-    ${GOL_ROOT}/src/VulkanContext.cpp
-    ${GOL_ROOT}/src/DeviceManager.cpp
-    ${GOL_ROOT}/src/WindowManager.cpp
-    ${GOL_ROOT}/src/Logger.cpp
-    ${GOL_ROOT}/src/engine/vulkan/resources/ShaderManager.cpp
     ${GOL_ROOT}/src/Updater.cpp)
 if(WIN32)
     list(APPEND GOL3D_SOURCES ${GOL_ROOT}/packaging/windows/gol3d.rc)
@@ -143,7 +162,9 @@ if(MSVC)
     set_target_properties(gol3d PROPERTIES WIN32_EXECUTABLE TRUE)
     target_link_options(gol3d PRIVATE /ENTRY:mainCRTStartup)
 else()
-    target_compile_options(gol3d PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include volk.h>" -Wall -Wextra)
+    # Vulkan structs are initialized as `VkFoo info{VK_STRUCTURE_TYPE_FOO}`, leaving the rest zero.
+    target_compile_options(gol3d PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include volk.h>" -Wall -Wextra
+        -Wno-missing-field-initializers)
 endif()
 if(APPLE)
     set_target_properties(gol3d PROPERTIES
@@ -157,7 +178,10 @@ if(APPLE)
 endif()
 
 # Shaders: compiled with glslc, or copied from GOL3D_SHADER_DIR (SPIR-V is portable).
-set(GOL_SHADERS life3d_chunks.comp life3d_world.vert life3d_world.frag life3d_screen.vert life3d_screen.frag)
+set(GOL_SHADERS life3d_step.comp life3d_build.comp life3d_blocks.vert life3d_boxes.vert life3d_world.frag
+    life3d_screen.vert life3d_screen.frag)
+set(GOL_SHADER_INCLUDES life3d_frame.glsl life3d_storage.glsl life3d_bits.glsl)
+list(TRANSFORM GOL_SHADER_INCLUDES PREPEND ${GOL_ROOT}/shaders/)
 set(GOL_SPV_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders)
 set(GOL_SPV)
 if(GOL3D_SHADER_DIR)
@@ -174,20 +198,20 @@ else()
     # glslc (shaderc, Vulkan SDK) or glslangValidator (glslang) both work.
     find_program(GLSLC_EXECUTABLE glslc HINTS ENV VULKAN_SDK PATH_SUFFIXES bin)
     if(GLSLC_EXECUTABLE)
-        set(GOL_GLSL_COMMAND ${GLSLC_EXECUTABLE} -o)
+        set(GOL_GLSL_COMMAND ${GLSLC_EXECUTABLE} --target-env=vulkan1.3 -O -o)
     else()
         find_program(GLSLANG_EXECUTABLE glslangValidator HINTS ENV VULKAN_SDK PATH_SUFFIXES bin)
         if(NOT GLSLANG_EXECUTABLE)
             message(FATAL_ERROR "Need glslc or glslangValidator to compile shaders (or set GOL3D_SHADER_DIR).")
         endif()
-        set(GOL_GLSL_COMMAND ${GLSLANG_EXECUTABLE} -V --target-env vulkan1.0 -o)
+        set(GOL_GLSL_COMMAND ${GLSLANG_EXECUTABLE} -V --target-env vulkan1.3 -o)
     endif()
     foreach(shader ${GOL_SHADERS})
         set(spv ${GOL_SPV_DIR}/${shader}.spv)
         add_custom_command(OUTPUT ${spv}
             COMMAND ${CMAKE_COMMAND} -E make_directory ${GOL_SPV_DIR}
             COMMAND ${GOL_GLSL_COMMAND} ${spv} ${GOL_ROOT}/shaders/${shader}
-            DEPENDS ${GOL_ROOT}/shaders/${shader} ${GOL_ROOT}/shaders/life3d_frame.glsl
+            DEPENDS ${GOL_ROOT}/shaders/${shader} ${GOL_SHADER_INCLUDES}
             COMMENT "Compiling ${shader}")
         list(APPEND GOL_SPV ${spv})
     endforeach()
@@ -280,6 +304,11 @@ enable_testing()
 add_executable(life3d_rules_test life3d_rules_test.cpp)
 target_include_directories(life3d_rules_test PRIVATE ${GOL_ROOT}/include)
 add_test(NAME life3d_rules COMMAND life3d_rules_test)
+# The GPU's bit-sliced arithmetic (shaders/life3d_bits.glsl) run on the CPU and
+# compared with the reference, plus the chunk hash map.
+add_executable(life3d_bits_test life3d_bits_test.cpp)
+target_include_directories(life3d_bits_test PRIVATE ${GOL_ROOT}/include ${GOL_ROOT}/shaders)
+add_test(NAME life3d_bits COMMAND life3d_bits_test)
 add_executable(updater_test updater_test.cpp ${GOL_ROOT}/src/Updater.cpp)
 target_include_directories(updater_test PRIVATE ${GOL_ROOT}/include)
 if(WIN32)
@@ -297,4 +326,4 @@ find_package(Threads REQUIRED)
 target_link_libraries(life3d_find_patterns PRIVATE Threads::Threads)
 # Needs a Vulkan GPU and a display; run with `ctest -L gpu`.
 add_test(NAME life3d_gpu_matches_cpu COMMAND gol3d --verify --seed 7)
-set_tests_properties(life3d_gpu_matches_cpu PROPERTIES LABELS gpu TIMEOUT 120)
+set_tests_properties(life3d_gpu_matches_cpu PROPERTIES LABELS gpu TIMEOUT 300)

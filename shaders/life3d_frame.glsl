@@ -5,8 +5,10 @@ layout(std140, binding = 0) uniform Frame {
     mat4 invViewProj;
     vec4 camera;   // xyz eye position, w seconds since start
     vec4 viewport; // xy framebuffer size, z 1 = HUD visible, w instance capacity
-    ivec4 hotbar;  // x selected slot, y slot count
+    ivec4 hotbar;  // x selected slot, y slot count, z selected cell kind
     vec4 fog;      // x fog start, y fog end (blocks)
+    vec4 anim;     // x progress of the last change's birth/death animation (1 = done), y 1 = ambient occlusion on
+    vec4 sun;      // xyz direction toward the sun
 } frame;
 
 layout(push_constant) uniform Draw {
@@ -14,11 +16,18 @@ layout(push_constant) uniform Draw {
 } draw;
 
 // Linear-space sky colors; the swapchain applies the sRGB curve.
-const vec3 SKY_ZENITH = vec3(0.13, 0.30, 0.85);
-const vec3 SKY_HORIZON = vec3(0.60, 0.75, 0.95);
-const vec3 SKY_NADIR = vec3(0.20, 0.25, 0.35);
+const vec3 SKY_ZENITH = vec3(0.10, 0.24, 0.72);
+const vec3 SKY_HORIZON = vec3(0.62, 0.74, 0.92);
+const vec3 SKY_NADIR = vec3(0.16, 0.19, 0.26);
+const vec3 SUN_COLOR = vec3(1.0, 0.93, 0.80);
 
+// The sky behind everything and the color fog fades toward. A warm glow around
+// the sun and a slightly brighter horizon band give depth without a texture.
 vec3 skyColor(vec3 dir) {
-    if (dir.y >= 0.0) return mix(SKY_HORIZON, SKY_ZENITH, pow(dir.y, 0.55));
-    return mix(SKY_HORIZON, SKY_NADIR, pow(-dir.y, 0.45));
+    vec3 color = dir.y >= 0.0 ? mix(SKY_HORIZON, SKY_ZENITH, pow(dir.y, 0.5))
+                              : mix(SKY_HORIZON, SKY_NADIR, pow(-dir.y, 0.4));
+    color += vec3(0.05, 0.04, 0.02) * exp(-abs(dir.y) * 14.0); // horizon haze
+    float toSun = max(dot(dir, frame.sun.xyz), 0.0);
+    color += SUN_COLOR * (0.25 * pow(toSun, 12.0) + 0.6 * pow(toSun, 220.0));
+    return color;
 }
