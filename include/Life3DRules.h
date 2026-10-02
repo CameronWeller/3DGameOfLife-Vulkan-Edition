@@ -118,24 +118,33 @@ inline std::string explainRule(const LifeRule& rule) {
 // CPU reference for one generation inside a box whose outside is permanently
 // dead (x fastest, then y, then z). A pattern that stays clear of the box edges
 // evolves exactly as it would in unbounded space. Used to verify the compute
-// shader; not used in the game loop.
+// shader and the bit-sliced engine; not used in the game loop.
+//
+// `blocks` (optional, same layout) holds static blocks by CellKind value
+// (include/CellTypes.h): 0 = none, 1 = Stone, 2 = Ember. No life exists in a
+// block, and Ember blocks count as live neighbors.
 inline void stepLifeReference(const std::vector<uint32_t>& current, std::vector<uint32_t>& next,
-                              int width, int height, int depth, const LifeRule& rule) {
+                              int width, int height, int depth, const LifeRule& rule,
+                              const std::vector<uint8_t>* blocks = nullptr) {
     next.assign(current.size(), 0);
-    auto at = [&](int x, int y, int z) -> uint32_t {
+    auto index = [&](int x, int y, int z) { return (size_t(z) * height + y) * width + x; };
+    auto counts = [&](int x, int y, int z) -> uint32_t {
         if (x < 0 || y < 0 || z < 0 || x >= width || y >= height || z >= depth) return 0;
-        return current[(z * height + y) * width + x];
+        size_t i = index(x, y, z);
+        return current[i] || (blocks && (*blocks)[i] == 2) ? 1u : 0u;
     };
     for (int z = 0; z < depth; ++z) {
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
+                size_t i = index(x, y, z);
+                if (blocks && (*blocks)[i] != 0) continue; // a block never holds life
                 uint32_t neighbors = 0;
                 for (int dz = -1; dz <= 1; ++dz)
                     for (int dy = -1; dy <= 1; ++dy)
                         for (int dx = -1; dx <= 1; ++dx)
-                            if (dx || dy || dz) neighbors += at(x + dx, y + dy, z + dz);
-                uint32_t mask = at(x, y, z) ? rule.surviveMask : rule.birthMask;
-                next[(z * height + y) * width + x] = (mask >> neighbors) & 1u;
+                            if (dx || dy || dz) neighbors += counts(x + dx, y + dy, z + dz);
+                uint32_t mask = current[i] ? rule.surviveMask : rule.birthMask;
+                next[i] = (mask >> neighbors) & 1u;
             }
         }
     }

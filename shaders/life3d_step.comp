@@ -1,0 +1,73 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// One generation over a range of active chunks (see life3d_storage.glsl). Each
+// invocation computes a row of 32 cells with bit-sliced arithmetic
+// (life3d_bits.glsl); a workgroup covers a 32 x 8 slab of rows in one chunk.
+// Missing neighbor chunks count as dead space. Drawing and chunk bookkeeping
+// happen in life3d_build.comp after the last generation of a batch.
+
+layout(local_size_x = 32, local_size_y = 8, local_size_z = 1) in;
+
+#include "life3d_storage.glsl"
+#include "life3d_bits.glsl"
+
+layout(push_constant) uniform Params {
+    uint firstIndex;  // first entry of the active list in this dispatch
+    uint count;       // entries in this dispatch
+    uint surviveMask; // bit n: a live cell with n live neighbors survives
+    uint birthMask;   // bit n: an empty cell with n live neighbors is born
+} params;
+
+layout(std430, binding = 0) readonly buffer Current { uint rows[]; } current;
+layout(std430, binding = 1) writeonly buffer Next { uint rows[]; } next;
+
+// Live-neighbor rows (life and Ember) for the slab plus a one-row border:
+// y in [-1, 32], z in [z0 - 1, z0 + 8]. West/east hold each cell's x - 1 / x + 1
+// neighbor, taking the edge bit from the chunk next door.
+const uint TILE_Y = 34u, TILE_Z = 10u, TILE = TILE_Y * TILE_Z;
+shared uint tileWest[TILE];
+shared uint tileRow[TILE];
+shared uint tileEast[TILE];
+
+uint liveRow(uint k, uint row) {
+    uint chunk = nearChunk[k];
+    if (chunk == NO_CHUNK) return 0u;
+    return current.rows[chunk * ROWS + row] | blockRow(k, row, 1u);
+}
+
+void main() {
+    uint listIndex = params.firstIndex + gl_WorkGroupID.y;
+    if (gl_WorkGroupID.y >= params.count) return; // uniform across the workgroup
+    uint slot = activeList.slots[listIndex];
+    loadNeighborhood(slot);
+
+    int z0 = int(gl_WorkGroupID.x * 8u);
+    for (uint e = gl_LocalInvocationIndex; e < TILE; e += 256u) {
+        int y = int(e % TILE_Y) - 1;
+        int z = z0 + int(e / TILE_Y) - 1;
+        uint k;
+        uint row = rowAndNeighbor(y, z, 0, k);
+        uint mid = liveRow(k, row);
+        tileRow[e] = mid;
+        tileWest[e] = (mid << 1) | (liveRow(k - 1u, row) >> 31);
+        tileEast[e] = (mid >> 1) | (liveRow(k + 1u, row) << 31);
+    }
+    barrier();
+
+    uint y = gl_LocalInvocationID.x;
+    uint z = uint(z0) + gl_LocalInvocationID.y;
+    uint nb[27];
+    for (uint dz = 0u; dz < 3u; dz++) {
+        for (uint dy = 0u; dy < 3u; dy++) {
+            uint t = (gl_LocalInvocationID.y + dz) * TILE_Y + (y + dy);
+            uint k = dz * 9u + dy * 3u;
+            nb[k] = tileWest[t];
+            nb[k + 1u] = tileRow[t];
+            nb[k + 2u] = tileEast[t];
+        }
+    }
+    uint row = z * CHUNK + y;
+    uint index = slot * ROWS + row;
+    next.rows[index] = nextRow(nb, current.rows[index], blockRow(13u, row, 0u), params.surviveMask, params.birthMask);
+}

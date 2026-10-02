@@ -11,6 +11,16 @@ namespace VulkanHIP::tutorial {
 
 namespace {
 
+// Places the next item on this line, flush with the right edge of the window.
+void rightAlignNext(float width) {
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, ImGui::GetContentRegionAvail().x - width));
+}
+
+} // namespace
+
+namespace {
+
 // The swapchain is sRGB, so colors are given in linear space (see
 // applyMenuStyle in main_minimal.cpp).
 ImVec4 srgb(float r, float g, float b, float a = 1.0f) {
@@ -71,7 +81,7 @@ Tutorial::Request Tutorial::draw(float scale, const Status& status) {
         ImGui::TextDisabled("Tutorial %zu/%zu", index + 1, count);
         const char* closeLabel = "Close";
         float closeWidth = ImGui::CalcTextSize(closeLabel).x + ImGui::GetStyle().FramePadding.x * 2.0f;
-        ImGui::SameLine(ImGui::GetContentRegionMax().x - closeWidth);
+        rightAlignNext(closeWidth);
         if (ImGui::SmallButton(closeLabel)) request = Request::Close;
 
         ImGui::PushStyleColor(ImGuiCol_Text, srgb(0.37f, 0.9f, 0.66f)); // the menu accent
@@ -93,7 +103,7 @@ Tutorial::Request Tutorial::draw(float scale, const Status& status) {
             ImGui::GetWindowDrawList()->AddRect(ImVec2(at.x + inset, at.y + inset),
                                                 ImVec2(at.x + inset + swatch, at.y + inset + swatch),
                                                 ImGui::ColorConvertFloat4ToU32(ImVec4(rgb[0], rgb[1], rgb[2], 1.0f)),
-                                                0.0f, 0, 2.0f * scale);
+                                                0.0f, 2.0f * scale);
             ImGui::Dummy(ImVec2(ImGui::GetTextLineHeight(), ImGui::GetTextLineHeight()));
             ImGui::SameLine();
             ImGui::TextUnformatted(entry.text.c_str());

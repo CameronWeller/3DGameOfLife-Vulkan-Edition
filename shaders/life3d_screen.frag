@@ -3,7 +3,7 @@
 
 // Screen-space passes for the prototype.
 //   mode 0: sky gradient behind everything
-//   mode 1: block grid on the y = 0 plane with chunk lines every 16 blocks
+//   mode 1: block grid on the y = 0 plane with chunk lines every 32 blocks
 //           (depth-tested so blocks hide it; writes the plane's depth)
 //   mode 2: HUD - crosshair and hotbar
 
@@ -67,9 +67,13 @@ vec4 hud() {
     vec2 inSlot = vec2(rel.x - float(index) * (slot + gap), rel.y);
     if (index >= slots || index >= 9 || inSlot.x >= slot) return vec4(0.0);
 
-    // Rounded dark slots in the menu style: the selected one gets a mint border
-    // and tint. Colors are linear (the swapchain is sRGB).
-    const vec3 accent = vec3(0.112, 0.791, 0.392); // sRGB (94, 230, 168)
+    // Rounded dark slots in the menu style: the selected one gets a border and
+    // tint in the building material's color (Life mint, Stone grey, Ember orange).
+    // Colors are linear (the swapchain is sRGB).
+    const vec3 MATERIAL[3] = vec3[3](vec3(0.112, 0.791, 0.392),  // sRGB (94, 230, 168)
+                                     vec3(0.305, 0.337, 0.402),  // sRGB (150, 156, 170)
+                                     vec3(1.0, 0.305, 0.045));   // sRGB (255, 150, 60)
+    vec3 accent = MATERIAL[clamp(frame.hotbar.z, 0, 2)];
     const vec3 panel = vec3(0.0044, 0.006, 0.011); // sRGB (14, 18, 28)
     bool selected = index == frame.hotbar.x;
     float edge = roundedBox(inSlot + 0.5 - 0.5 * slot, vec2(0.5 * slot), 7.0 * scale);
@@ -103,7 +107,7 @@ void main() {
         if (t <= 0.0) discard;
         vec3 p = frame.camera.xyz + dir * t;
         float blocks = gridLine(p.xz, 1.0) * 0.35;
-        float chunks = gridLine(p.xz, 16.0);
+        float chunks = gridLine(p.xz, 32.0);
         float fade = 1.0 - smoothstep(frame.fog.x * 0.5, frame.fog.y, t);
         float alpha = max(blocks, chunks * 0.8) * fade;
         if (alpha < 0.01) discard;
