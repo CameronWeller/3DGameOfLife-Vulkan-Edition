@@ -1,10 +1,11 @@
 # 3D Game of Life: Vulkan Edition
 
 **Conway's Game of Life, taken into three dimensions and made walkable.** Fly through an unbounded voxel world,
-place and break living blocks Minecraft-style, and watch the automaton evolve on the GPU in real time.
+place and break living blocks Minecraft-style, and watch the automaton evolve on the GPU in real time, from a
+single glider to worlds of hundreds of millions of cells.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-![Vulkan](https://img.shields.io/badge/Vulkan-1.0-AC162C?logo=vulkan&logoColor=white)
+![Vulkan](https://img.shields.io/badge/Vulkan-1.3-AC162C?logo=vulkan&logoColor=white)
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)
 ![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey)
 
@@ -23,6 +24,7 @@ a handful of stable shapes, just as in Conway's 2D game. Every 3D image on this 
 - [Controls](#controls)
 - [Download and build](#download-and-build)
 - [How it works](#how-it-works)
+- [Performance](#performance)
 - [Contributing](#contributing)
 - [Further reading](#further-reading)
 
@@ -160,14 +162,14 @@ live-cell count.
 ### 5. The engineering changes too
 
 - **Memory grows with volume.** A 512-cell-wide 2D board is 262,144 cells; a 512-cell cube is 134 million. This
-  game stores only the regions where something is alive, in 16×16×16 chunks.
+  game stores only the regions where something is alive, in 32×32×32 chunks at one bit per cell (4 KB a chunk).
 - **There are no edges.** Many 3D Life programs wrap the world into a torus, so patterns leaving one side come
   back on the other. This one doesn't: the world is unbounded, like a Minecraft map. Chunks are created where
   life can spread next and freed when they empty.
 - **You can't see inside a blob.** In 2D every cell is visible. In 3D, the surface hides the interior. Being able
   to walk around, fly through, and break into a pattern is how you look at it.
-- **It's a lot of arithmetic.** Each generation visits 26 neighbors per cell, so the simulation runs as a Vulkan
-  compute shader on the GPU.
+- **It's a lot of arithmetic.** Each generation visits 26 neighbors per cell. The game runs it on the GPU and
+  updates 32 cells at once with bitwise adders, so a billion cells take a few milliseconds a generation.
 
 ---
 
@@ -195,8 +197,36 @@ from the hotbar, place blocks of life, press <kbd>G</kbd>, and watch.
 | <kbd>9</kbd> | Glider: Bays' glider for the current rule (Life 5766 or Life 4555) |
 
 Press the selected number again to empty your hand. Reach is 6 blocks. What you place lands on the face of the
-block you're looking at, or on the ground, or in the air 4 blocks ahead, in that order. A white outline shows
-where it will go.
+block you're looking at, or on the ground, or in the air 4 blocks ahead, in that order. An outline shows
+where it will go. At slow speeds, newborn cells grow in and dying ones shrink away, so you can follow each
+generation.
+
+### Materials: Life, Stone and Ember
+
+Stamps are made of the selected **material** (<kbd>M</kbd> cycles, or pick one on the Stamps & Rules screen):
+
+| Material | What it does |
+| -- | -- |
+| **Life** | Ordinary cells: born, survive and die by the current rule. |
+| **Stone** | An inert block. Nothing is born inside it and the rule doesn't count it, so a one-block wall stops a pattern from spreading. Build containers and channels with it. |
+| **Ember** | A block that never changes but always counts as a live neighbor. It feeds births next to it, so embers can anchor and power patterns that would otherwise die. |
+
+Placing never overwrites what's already there, and right click removes any block.
+
+![Coral grown inside an open-topped Stone box fills the box, then spills out of the top](docs/media/stone-box.gif)
+
+### Speed and long timespans
+
+The speed doubles or halves with each press of <kbd>]</kbd> or <kbd>[</kbd>, from one generation every 32
+seconds to 8,192 generations per second, and one more step up is **max**: as fast as your GPU can go. Hold
+<kbd>Shift</kbd> to jump 8× at a time. <kbd>J</kbd> fast-forwards 100 generations (<kbd>Shift</kbd>+<kbd>J</kbd>:
+1,000) and then returns to the set speed; press <kbd>J</kbd> again to cancel. The pause menu has the same controls
+as buttons.
+
+When a world gets too big for the speed you asked for, the game slows the **simulation** down instead of the
+frame rate: each frame gets a fixed time budget (Settings > Time per frame), the game measures what a generation
+costs and runs only as many as fit. The status panel then shows the speed you set and the speed actually reached,
+so the world stays smooth to fly through however big it grows. A small graph under it tracks the population.
 
 ### Tutorial
 
@@ -213,8 +243,10 @@ world keeps running, so you can step with <kbd>N</kbd>, run with <kbd>G</kbd> an
 | -- | -- |
 | ![The pause menu](docs/media/menu-pause.png) | ![The Stamps and Rules screen, with each rule explained in words](docs/media/menu-inventory.png) |
 
-The **Stamps & Rules** screen explains every rule in plain words. **Settings** has field of view, render distance,
-mouse sensitivity, GUI scale, simulation speed, HUD and update options; they're saved between sessions.
+The pause menu shows the rule, generation and population, and has the simulation controls. The **Stamps & Rules**
+screen picks stamps and materials and explains every rule in plain words. **Settings** has field of view, render
+distance (up to 1,024 blocks), smooth lighting, birth and death animations, mouse sensitivity, GUI scale,
+simulation speed and time per frame, HUD and update options; they're saved between sessions.
 
 ![The settings screen](docs/media/menu-settings.png)
 
@@ -245,6 +277,7 @@ Simulation actions live on keys Minecraft leaves unbound.
 | <kbd>1</kbd>–<kbd>9</kbd>, scroll wheel | Select a hotbar stamp; press the selected number again for an empty hand |
 | <kbd>Q</kbd> / <kbd>E</kbd> | Rotate the selected stamp a quarter turn around the surface |
 | <kbd>Z</kbd> / <kbd>C</kbd> | Tilt the selected stamp a quarter turn around the x axis |
+| <kbd>M</kbd> / <kbd>Shift</kbd>+<kbd>M</kbd> | Next / previous material: Life, Stone, Ember |
 | <kbd>Tab</kbd> | Stamps & Rules screen |
 
 ### Simulation
@@ -253,7 +286,8 @@ Simulation actions live on keys Minecraft leaves unbound.
 | -- | -- |
 | <kbd>G</kbd> | Run or pause generations |
 | <kbd>N</kbd> | Advance one generation (hold to repeat) |
-| <kbd>[</kbd> / <kbd>]</kbd> (or <kbd>-</kbd> / <kbd>+</kbd>) | Slower / faster: 0.5 to 60 generations per second |
+| <kbd>[</kbd> / <kbd>]</kbd> (or <kbd>-</kbd> / <kbd>+</kbd>) | Half / double speed: 1/32 to 8,192 generations per second, then max; <kbd>Shift</kbd> for 8× |
+| <kbd>J</kbd> / <kbd>Shift</kbd>+<kbd>J</kbd> | Fast-forward 100 / 1,000 generations; <kbd>J</kbd> again cancels |
 | <kbd>R</kbd> / <kbd>Shift</kbd>+<kbd>R</kbd> | Next / previous rule (live cells are kept) |
 
 ### World and window
@@ -266,7 +300,7 @@ Simulation actions live on keys Minecraft leaves unbound.
 | <kbd>Ctrl</kbd>+<kbd>S</kbd> / <kbd>Ctrl</kbd>+<kbd>O</kbd> | Save / load `world.life3d` |
 | <kbd>F1</kbd> | Hide HUD |
 | <kbd>F2</kbd> | Screenshot |
-| <kbd>F3</kbd> | Debug overlay (position, chunk, live cells, fps) |
+| <kbd>F3</kbd> | Debug overlay (position, chunks, GPU memory, blocks drawn, GPU time per generation, fps) |
 | <kbd>F3</kbd>+<kbd>G</kbd> | Show chunk borders |
 | <kbd>F11</kbd> | Fullscreen |
 | <kbd>H</kbd> | Print the controls to the terminal |
@@ -292,9 +326,9 @@ Pick the file for your system:
 | Debian / Ubuntu | `gol3d_<version>_amd64.deb` (or `_arm64.deb`) | `sudo apt install ./gol3d_*.deb` |
 | Fedora / openSUSE | `gol3d-<version>-1.x86_64.rpm` (or `.aarch64.rpm`) | |
 | Arch Linux | `gol3d-<version>-1-x86_64.pkg.tar.zst` | `sudo pacman -U gol3d-*.pkg.tar.zst` |
-| macOS 11+ | `gol3d-<version>-macos-universal.dmg` | Not notarized: right-click, **Open** the first time |
+| macOS 12+ | `gol3d-<version>-macos-universal.dmg` | Not notarized: right-click, **Open** the first time |
 
-`SHA256SUMS` on the same page lists every file's checksum. You need a GPU driver with Vulkan support (on macOS,
+`SHA256SUMS` on the same page lists every file's checksum. You need a GPU driver with Vulkan 1.3 support (on macOS,
 MoltenVK is bundled).
 
 The game checks GitHub for a newer release when it starts; turn that off in **Settings**. The Windows installer
@@ -307,7 +341,7 @@ It takes a couple of minutes, and CMake fetches GLFW and GLM for you if they are
 
 #### Requirements
 
-- A GPU and driver with **Vulkan 1.0** support
+- A GPU and driver with **Vulkan 1.3** support (any desktop GPU from the last several years with a current driver)
 - **CMake 3.20+**, **Ninja** (or Visual Studio), and a **C++20** compiler
 - **`glslc`** to compile shaders (from shaderc or the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home))
 
@@ -348,7 +382,9 @@ On Windows the last line is `build\prototype\gol3d.exe`.
 ./build/prototype/gol3d --rule 2          # start with Life 4555 (rules are numbered 1-8)
 ./build/prototype/gol3d --empty --fly     # an empty world, already flying
 ./build/prototype/gol3d --run --seed 42   # a different soup, simulation already running
-./build/prototype/gol3d --chunks 8000     # raise the chunk budget for big, growing rules
+./build/prototype/gol3d --speed 64 --run  # start running at 64 generations per second
+./build/prototype/gol3d --chunks 131072   # let the world grow to 4.3 billion cells (default 32768 chunks)
+./build/prototype/gol3d --rule 8 --bench 600   # time 600 generations of an exploding rule, then exit
 ./build/prototype/gol3d --help            # everything else
 ```
 
@@ -369,30 +405,78 @@ sources.
 
 ```mermaid
 flowchart LR
-    A[Live cells in<br/>16x16x16 chunks] --> B[Compute shader<br/>steps every active chunk]
-    B --> C[Instance list of<br/>live cells]
-    B --> D[Per-chunk report:<br/>population + border contact]
-    C --> E[Instanced cube draw<br/>with fog and sky]
-    D --> F[CPU adds chunks where<br/>life can spread, frees empty ones]
+    A[Live cells, 1 bit each,<br/>in 32x32x32 chunks] --> B[Step pass<br/>up to 8 generations<br/>per GPU submission]
+    B --> C[Build pass:<br/>visible blocks in view,<br/>population, reach]
+    C --> E[Indexed instanced draw<br/>with smooth lighting]
+    C --> F[CPU adds chunks life can<br/>reach, frees empty ones]
     F --> A
+    G[Governor: time budget<br/>per frame, measured costs] --> B
 ```
 
-- **World.** Cells live in 16³ chunks that exist only where life is, or could appear next generation. Space
-  outside the chunk set is dead. There is no wraparound.
-- **Simulation.** [`shaders/life3d_chunks.comp`](shaders/life3d_chunks.comp) steps every active chunk, reading
-  across chunk borders through a table of each chunk's 26 neighbor chunks. The same pass writes the draw list,
-  counts each chunk's population, and flags which neighbor chunks the border cells touch.
+- **World.** Cells live in 32³ chunks that exist only where life is, or could appear within the next few
+  generations. A chunk stores one bit per cell: 1,024 rows of 32 cells, 4 KB. Space outside the chunk set is dead,
+  and there is no wraparound. The chunk pool starts small and doubles as the world grows, up to `--chunks`.
+- **Simulation.** [`shaders/life3d_step.comp`](shaders/life3d_step.comp) computes a whole row of 32 cells per
+  GPU thread with bit-sliced arithmetic ([`shaders/life3d_bits.glsl`](shaders/life3d_bits.glsl)): the 26 neighbor
+  rows are summed with bitwise full adders into a 5-bit count per cell, and a 32-way multiplexer applies the rule.
+  A workgroup first loads its slab of rows and their neighbors into shared memory, reading across chunk borders
+  through a table of each chunk's 26 neighbors.
+- **Batching.** Life spreads at most one cell per generation. The build pass flags a neighbor chunk whenever live
+  cells come within 8 cells of the shared face, so the CPU can create every chunk life could reach and then let the
+  GPU run up to 8 generations in one submission without looking.
+- **Drawing.** [`shaders/life3d_build.comp`](shaders/life3d_build.comp) lists only blocks with an uncovered face,
+  in chunks within the render distance and a slightly widened view, nearest chunks first. Each block carries its
+  26 neighbors, so [`shaders/life3d_blocks.vert`](shaders/life3d_blocks.vert) draws only the three faces that can
+  face the camera, drops covered ones, and shades corners by the blocks around them (Minecraft-style smooth
+  lighting).
+- **The governor.** GPU timestamps measure what a generation and a block list cost. Each frame spends at most its
+  simulation budget, so when a world outgrows the requested speed the tick rate drops and the frame rate doesn't.
 - **Rules.** A rule is two 27-bit masks: bit *n* of the survive mask is set if a live cell with *n* neighbors
   survives, and likewise for birth. See [`include/Life3DRules.h`](include/Life3DRules.h).
-- **Rendering.** Live cells are drawn as instanced cubes with per-face shading and distance fog, over a sky
-  gradient and a block grid at y = 0. Hue drifts mostly with height, with a little per-block jitter so flat
-  walls stay readable.
-- **Budget.** 2048 chunks by default (`--chunks N`, up to 16000) and about 1M drawn blocks. The first time a world
-  hits the limit, the game pauses and tells you.
-- **Correctness.** `gol3d --verify` runs soups on the GPU and checks every cell against a plain CPU reference
-  implementation.
+- **Materials.** The GPU keeps two extra bit planes for chunks with static blocks: "blocked" (no life can exist
+  there) and "emits" (counts as a live neighbor). Stone is blocked; Ember is blocked and emits. New kinds of block
+  are new combinations or new planes ([`include/CellTypes.h`](include/CellTypes.h)).
+- **Vulkan 1.3.** Dynamic rendering (no render passes), synchronization2 barriers and compute subgroup operations,
+  loaded at runtime through [volk](https://github.com/zeux/volk) so one binary runs on any driver.
+- **Correctness.** `gol3d --verify` runs soups with Stone and Ember blocks on the GPU, one generation per batch and
+  eight, and checks every cell against a plain CPU reference. The `life3d_bits` test runs the exact shader
+  arithmetic on the CPU against the same reference, so CI checks it without a GPU.
+
+### Why not Rust?
+
+The heavy lifting happens in GLSL compute shaders on the GPU, and the CPU's share is small and now cheap: in the
+600-generation benchmark below, chunk bookkeeping takes about a tenth of the time. A Rust rewrite of the CPU side
+wouldn't make the GPU passes faster, and it would add a second toolchain to every release build (Windows x64 and
+ARM64, macOS universal, five Linux formats). The CPU twin of the GPU engine, [`include/BitLife.h`](include/BitLife.h),
+has a small interface; if a CPU engine ever needs to be fast (for example a HashLife-style jump far into the future),
+that is the place to start, in either language.
 
 More detail is in [docs/PROTOTYPE.md](docs/PROTOTYPE.md).
+
+---
+
+## Performance
+
+Simulation alone (`gol3d --rule N --seed 7 --bench G`), measured on an Intel Arc Pro B60 with Mesa 26:
+
+| World | Generations | Live cells at the end | Chunks | Time | Generations/s |
+| -- | --: | --: | --: | --: | --: |
+| Architecture (S4-6/B3), explodes | 200 | 3.4 million | 991 | 0.03 s | 7,700 |
+| Architecture | 300 | 11.5 million | 2,756 | 0.06 s | 4,800 |
+| Architecture | 600 | 92 million | 18,079 | 0.56 s | 1,075 |
+| Architecture, `--chunks 131072` | 1,000 | 429 million | 76,779 | 3.9 s | 260 |
+| Crystal (S4/B4), `--chunks 131072` | 1,000 | 189 million | 44,082 | 2.1 s | 470 |
+| Life 5766 soup | 10,000 | 21 | 12 | 0.2 s | 47,700 |
+
+The previous engine stored a 32-bit word per cell in 16³ chunks and went back to the CPU after every generation;
+it needed about 16 seconds for the first row. Cells now take one bit (32 times less memory), so the
+429-million-cell world fits in about 1 GB of GPU memory, all buffers included.
+
+Drawing is capped at 4.2 million visible blocks, nearest first. While you play, the governor keeps frames smooth
+by lowering the tick rate. Running the same explosion at 64 generations per second, the game kept that speed at
+about 58 frames per second until the world passed 35 million live cells around the player.
+
+![Architecture after 300 generations: 11.5 million cells, seen from about 650 blocks away, with the F3 overlay](docs/media/massive-world.png)
 
 ---
 
@@ -414,9 +498,10 @@ Contributions are welcome, from typo fixes to new rules to rendering work.
 ### Running the tests
 
 ```bash
-ctest --test-dir build/prototype            # rules, tutorial patterns, updater + GPU-vs-CPU check
+ctest --test-dir build/prototype            # rules, bit-sliced engine, tutorial patterns, updater + GPU-vs-CPU check
 ctest --test-dir build/prototype -LE gpu    # CPU only (no GPU or display needed)
 ./build/prototype/gol3d --verify            # the GPU check on its own
+GOL3D_VALIDATION=1 ./build/prototype/gol3d  # with Vulkan validation layers (if installed)
 ```
 
 ### Where things live
@@ -424,12 +509,15 @@ ctest --test-dir build/prototype -LE gpu    # CPU only (no GPU or display needed
 | Path | What it is |
 | -- | -- |
 | [`prototype/`](prototype/) | CMake project for the playable game, packaging and tests |
-| [`src/main_minimal.cpp`](src/main_minimal.cpp) | The game: Vulkan setup, player, input, menus, chunk manager |
+| [`src/main_minimal.cpp`](src/main_minimal.cpp) | The game: rendering, chunk pool, governor, player, input, menus |
+| [`src/GpuContext.cpp`](src/GpuContext.cpp) | Vulkan 1.3 instance, GPU selection and device |
 | [`src/tutorial/`](src/tutorial/) | Tutorial lessons and the lesson panel |
 | [`src/Updater.cpp`](src/Updater.cpp) | Release checks and self-update |
 | [`include/Life3DRules.h`](include/Life3DRules.h) | The rule list and the CPU reference simulation |
 | [`include/Life3DPatterns.h`](include/Life3DPatterns.h) | Known 3D patterns: still lifes, oscillators, gliders |
-| [`shaders/life3d_*`](shaders/) | Compute and render shaders |
+| [`include/CellTypes.h`](include/CellTypes.h) | Materials (Life, Stone, Ember) and how to add more |
+| [`include/BitLife.h`](include/BitLife.h), [`include/ChunkMap.h`](include/ChunkMap.h) | CPU twin of the GPU engine; the chunk hash map |
+| [`shaders/life3d_*`](shaders/) | Compute and render shaders; [`life3d_bits.glsl`](shaders/life3d_bits.glsl) is shared with the CPU tests |
 | [`packaging/`](packaging/), [`release.yml`](.github/workflows/release.yml) | Icons, installers, release pipeline |
 | [`docs/PROTOTYPE.md`](docs/PROTOTYPE.md) | Detailed game documentation |
 | [`scripts/readme-media/`](scripts/readme-media/) | Scripts that regenerate every image and GIF in this README |
