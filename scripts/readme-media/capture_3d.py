@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Capture the in-game 3D GIFs and screenshots used by README.md.
 
-Drives the real game (build/prototype/gol3d) with its scripted-input flags: every
+Drives the real game (build/gol3d) with its scripted-input flags: every
 frame is one short run that advances N generations, places the camera and saves a
 screenshot. Needs a Vulkan driver, Pillow and ffmpeg.
 
@@ -9,8 +9,8 @@ When gamescope is installed, the script re-runs itself inside one headless
 gamescope session, so no game window opens on your desktop or takes focus. Set
 GOL3D_CAPTURE_VISIBLE=1 to use your own display instead.
 
-    cmake -S prototype -B build/prototype -G Ninja -DCMAKE_BUILD_TYPE=Release
-    cmake --build build/prototype
+    cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+    cmake --build build
     python3 scripts/readme-media/capture_3d.py
 """
 
@@ -27,7 +27,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[2]
-GAME = ROOT / "build" / "prototype" / "gol3d"
+GAME = ROOT / "build" / "gol3d"
 OUT = ROOT / "docs" / "media"
 SEED = 7
 
@@ -261,7 +261,7 @@ def sandbox(tmp):
 
 
 def write_save(path, rule_index, cells):
-    """A world in the game's save format ("L3D1"; see saveWorld in src/main_minimal.cpp)."""
+    """A world in the game's save format ("L3D1"; see src/world/SaveFile.h)."""
     header = struct.pack(
         "<4sIQ3fffQ", b"L3D1", rule_index, 0, 0, 2, 0, 0, 0, len(cells)
     )
@@ -304,7 +304,17 @@ def materials(tmp):
     for i in range(frames):
         path = tmp / f"box_{i:03d}.png"
         gen = i * 2
-        shoot(path, (800, 450), "--load", world, "--steps", gen, "--fly", "--hide-hud", *camera)
+        shoot(
+            path,
+            (800, 450),
+            "--load",
+            world,
+            "--steps",
+            gen,
+            "--fly",
+            "--hide-hud",
+            *camera,
+        )
         image = crop_hotbar(Image.open(path))
         label(image, f"Coral in a Stone box   generation {gen}")
         image.save(path)
@@ -340,7 +350,7 @@ def massive(tmp):
 
 
 def glider(tmp):
-    """Bays' Life 5766 glider: Conway's glider, two layers thick (include/Life3DPatterns.h)."""
+    """Bays' Life 5766 glider: Conway's glider, two layers thick (src/life/Patterns.h)."""
     conway = [(1, 0), (2, 1), (0, 2), (1, 2), (2, 2)]
     world = tmp / "glider.life3d"
     write_save(world, 0, [(x, y, z) for y in (0, 1) for x, z in conway])

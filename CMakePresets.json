@@ -1,0 +1,40 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "release",
+      "displayName": "Release (Ninja)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug (Ninja)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "GOL3D_LTO": "OFF" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "release", "configurePreset": "release" },
+    { "name": "debug", "configurePreset": "debug" }
+  ],
+  "testPresets": [
+    {
+      "name": "release",
+      "displayName": "CPU tests (no GPU needed)",
+      "configurePreset": "release",
+      "filter": { "exclude": { "label": "gpu" } },
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "gpu",
+      "displayName": "GPU against the CPU reference",
+      "configurePreset": "release",
+      "filter": { "include": { "label": "gpu" } },
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

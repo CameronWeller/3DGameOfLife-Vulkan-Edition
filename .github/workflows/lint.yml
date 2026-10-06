@@ -1,0 +1,31 @@
+name: Lint
+
+# Checks what reviewers should not have to: C++ formatting (.clang-format) and
+# Python formatting (black, isort). clang-tidy needs a full build and runs
+# locally instead; see CONTRIBUTING.md.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: Formatting
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Pinned: formatting differs between clang-format releases.
+      - run: pip install clang-format==21.1.8 black==23.12.1 isort==5.13.2
+      - name: clang-format
+        run: git ls-files '*.cpp' '*.h' | xargs clang-format --dry-run --Werror
+      - name: black and isort
+        run: |
+          black --check scripts
+          isort --profile black --check-only scripts

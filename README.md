@@ -369,31 +369,31 @@ Install the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home) (it includes Molten
 ```bash
 git clone https://github.com/CameronWeller/3DGameOfLife-Vulkan-Edition.git
 cd 3DGameOfLife-Vulkan-Edition
-cmake -S prototype -B build/prototype -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build/prototype
-./build/prototype/gol3d
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release   # or: cmake --preset release
+cmake --build build
+./build/gol3d
 ```
 
-On Windows the last line is `build\prototype\gol3d.exe`.
+On Windows the last line is `build\gol3d.exe`.
 
 #### Useful command-line options
 
 ```bash
-./build/prototype/gol3d --rule 2          # start with Life 4555 (rules are numbered 1-8)
-./build/prototype/gol3d --empty --fly     # an empty world, already flying
-./build/prototype/gol3d --run --seed 42   # a different soup, simulation already running
-./build/prototype/gol3d --speed 64 --run  # start running at 64 generations per second
-./build/prototype/gol3d --chunks 131072   # let the world grow to 4.3 billion cells (default 32768 chunks)
-./build/prototype/gol3d --rule 8 --bench 600   # time 600 generations of an exploding rule, then exit
-./build/prototype/gol3d --help            # everything else
+./build/gol3d --rule 2          # start with Life 4555 (rules are numbered 1-8)
+./build/gol3d --empty --fly     # an empty world, already flying
+./build/gol3d --run --seed 42   # a different soup, simulation already running
+./build/gol3d --speed 64 --run  # start running at 64 generations per second
+./build/gol3d --chunks 131072   # let the world grow to 4.3 billion cells (default 32768 chunks)
+./build/gol3d --rule 8 --bench 600   # time 600 generations of an exploding rule, then exit
+./build/gol3d --help            # everything else
 ```
 
 #### Make an installer or package
 
 ```bash
-cpack --config build/prototype/CPackConfig.cmake -G "DEB;RPM;TGZ"   # Linux
-cpack --config build/prototype/CPackConfig.cmake -G "NSIS;ZIP"      # Windows
-cpack --config build/prototype/CPackConfig.cmake -G DragNDrop       # macOS
+cpack --config build/CPackConfig.cmake -G "DEB;RPM;TGZ"   # Linux
+cpack --config build/CPackConfig.cmake -G "NSIS;ZIP"      # Windows
+cpack --config build/CPackConfig.cmake -G DragNDrop       # macOS
 ```
 
 For a portable build, configure with `-DGOL3D_BUNDLE_DEPS=ON` so GLFW and GLM are always built from pinned
@@ -432,14 +432,14 @@ flowchart LR
 - **The governor.** GPU timestamps measure what a generation and a block list cost. Each frame spends at most its
   simulation budget, so when a world outgrows the requested speed the tick rate drops and the frame rate doesn't.
 - **Rules.** A rule is two 27-bit masks: bit *n* of the survive mask is set if a live cell with *n* neighbors
-  survives, and likewise for birth. See [`include/Life3DRules.h`](include/Life3DRules.h).
+  survives, and likewise for birth. See [`src/life/LifeRules.h`](src/life/LifeRules.h).
 - **Materials.** The GPU keeps two extra bit planes for chunks with static blocks: "blocked" (no life can exist
   there) and "emits" (counts as a live neighbor). Stone is blocked; Ember is blocked and emits. New kinds of block
-  are new combinations or new planes ([`include/CellTypes.h`](include/CellTypes.h)).
+  are new combinations or new planes ([`src/life/CellTypes.h`](src/life/CellTypes.h)).
 - **Vulkan 1.3.** Dynamic rendering (no render passes), synchronization2 barriers and compute subgroup operations,
   loaded at runtime through [volk](https://github.com/zeux/volk) so one binary runs on any driver.
 - **Correctness.** `gol3d --verify` runs soups with Stone and Ember blocks on the GPU, one generation per batch and
-  eight, and checks every cell against a plain CPU reference. The `life3d_bits` test runs the exact shader
+  eight, and checks every cell against a plain CPU reference. The `bit_life` test runs the exact shader
   arithmetic on the CPU against the same reference, so CI checks it without a GPU.
 
 ### Why not Rust?
@@ -447,11 +447,12 @@ flowchart LR
 The heavy lifting happens in GLSL compute shaders on the GPU, and the CPU's share is small and now cheap: in the
 600-generation benchmark below, chunk bookkeeping takes about a tenth of the time. A Rust rewrite of the CPU side
 wouldn't make the GPU passes faster, and it would add a second toolchain to every release build (Windows x64 and
-ARM64, macOS universal, five Linux formats). The CPU twin of the GPU engine, [`include/BitLife.h`](include/BitLife.h),
+ARM64, macOS universal, five Linux formats). The CPU twin of the GPU engine, [`src/life/BitLife.h`](src/life/BitLife.h),
 has a small interface; if a CPU engine ever needs to be fast (for example a HashLife-style jump far into the future),
 that is the place to start, in either language.
 
-More detail is in [docs/PROTOTYPE.md](docs/PROTOTYPE.md).
+A guided tour of the source, including how the bit-sliced counting works step by step, is in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). More about playing is in [docs/PROTOTYPE.md](docs/PROTOTYPE.md).
 
 ---
 
@@ -488,8 +489,9 @@ Contributions are welcome, from typo fixes to new rules to rendering work.
 
 1. **Open an issue first** for anything bigger than a small fix, so we can agree on the approach.
 2. **Fork** the repository and create a branch from `main` (`git checkout -b feature/my-change`).
-3. **Build and test** (see below). Add a test when you change simulation logic.
-4. **Format** C++ with the repo's [`.clang-format`](.clang-format). Optionally install the hooks with
+3. **Build and test** (see below). Add a test when you change logic that runs on the CPU.
+4. **Format and lint** C++ with the repo's [`.clang-format`](.clang-format) and [`.clang-tidy`](.clang-tidy),
+   following the conventions in [CONTRIBUTING.md](CONTRIBUTING.md). Optionally install the hooks with
    `pre-commit install`; they also run markdownlint, shellcheck and black.
 5. **Commit** with a short, imperative message. The history uses prefixes like `fix:`, `docs:` and `refactor:`.
 6. **Open a pull request** against `main` describing what changed and how you tested it. Screenshots or GIFs help
@@ -498,33 +500,38 @@ Contributions are welcome, from typo fixes to new rules to rendering work.
 ### Running the tests
 
 ```bash
-ctest --test-dir build/prototype            # rules, bit-sliced engine, tutorial patterns, updater + GPU-vs-CPU check
-ctest --test-dir build/prototype -LE gpu    # CPU only (no GPU or display needed)
-./build/prototype/gol3d --verify            # the GPU check on its own
-GOL3D_VALIDATION=1 ./build/prototype/gol3d  # with Vulkan validation layers (if installed)
+ctest --test-dir build -LE gpu    # CPU only (no GPU or display needed)
+ctest --test-dir build            # all of the above plus the GPU-vs-CPU check
+./build/gol3d --verify            # the GPU check on its own
+GOL3D_VALIDATION=1 ./build/gol3d  # with Vulkan validation layers (if installed)
 ```
+
+The CPU tests cover the rules and the reference simulation, the bit-sliced engine, the tutorial's pattern
+claims, player physics and aiming, stamp shapes, the save format, settings and the command line, the tick
+governor's arithmetic, and the updater.
 
 ### Where things live
 
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) walks through the code; this is the map.
+
 | Path | What it is |
 | -- | -- |
-| [`prototype/`](prototype/) | CMake project for the playable game, packaging and tests |
-| [`src/main_minimal.cpp`](src/main_minimal.cpp) | The game: rendering, chunk pool, governor, player, input, menus |
-| [`src/GpuContext.cpp`](src/GpuContext.cpp) | Vulkan 1.3 instance, GPU selection and device |
-| [`src/tutorial/`](src/tutorial/) | Tutorial lessons and the lesson panel |
-| [`src/Updater.cpp`](src/Updater.cpp) | Release checks and self-update |
-| [`include/Life3DRules.h`](include/Life3DRules.h) | The rule list and the CPU reference simulation |
-| [`include/Life3DPatterns.h`](include/Life3DPatterns.h) | Known 3D patterns: still lifes, oscillators, gliders |
-| [`include/CellTypes.h`](include/CellTypes.h) | Materials (Life, Stone, Ember) and how to add more |
-| [`include/BitLife.h`](include/BitLife.h), [`include/ChunkMap.h`](include/ChunkMap.h) | CPU twin of the GPU engine; the chunk hash map |
+| [`CMakeLists.txt`](CMakeLists.txt) | Build, packaging and tests |
+| [`src/game/`](src/game/) | The `Game` and its frame loop, player physics, stamps, settings, command line, tick governor |
+| [`src/world/`](src/world/) | The chunked world on the GPU, the compute passes that run it, the save format |
+| [`src/life/`](src/life/) | Rules and the CPU reference, materials, known patterns, the CPU twin of the GPU engine |
+| [`src/gpu/`](src/gpu/), [`src/render/`](src/render/) | Vulkan helpers; the per-frame renderer |
+| [`src/ui/`](src/ui/), [`src/tutorial/`](src/tutorial/) | Menu look and widgets; tutorial lessons and panel |
+| [`src/update/`](src/update/) | Release checks, self-update, SHA-256 |
 | [`shaders/life3d_*`](shaders/) | Compute and render shaders; [`life3d_bits.glsl`](shaders/life3d_bits.glsl) is shared with the CPU tests |
+| [`tests/`](tests/), [`tools/`](tools/) | CPU tests; the glider search |
 | [`packaging/`](packaging/), [`release.yml`](.github/workflows/release.yml) | Icons, installers, release pipeline |
-| [`docs/PROTOTYPE.md`](docs/PROTOTYPE.md) | Detailed game documentation |
+| [`docs/`](docs/) | [Architecture](docs/ARCHITECTURE.md) and [game](docs/PROTOTYPE.md) documentation |
 | [`scripts/readme-media/`](scripts/readme-media/) | Scripts that regenerate every image and GIF in this README |
 
 ### Good first contributions
 
-- **Add a rule.** Append an entry to `lifeRules()` in `include/Life3DRules.h` (and bump the array size). Give it
+- **Add a rule.** Append an entry to `lifeRules()` in `src/life/LifeRules.h` (and bump the array size). Give it
   a name, survive and birth masks, a seed density and size, and a plain-English description. It then shows up in
   the <kbd>R</kbd> cycle and the Stamps & Rules screen automatically.
 - **Pattern files.** Import and export patterns in a documented text format.
