@@ -23,10 +23,6 @@ constexpr float BREAK_REPEAT_SECONDS = 0.25f;    // a held right button removes 
 constexpr float PLACE_REPEAT_SECONDS = 0.20f;    // a held left button places this often
 constexpr double SLOT_NAME_SECONDS = 2.0; // the hotbar shows a new selection's name this long
 
-// J and Shift+J fast-forward this many generations (the pause menu's Skip
-// buttons match them).
-constexpr uint64_t FAST_FORWARD_GENERATIONS = 100;
-constexpr uint64_t LONG_FAST_FORWARD_GENERATIONS = 1000;
 // Speed changes are counted in doublings: Shift makes one press 2^3 = 8x.
 constexpr int SHIFT_SPEED_STEPS = 3;
 

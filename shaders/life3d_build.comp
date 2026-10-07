@@ -29,7 +29,9 @@ layout(push_constant) uniform Params {
     uint flags;              // BUILD_* bits
     uint maxInstances;       // room in the instance buffer
     float cullDistance;      // chunks farther than this from the camera are not drawn
-    float cameraX, cameraY, cameraZ;
+    float cameraX;           // the camera position, as three floats so the block packs
+    float cameraY;           // with no padding (a vec3 would be aligned to 16 bytes)
+    float cameraZ;
 } params;
 const uint BUILD_ANIMATE = 1u; // flag births, draw the last deaths
 const uint BUILD_DRAW = 2u;    // write the block list

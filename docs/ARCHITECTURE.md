@@ -132,7 +132,8 @@ holding two more bit planes: *blocked* (no life may exist here) and *emits*
    list on screen may still be drawing its last cells shrinking away.
 
 When the pool runs out of slots it doubles, copying every chunk to the same slot
-of the new buffers, until the chunk limit (`--chunks`).
+of the new buffers, until the chunk limit (`--chunks`). The block pool, which
+only chunks holding Stone or Ember use, doubles the same way on its own.
 
 ## Simulating on the GPU
 

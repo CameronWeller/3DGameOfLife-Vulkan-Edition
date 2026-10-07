@@ -85,6 +85,10 @@ private:
     // At max speed or during a fast-forward the simulation may take at least
     // this much of each frame, whatever the "time per frame" setting says.
     static constexpr int FLAT_OUT_MIN_BUDGET_MS = 25;
+    // J and Shift+J fast-forward this many generations, as do the pause menu's
+    // Skip buttons (whose labels spell the numbers out).
+    static constexpr uint64_t FAST_FORWARD_GENERATIONS = 100;
+    static constexpr uint64_t LONG_FAST_FORWARD_GENERATIONS = 1000;
 
     // Which screen is up. Pause, Settings and New World freeze the world like
     // Minecraft's single-player pause; the inventory does not.
@@ -249,6 +253,11 @@ private:
     void drawPauseMenu();
     void drawUpdatePanel();
     void drawSettingsMenu();
+    void drawViewOptions(); // the sections of the settings menu, in order
+    void drawMouseOptions();
+    void drawInterfaceOptions();
+    void drawSimulationOptions();
+    void drawUpdateOptions();
     void drawInventory();
     void drawStampPicker();
     void drawMaterialPicker();
@@ -344,7 +353,7 @@ private:
     bool showChunkBorders_ = false;
     bool imguiReady_ = false;
     float uiScale_ = 0.0f;
-    ImFont* titleFont_ = nullptr;
+    ImFont* menuFont_ = nullptr; // Karla, the default font of every menu and the HUD
     ImGuiStyle baseStyle_;       // the style at scale 1, rescaled when the GUI scale changes
     double slotNameUntil_ = 0.0; // glfwGetTime() at which the selected stamp's name is gone
     std::string toast_;

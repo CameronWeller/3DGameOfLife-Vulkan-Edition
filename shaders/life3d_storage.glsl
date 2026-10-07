@@ -30,7 +30,7 @@ layout(std430, binding = 5) readonly buffer BlockSlots { uint slots[]; } blockSl
 // local (i, j) handles row y = i, z = firstZ + j of the chunk, where
 // firstZ = 8 * the workgroup's x index. A chunk is SLABS_PER_CHUNK workgroups;
 // the workgroup's y index picks the chunk from the active list.
-const uint SLAB_DEPTH = 8u;
+const uint SLAB_DEPTH = 8u; // must match SLAB_DEPTH in src/world/SimulationPasses.cpp
 const uint SLABS_PER_CHUNK = CHUNK / SLAB_DEPTH;
 const uint WORKGROUP_SIZE = CHUNK * SLAB_DEPTH; // 256 invocations
 

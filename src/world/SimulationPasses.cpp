@@ -274,8 +274,10 @@ void SimulationPasses::run(const BatchRequest& request, ChunkWorld& world) {
     }
     // Write-after-read: frames submitted earlier may still be drawing the block
     // list (indirect command and vertex shader reads). This batch's shaders,
-    // clears and copies overwrite it, so they wait for those draws and for any
-    // earlier compute work.
+    // clears and copies overwrite it, so they wait for those draws. The source
+    // also covers the previous batch's compute writes: waiting on its fence told
+    // the CPU it finished, but on the GPU a later submission to the same queue
+    // still needs a memory barrier before its shaders may read those writes.
     memoryBarrier(cmd,
                   VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT |
                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,

@@ -52,7 +52,7 @@ inline const std::array<CellType, CELL_KIND_COUNT>& cellTypes() {
             .description = "Living cells. They are born, survive and die by the current rule.",
             .blocksLife = false,
             .countsAsNeighbor = true,
-            .rgb = {94, 230, 168},
+            .rgb = {94, 230, 168}, // must match ui::palette::ACCENT (src/ui/Theme.h)
         },
         {
             .kind = CellKind::Stone,

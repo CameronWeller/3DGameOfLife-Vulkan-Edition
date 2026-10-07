@@ -45,8 +45,8 @@ float roundedBox(vec2 p, vec2 halfSize, float radius) {
 }
 
 // HUD metrics in pixels at scale 1. The scale grows by whole steps with the
-// window height. GameHud.cpp (drawSelectedStampName) places the stamp name
-// above the hotbar with the same numbers.
+// window height. GameHud.cpp (drawSelectedStampName) declares the same
+// HUD_SCALE_HEIGHT and HOTBAR_SLOT to place the stamp name above the hotbar.
 const float HUD_SCALE_HEIGHT = 540.0;
 const float HOTBAR_SLOT = 40.0;
 const float HOTBAR_GAP = 4.0;

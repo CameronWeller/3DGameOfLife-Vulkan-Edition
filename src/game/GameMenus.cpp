@@ -202,7 +202,7 @@ void Game::updateUiScale() {
     }
     if (scale == uiScale_) return;
     const bool firstCall = uiScale_ == 0.0f;
-    if (firstCall) titleFont_ = addMenuFont();
+    if (firstCall) menuFont_ = addMenuFont();
     // Scale a fresh copy of the unscaled style; scaling the live one would compound.
     ImGuiStyle& style = ImGui::GetStyle();
     style = baseStyle_;
@@ -221,7 +221,7 @@ void Game::saveSettingsIfPersistent() {
 void Game::buildUi() {
     if (!imguiReady_) return;
     updateUiScale();
-    ui::setLayout(uiScale_, titleFont_);
+    ui::setLayout(uiScale_, menuFont_);
     // While playing, the mouse belongs to the game unless the tutorial panel is
     // open and the cursor is free to click it.
     ImGuiIO& io = ImGui::GetIO();
@@ -351,12 +351,13 @@ void Game::drawSimulationControls(bool& running) {
     const bool forwarding = fastForward_ > 0;
     const char* skipLabel = forwarding ? "Cancel fast-forward" : "Skip 100 generations";
     if (ImGui::Button(skipLabel, ImVec2(forwarding ? fullWidth : halfWidth, height))) {
-        queueFastForward(100);
+        queueFastForward(FAST_FORWARD_GENERATIONS);
     }
     if (!forwarding) {
         ui::hoverHint("J in game. Runs as fast as the GPU allows, then returns to the set speed.");
         ImGui::SameLine();
-        if (ImGui::Button("Skip 1,000", ImVec2(halfWidth, height))) queueFastForward(1000);
+        if (ImGui::Button("Skip 1,000", ImVec2(halfWidth, height)))
+            queueFastForward(LONG_FAST_FORWARD_GENERATIONS);
         ui::hoverHint("Shift+J in game");
     }
 }
@@ -431,74 +432,11 @@ void Game::drawSettingsMenu() {
                                     px(LABEL_COLUMN_WIDTH));
             ImGui::TableSetupColumn("control", ImGuiTableColumnFlags_WidthStretch);
 
-            optionSection("View", true);
-            optionRow("Field of view");
-            ImGui::SliderFloat("##fov", &settings_.fov, Settings::MIN_FOV, Settings::MAX_FOV,
-                               "%.0f");
-            optionRow("Render distance");
-            if (ImGui::SliderInt("##render", &settings_.renderDistance,
-                                 Settings::MIN_RENDER_DISTANCE, Settings::MAX_RENDER_DISTANCE,
-                                 "%d blocks")) {
-                refreshPending_ = true; // the block list is culled to the render distance
-            }
-            optionRow("Fullscreen");
-            // The checkbox edits a copy: toggleFullscreen() flips fullscreen_ itself.
-            bool wantFullscreen = fullscreen_;
-            if (ImGui::Checkbox("##fullscreen", &wantFullscreen)) toggleFullscreen();
-            optionRow("Smooth lighting");
-            ImGui::Checkbox("##ao", &settings_.smoothLighting);
-            ui::hoverHint("Shades block corners by the blocks around them.");
-            optionRow("Animate changes");
-            ImGui::Checkbox("##animate", &settings_.animate);
-            ui::hoverHint("At slow speeds, newborn cells grow in and dying ones shrink away.");
-
-            optionSection("Mouse");
-            optionRow("Sensitivity");
-            ImGui::SliderInt("##sens", &settings_.sensitivity, Settings::MIN_SENSITIVITY,
-                             Settings::MAX_SENSITIVITY, "%d%%");
-            optionRow("Invert vertical");
-            ImGui::Checkbox("##invert", &settings_.invertY);
-
-            optionSection("Interface");
-            optionRow("GUI scale");
-            // 0 is "Auto" (see updateUiScale()).
-            ImGui::SliderInt("##gui", &settings_.guiScale, 0, Settings::MAX_GUI_SCALE,
-                             settings_.guiScale == 0 ? "Auto" : "%dx");
-            optionRow("Show HUD");
-            ImGui::Checkbox("##hud", &hudVisible_);
-            optionRow("Chunk borders");
-            ImGui::Checkbox("##borders", &showChunkBorders_);
-
-            optionSection("Simulation");
-            optionRow("Speed");
-            // The slider moves in doublings; its top stop is "as fast as possible".
-            int exponent = speed_.exponent();
-            const std::string speedText =
-                speed_.unlimited() ? std::string("As fast as possible") : speed_.label();
-            if (ImGui::SliderInt("##speed", &exponent, SimulationSpeed::MIN_EXPONENT,
-                                 SimulationSpeed::UNLIMITED_EXPONENT, speedText.c_str())) {
-                speed_.setExponent(exponent);
-            }
-            ui::hoverHint("[ and ] halve or double it in game; Shift jumps 8x.");
-            optionRow("Time per frame");
-            ImGui::SliderInt("##budget", &settings_.simBudget, Settings::MIN_SIM_BUDGET,
-                             Settings::MAX_SIM_BUDGET, "%d ms");
-            const std::string budgetHint =
-                "Most time each frame may spend simulating. When a world needs more, the "
-                "simulation slows down instead of the frame rate. Fast-forward (J) and max "
-                "speed use at least " +
-                std::to_string(FLAT_OUT_MIN_BUDGET_MS) + " ms.";
-            ui::hoverHint(budgetHint.c_str());
-
-            optionSection("Updates");
-            optionRow("Check at startup");
-            ImGui::Checkbox("##updates", &settings_.checkUpdates);
-            ImGui::SameLine();
-            if (ImGui::Button("Check now")) {
-                if (!updater_) updater_ = std::make_unique<Updater>(GOL3D_VERSION_STRING, exeDir_);
-                updateAnnounced_ = false;
-                updater_->checkAsync();
-            }
+            drawViewOptions();
+            drawMouseOptions();
+            drawInterfaceOptions();
+            drawSimulationOptions();
+            drawUpdateOptions();
             ImGui::EndTable();
         }
         gap(6);
@@ -516,6 +454,83 @@ void Game::drawSettingsMenu() {
         if (persistSettings_) ui::mutedText("Saved to " + settingsFilePath().string());
     }
     ImGui::End();
+}
+
+void Game::drawViewOptions() {
+    optionSection("View", true);
+    optionRow("Field of view");
+    ImGui::SliderFloat("##fov", &settings_.fov, Settings::MIN_FOV, Settings::MAX_FOV, "%.0f");
+    optionRow("Render distance");
+    if (ImGui::SliderInt("##render", &settings_.renderDistance, Settings::MIN_RENDER_DISTANCE,
+                         Settings::MAX_RENDER_DISTANCE, "%d blocks")) {
+        refreshPending_ = true; // the block list is culled to the render distance
+    }
+    optionRow("Fullscreen");
+    // The checkbox edits a copy: toggleFullscreen() flips fullscreen_ itself.
+    bool wantFullscreen = fullscreen_;
+    if (ImGui::Checkbox("##fullscreen", &wantFullscreen)) toggleFullscreen();
+    optionRow("Smooth lighting");
+    ImGui::Checkbox("##ao", &settings_.smoothLighting);
+    ui::hoverHint("Shades block corners by the blocks around them.");
+    optionRow("Animate changes");
+    ImGui::Checkbox("##animate", &settings_.animate);
+    ui::hoverHint("At slow speeds, newborn cells grow in and dying ones shrink away.");
+}
+
+void Game::drawMouseOptions() {
+    optionSection("Mouse");
+    optionRow("Sensitivity");
+    ImGui::SliderInt("##sens", &settings_.sensitivity, Settings::MIN_SENSITIVITY,
+                     Settings::MAX_SENSITIVITY, "%d%%");
+    optionRow("Invert vertical");
+    ImGui::Checkbox("##invert", &settings_.invertY);
+}
+
+void Game::drawInterfaceOptions() {
+    optionSection("Interface");
+    optionRow("GUI scale");
+    // 0 is "Auto" (see updateUiScale()).
+    ImGui::SliderInt("##gui", &settings_.guiScale, 0, Settings::MAX_GUI_SCALE,
+                     settings_.guiScale == 0 ? "Auto" : "%dx");
+    optionRow("Show HUD");
+    ImGui::Checkbox("##hud", &hudVisible_);
+    optionRow("Chunk borders");
+    ImGui::Checkbox("##borders", &showChunkBorders_);
+}
+
+void Game::drawSimulationOptions() {
+    optionSection("Simulation");
+    optionRow("Speed");
+    // The slider moves in doublings; its top stop is "as fast as possible".
+    int exponent = speed_.exponent();
+    const std::string speedText =
+        speed_.unlimited() ? std::string("As fast as possible") : speed_.label();
+    if (ImGui::SliderInt("##speed", &exponent, SimulationSpeed::MIN_EXPONENT,
+                         SimulationSpeed::UNLIMITED_EXPONENT, speedText.c_str())) {
+        speed_.setExponent(exponent);
+    }
+    ui::hoverHint("[ and ] halve or double it in game; Shift jumps 8x.");
+    optionRow("Time per frame");
+    ImGui::SliderInt("##budget", &settings_.simBudget, Settings::MIN_SIM_BUDGET,
+                     Settings::MAX_SIM_BUDGET, "%d ms");
+    const std::string budgetHint =
+        "Most time each frame may spend simulating. When a world needs more, the "
+        "simulation slows down instead of the frame rate. Fast-forward (J) and max "
+        "speed use at least " +
+        std::to_string(FLAT_OUT_MIN_BUDGET_MS) + " ms.";
+    ui::hoverHint(budgetHint.c_str());
+}
+
+void Game::drawUpdateOptions() {
+    optionSection("Updates");
+    optionRow("Check at startup");
+    ImGui::Checkbox("##updates", &settings_.checkUpdates);
+    ImGui::SameLine();
+    if (ImGui::Button("Check now")) {
+        if (!updater_) updater_ = std::make_unique<Updater>(GOL3D_VERSION_STRING, exeDir_);
+        updateAnnounced_ = false;
+        updater_->checkAsync();
+    }
 }
 
 // ------------------------------------------------------- stamps and rules
