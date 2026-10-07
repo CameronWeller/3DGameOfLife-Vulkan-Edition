@@ -1,11 +1,5 @@
 #pragma once
 
-#include <initializer_list>
-#include <utility>
-#include <vector>
-
-namespace gol3d {
-
 // Small named patterns for the tutorial and the hotbar. Coordinates are cells
 // (x, y, z) with y up. Every claim below (still life, period, glider shift) is
 // checked against stepLifeReference in tests/PatternsTest.cpp.
@@ -17,8 +11,17 @@ namespace gol3d {
 // exactly Conway's S23/B3. Cells just above or below the slab see one layer's
 // 3x3 window, so the copy stays exact while no such window holds exactly 6
 // cells, which is true for the small patterns here.
+
+#include <initializer_list>
+#include <utility>
+#include <vector>
+
+namespace gol3d {
+
 struct PatternCell {
-    int x, y, z;
+    int x;
+    int y;
+    int z;
     bool operator==(const PatternCell&) const = default;
 };
 using Pattern = std::vector<PatternCell>;
@@ -32,23 +35,26 @@ inline Pattern flatPattern(std::initializer_list<std::pair<int, int>> xz) {
     return out;
 }
 
+// A flat (y = 0) pattern followed by its copy one layer up, at y = 1.
+inline Pattern stackedTwoLayers(const Pattern& flat) {
+    Pattern doubled = flat;
+    for (const PatternCell& cell : flat) {
+        doubled.push_back({cell.x, 1, cell.z});
+    }
+    return doubled;
+}
+
 // The same 2D pattern two layers thick (y = 0 and y = 1).
 inline Pattern doubledPattern(std::initializer_list<std::pair<int, int>> xz) {
-    Pattern out;
-    for (int y = 0; y < 2; ++y) {
-        for (auto [x, z] : xz) {
-            out.push_back({x, y, z});
-        }
-    }
-    return out;
+    return stackedTwoLayers(flatPattern(xz));
 }
 
 // The pattern moved by (dx, dy, dz).
 inline Pattern translated(Pattern pattern, int dx, int dy, int dz) {
-    for (PatternCell& c : pattern) {
-        c.x += dx;
-        c.y += dy;
-        c.z += dz;
+    for (PatternCell& cell : pattern) {
+        cell.x += dx;
+        cell.y += dy;
+        cell.z += dz;
     }
     return pattern;
 }
@@ -65,11 +71,7 @@ inline Pattern conwayGliderFlat() {
 // moves (+1, 0, +1) per period, as the explanation above predicts. (The soup
 // search in tools/FindPatterns.cpp finds it too.)
 inline Pattern life5766Glider() {
-    Pattern doubled = conwayGliderFlat();
-    for (const PatternCell& cell : conwayGliderFlat()) {
-        doubled.push_back({cell.x, 1, cell.z});
-    }
-    return doubled;
+    return stackedTwoLayers(conwayGliderFlat());
 }
 
 // Life 5766 still life: Conway's 2x2 block two layers thick, i.e. a 2x2x2 cube.

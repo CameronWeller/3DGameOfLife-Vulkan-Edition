@@ -22,13 +22,18 @@
 
 namespace gol3d {
 
-// Values are stored in save files, so append new kinds at the end.
+// Values are stored in save files, so append new kinds at the end. They also
+// appear as KIND_* in shaders/life3d_instances.glsl, and the block instance
+// format (world/BlockInstances.h) has two bits for them, so at most four fit.
 enum class CellKind : uint8_t {
     Life = 0,
     Stone = 1, // inert: blocks life and is invisible to the rule
     Ember = 2, // a permanent live neighbor: feeds births around it, never dies
 };
+constexpr size_t CELL_KIND_COUNT = 3;
+static_assert(static_cast<size_t>(CellKind::Ember) + 1 == CELL_KIND_COUNT, "the last kind");
 
+// How a kind behaves (the bit planes it sets) and how the menus show it.
 struct CellType {
     CellKind kind;
     const char* name;
@@ -38,8 +43,9 @@ struct CellType {
     uint8_t rgb[3];        // menu swatch (sRGB); the hotbar in life3d_screen.frag matches it
 };
 
-inline const std::array<CellType, 3>& cellTypes() {
-    static const std::array<CellType, 3> TYPES{{
+// Every kind, in CellKind order: cellType() indexes this table by kind value.
+inline const std::array<CellType, CELL_KIND_COUNT>& cellTypes() {
+    static const std::array<CellType, CELL_KIND_COUNT> TYPES{{
         {
             .kind = CellKind::Life,
             .name = "Life",

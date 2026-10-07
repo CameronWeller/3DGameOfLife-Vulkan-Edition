@@ -162,7 +162,7 @@ inline std::vector<CountRun> countRuns(uint32_t mask) {
             ++last;
         }
         runs.push_back({n, last});
-        n = last;
+        n = last; // continue after the run
     }
     return runs;
 }
@@ -183,41 +183,47 @@ inline std::string describeRule(const LifeRule& rule) {
     return "S" + describeMask(rule.surviveMask) + "/B" + describeMask(rule.birthMask);
 }
 
+// Parses a comma-separated list of counts and count ranges ("4-5",
+// "13-14,17-19") into a mask. An empty list is the empty mask. False for
+// anything else, such as a count above 26.
+inline bool parseCountList(const std::string& list, uint32_t& mask) {
+    mask = 0;
+    size_t position = 0;
+    while (position < list.size()) {
+        size_t end = list.find(',', position);
+        if (end == std::string::npos) end = list.size();
+        const std::string item = list.substr(position, end - position);
+        const size_t dash = item.find('-');
+        try {
+            const int first = std::stoi(item.substr(0, dash));
+            const int last = dash == std::string::npos ? first : std::stoi(item.substr(dash + 1));
+            if (first < 0 || last > NEIGHBOR_COUNT || first > last) return false;
+            mask |= neighborRange(first, last);
+        } catch (const std::exception&) { // std::stoi found no number, or one too big
+            return false;
+        }
+        position = end + 1;
+    }
+    return true;
+}
+
 // Parses survive/birth notation ("S4-5/B5", "S13-26/B13-14,17-19") into
 // masks; the inverse of describeRule. False when the text is not valid notation
 // or the birth list is empty (no rule worth exploring has no births).
 inline bool parseRuleNotation(const std::string& text, uint32_t& surviveMask, uint32_t& birthMask) {
-    // "4-5" or "13-14,17-19" -> mask; false for anything else.
-    auto parseCounts = [](const std::string& list, uint32_t& mask) {
-        mask = 0;
-        size_t position = 0;
-        while (position < list.size()) {
-            size_t end = list.find(',', position);
-            if (end == std::string::npos) end = list.size();
-            const std::string item = list.substr(position, end - position);
-            const size_t dash = item.find('-');
-            try {
-                const int first = std::stoi(item.substr(0, dash));
-                const int last =
-                    dash == std::string::npos ? first : std::stoi(item.substr(dash + 1));
-                if (first < 0 || last > NEIGHBOR_COUNT || first > last) return false;
-                mask |= neighborRange(first, last);
-            } catch (const std::exception&) {
-                return false;
-            }
-            position = end + 1;
-        }
-        return true;
-    };
+    // The shape "S<list>/B<list>"; the shortest is "S/B" plus one count.
     const size_t slash = text.find('/');
     bool shaped = text.size() >= 4 && text[0] == 'S' && slash != std::string::npos &&
                   text.compare(slash + 1, 1, "B") == 0;
     if (!shaped) return false;
-    return parseCounts(text.substr(1, slash - 1), surviveMask) &&
-           parseCounts(text.substr(slash + 2), birthMask) && birthMask != 0;
+    const std::string surviveList = text.substr(1, slash - 1); // between "S" and "/"
+    const std::string birthList = text.substr(slash + 2);      // after "/B"
+    return parseCountList(surviveList, surviveMask) && parseCountList(birthList, birthMask) &&
+           birthMask != 0;
 }
 
 // Neighbor counts in words: "exactly 6", "2 or 3", "5 to 7", "6, 7, 9 or 12".
+// An empty mask reads "no number of", to fit the sentences in explainRuleCounts.
 inline std::string describeCountsInWords(uint32_t mask) {
     std::vector<std::string> parts;
     int singleCounts = 0;
@@ -299,6 +305,7 @@ inline void stepLifeReference(const std::vector<uint32_t>& current, std::vector<
                         }
                     }
                 }
+                // Survive or be born: bit `neighbors` of the matching mask.
                 uint32_t mask = current[i] ? rule.surviveMask : rule.birthMask;
                 next[i] = (mask >> neighbors) & 1u;
             }

@@ -30,6 +30,7 @@ struct SavedBlock {
 };
 static_assert(sizeof(SavedBlock) == 16, "four int32 per block in the file");
 
+// Everything a save file holds, in memory.
 struct SavedWorld {
     uint32_t ruleIndex = 0;
     uint64_t generation = 0;
@@ -46,8 +47,10 @@ enum class SaveFileStatus {
     Truncated,
 };
 
+// Writes a "L3D2" file. False if the file could not be written.
 bool writeSaveFile(const std::string& path, const SavedWorld& world);
 
+// Reads a "L3D1" or "L3D2" file; `out` is changed only on success.
 // `ruleCount` is the number of rules a valid file may refer to. Counts are never
 // trusted further than the file's size, so a corrupt file cannot make the game
 // allocate gigabytes.

@@ -7,9 +7,13 @@
 namespace gol3d {
 
 struct PassCosts {
-    double stepMs = 0.0;     // one generation step over the whole world
-    double drawMs = 0.0;     // a build pass that also writes the block list
-    double statsMs = 0.0;    // a build pass that only gathers chunk stats
+    double stepMs = 0.0; // one generation step over the whole world
+    // A build pass that writes the block list without gathering stats: the one
+    // the governor reserves time for at the end of each frame.
+    double drawMs = 0.0;
+    // A build pass that gathers chunk stats (with or without the block list):
+    // the one that ends every batch of steps.
+    double statsMs = 0.0;
     double overheadMs = 0.0; // CPU side of a submission: recording, waiting, bookkeeping
 };
 

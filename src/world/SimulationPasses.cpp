@@ -1,3 +1,11 @@
+// SimulationPasses: pipelines, descriptor sets and the command recording for
+// one batch (steps, then a build, then readbacks). The pass structure is
+// described at the top of SimulationPasses.h.
+//
+// Synchronization: the frames and the batches are submitted to the same queue,
+// and a pipeline barrier orders everything submitted before it on that queue,
+// so barriers are all a batch needs; no semaphores.
+
 #include "world/SimulationPasses.h"
 
 #include <algorithm>
@@ -19,15 +27,18 @@
 namespace gol3d {
 namespace {
 
-// Push constants of life3d_step.comp.
+// Push constants of life3d_step.comp. Must match `Params` there, field for
+// field: dispatchOverChunks() fills in the first two.
 struct StepConstants {
     uint32_t firstIndex; // first entry of the active list in this dispatch
     uint32_t count;      // entries in this dispatch
     uint32_t surviveMask;
     uint32_t birthMask;
 };
+static_assert(sizeof(StepConstants) == 16, "four uints, as in life3d_step.comp");
 
-// Push constants of life3d_build.comp.
+// Push constants of life3d_build.comp. Must match `Params` there, field for
+// field (std430 packs these 4-byte scalars after the mat4 with no padding).
 struct BuildConstants {
     glm::mat4 cullViewProjection;
     uint32_t firstIndex;
@@ -36,30 +47,50 @@ struct BuildConstants {
     uint32_t flags;  // BUILD_* bits below
     uint32_t maxInstances;
     float cullDistance;
-    float cameraX, cameraY, cameraZ;
+    float cameraX;
+    float cameraY;
+    float cameraZ;
 };
+static_assert(sizeof(BuildConstants) == 100, "a mat4 and nine scalars, as in life3d_build.comp");
+
+// BuildConstants::flags; the same values are in life3d_build.comp.
 constexpr uint32_t BUILD_ANIMATE = 1; // flag births, draw the last deaths
 constexpr uint32_t BUILD_DRAW = 2;    // write the block list
 constexpr uint32_t BUILD_STATS = 4;   // count population and reach
 
 // Both passes use one descriptor set layout: these bindings, all storage
-// buffers, in the order of life3d_storage.glsl and the shaders.
+// buffers. The numbers must match the `binding = N` declarations in
+// life3d_storage.glsl, life3d_step.comp and life3d_build.comp.
 enum Binding : uint32_t {
-    CurrentCells, // the generation being read
-    OtherCells,   // the next generation (step) or the previous one (build)
-    Neighbors,
-    ActiveList,
-    BlockPool,
-    BlockSlots,
-    Stats,
-    Instances,
-    IndirectDraw,
-    Origins,
+    CurrentCells = 0, // the generation being read
+    OtherCells = 1,   // the next generation (step) or the previous one (build)
+    Neighbors = 2,
+    ActiveList = 3,
+    BlockPool = 4,
+    BlockSlots = 5,
+    Stats = 6,
+    Instances = 7,
+    IndirectDraw = 8,
+    Origins = 9,
     BindingCount,
 };
 
-// The spec only guarantees 65535 workgroups per dispatch dimension.
+// The compute grid: x is the slab within a chunk, y the chunk within this
+// dispatch's range of the active list. Must match SLAB_DEPTH in
+// life3d_storage.glsl (each workgroup is CHUNK_SIZE x SLAB_DEPTH rows).
+constexpr uint32_t SLAB_DEPTH = 8;
+constexpr uint32_t SLABS_PER_CHUNK = CHUNK_SIZE / SLAB_DEPTH;
+
+// Vulkan only guarantees 65535 workgroups along y (maxComputeWorkGroupCount[1]),
+// so larger worlds are split into several dispatches.
 constexpr uint32_t MAX_DISPATCH_CHUNKS = 65535;
+
+// Two descriptor sets, one per cell buffer that can hold the current generation.
+constexpr uint32_t DESCRIPTOR_SET_COUNT = 2;
+
+// A pass never reads as free, so the governor's divisions stay finite.
+constexpr double MIN_PASS_MS = 1e-4;
+constexpr double NANOSECONDS_PER_MILLISECOND = 1e6;
 
 // Timestamp query slots.
 enum Timestamp : uint32_t { BeforeSteps, AfterSteps, AfterBuild, TimestampCount };
@@ -153,11 +184,13 @@ VkPipeline SimulationPasses::createPipeline(const std::filesystem::path& shader)
 }
 
 void SimulationPasses::createDescriptorSets(const ChunkWorld& world) {
-    VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2 * BindingCount};
+    static_assert(DESCRIPTOR_SET_COUNT == std::tuple_size_v<decltype(descriptorSets_)>);
+    VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                  DESCRIPTOR_SET_COUNT * BindingCount};
     VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes = &poolSize;
-    poolInfo.maxSets = 2;
+    poolInfo.maxSets = DESCRIPTOR_SET_COUNT;
     if (vkCreateDescriptorPool(gpu_->device, &poolInfo, nullptr, &descriptorPool_) != VK_SUCCESS) {
         throw std::runtime_error("Could not create compute descriptor pool.");
     }
@@ -173,9 +206,11 @@ void SimulationPasses::createDescriptorSets(const ChunkWorld& world) {
     writeDescriptors(world);
 }
 
+// Set `current` binds cell buffer `current` as CurrentCells and the other one
+// as OtherCells, so flipping generations is just binding the other set.
 void SimulationPasses::writeDescriptors(const ChunkWorld& world) {
     const ChunkPool& pool = world.pool();
-    for (uint32_t current = 0; current < 2; ++current) {
+    for (uint32_t current = 0; current < DESCRIPTOR_SET_COUNT; ++current) {
         std::array<VkBuffer, BindingCount> buffers{};
         buffers[CurrentCells] = pool.cells[current].buffer;
         buffers[OtherCells] = pool.cells[1 - current].buffer;
@@ -207,15 +242,17 @@ void SimulationPasses::createTimestampQueries() {
     queryInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
     queryInfo.queryCount = TimestampCount;
     if (vkCreateQueryPool(gpu_->device, &queryInfo, nullptr, &timestamps_) == VK_SUCCESS) {
-        msPerTimestampTick_ = nsPerTick / 1e6;
+        msPerTimestampTick_ = nsPerTick / NANOSECONDS_PER_MILLISECOND;
+        // A counter with fewer than 64 valid bits wraps at 2^validBits.
         timestampMask_ = validBits >= 64 ? ~0ull : (1ull << validBits) - 1;
     }
 }
 
 // --------------------------------------------------------------- a batch
 
-// Each chunk is four workgroups of 32 x 8 rows; dispatches cover at most
-// MAX_DISPATCH_CHUNKS chunks of the active list each.
+// Runs the bound pipeline over the first `chunkCount` entries of the active
+// list: SLABS_PER_CHUNK workgroups per chunk, at most MAX_DISPATCH_CHUNKS
+// chunks per dispatch. `constants` gets each dispatch's range filled in.
 template <typename PushConstants>
 void SimulationPasses::dispatchOverChunks(VkCommandBuffer cmd, uint32_t chunkCount,
                                           PushConstants constants) {
@@ -224,7 +261,7 @@ void SimulationPasses::dispatchOverChunks(VkCommandBuffer cmd, uint32_t chunkCou
         constants.count = std::min(MAX_DISPATCH_CHUNKS, chunkCount - first);
         vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
                            &constants);
-        vkCmdDispatch(cmd, CHUNK_SIZE / 8, constants.count, 1);
+        vkCmdDispatch(cmd, SLABS_PER_CHUNK, constants.count, 1);
     }
 }
 
@@ -235,7 +272,10 @@ void SimulationPasses::run(const BatchRequest& request, ChunkWorld& world) {
         vkCmdResetQueryPool(cmd, timestamps_, 0, TimestampCount);
         vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, timestamps_, BeforeSteps);
     }
-    // Frames still in flight may be drawing the block list this batch rewrites.
+    // Write-after-read: frames submitted earlier may still be drawing the block
+    // list (indirect command and vertex shader reads). This batch's shaders,
+    // clears and copies overwrite it, so they wait for those draws and for any
+    // earlier compute work.
     memoryBarrier(cmd,
                   VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT |
                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -272,7 +312,8 @@ uint32_t SimulationPasses::recordSteps(VkCommandBuffer cmd, const BatchRequest& 
     const uint32_t chunkCount = world.activeChunkCount();
     uint32_t current = world.currentBuffer();
     if (request.steps == 0) return current;
-    if (chunkCount == 0) return (current + request.steps) & 1u; // an empty world stays empty
+    // An empty world stays empty; only the buffer parity advances, one flip per step.
+    if (chunkCount == 0) return (current + request.steps) & 1u;
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, stepPipeline_);
     const StepConstants constants{0, 0, request.rule->surviveMask, request.rule->birthMask};
@@ -280,7 +321,8 @@ uint32_t SimulationPasses::recordSteps(VkCommandBuffer cmd, const BatchRequest& 
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout_, 0, 1,
                                 &descriptorSets_[current], 0, nullptr);
         dispatchOverChunks(cmd, chunkCount, constants);
-        // The next step reads what this one wrote.
+        // The next step reads the rows this one wrote (read-after-write) and
+        // overwrites the rows this one read (write-after-read).
         memoryBarrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                       VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
@@ -290,14 +332,21 @@ uint32_t SimulationPasses::recordSteps(VkCommandBuffer cmd, const BatchRequest& 
 }
 
 // Records the build pass over the newest generation. It accumulates into the
-// stats and the draw count, so those are cleared first.
+// stats and the draw's instance count with atomics, so those are reset first.
 void SimulationPasses::recordBuild(VkCommandBuffer cmd, const BatchRequest& request,
                                    const ChunkWorld& world, uint32_t newest) {
     if (request.collectStats) vkCmdFillBuffer(cmd, world.pool().stats.buffer, 0, VK_WHOLE_SIZE, 0);
     if (request.writeBlockList) {
-        const VkDrawIndexedIndirectCommand emptyDraw{BLOCK_INDEX_COUNT, 0, 0, 0, 0};
+        // Every block is drawn with the same BLOCK_INDEX_COUNT indices; the
+        // shader counts the instances up from zero.
+        const VkDrawIndexedIndirectCommand emptyDraw{.indexCount = BLOCK_INDEX_COUNT,
+                                                     .instanceCount = 0,
+                                                     .firstIndex = 0,
+                                                     .vertexOffset = 0,
+                                                     .firstInstance = 0};
         vkCmdUpdateBuffer(cmd, indirectBuffer_.buffer, 0, sizeof(emptyDraw), &emptyDraw);
     }
+    // The fill and update (transfer commands) finish before the shader's atomics.
     memoryBarrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT | VK_PIPELINE_STAGE_2_COPY_BIT,
                   VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                   VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
@@ -309,6 +358,8 @@ void SimulationPasses::recordBuild(VkCommandBuffer cmd, const BatchRequest& requ
                             &descriptorSets_[newest], 0, nullptr);
     BuildConstants constants{};
     constants.cullViewProjection = request.cullViewProjection;
+    // Flag neighbors for life within MAX_BATCH cells, so the next batch of up to
+    // MAX_BATCH generations cannot outrun the chunks maintain() creates.
     constants.margin = MAX_BATCH;
     constants.flags = (request.animate ? BUILD_ANIMATE : 0) |
                       (request.writeBlockList ? BUILD_DRAW : 0) |
@@ -325,6 +376,8 @@ void SimulationPasses::recordBuild(VkCommandBuffer cmd, const BatchRequest& requ
 // draw count and (with collectStats) the chunk stats where the CPU can read them.
 void SimulationPasses::recordReadback(VkCommandBuffer cmd, const BatchRequest& request,
                                       const ChunkWorld& world) {
+    // Read-after-write: the build's results are read by later frames' draws (as
+    // the indirect command and by the vertex shader) and by the copies below.
     memoryBarrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
                   VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT |
                       VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_HOST_BIT,
@@ -337,6 +390,8 @@ void SimulationPasses::recordReadback(VkCommandBuffer cmd, const BatchRequest& r
         VkBufferCopy statsCopy{0, 0, pool.stats.size};
         vkCmdCopyBuffer(cmd, pool.stats.buffer, pool.statsReadback.buffer, 1, &statsCopy);
     }
+    // The copies land before the CPU reads them after the fence (same as
+    // copiesVisibleToHost, minus host writes).
     memoryBarrier(cmd, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                   VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT);
 }
@@ -345,28 +400,30 @@ uint64_t SimulationPasses::visibleBlocks() const {
     return readbackBuffer_.as<VkDrawIndexedIndirectCommand>()->instanceCount;
 }
 
-// Folds the batch that just finished into the cost estimates.
-void SimulationPasses::updateCosts(uint32_t steps, bool drawOnly, double wallMs) {
-    uint64_t ticks[TimestampCount] = {};
+// Folds the batch that just finished into the cost estimates. `drawOnlyBuild`
+// says which build estimate this batch measures (see PassCosts).
+void SimulationPasses::updateCosts(uint32_t steps, bool drawOnlyBuild, double wallMs) {
+    std::array<uint64_t, TimestampCount> ticks{};
     bool haveTimestamps =
         timestamps_ &&
-        vkGetQueryPoolResults(gpu_->device, timestamps_, 0, TimestampCount, sizeof(ticks), ticks,
-                              sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS;
-    double& buildCost = drawOnly ? costs_.drawMs : costs_.statsMs;
+        vkGetQueryPoolResults(gpu_->device, timestamps_, 0, TimestampCount, sizeof(ticks),
+                              ticks.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS;
+    double& buildCost = drawOnlyBuild ? costs_.drawMs : costs_.statsMs;
     if (!haveTimestamps) {
         // Charge the whole wall time to the steps (or to the build alone).
         if (steps > 0) {
-            smoothCost(costs_.stepMs, std::max(1e-4, wallMs / steps));
+            smoothCost(costs_.stepMs, std::max(MIN_PASS_MS, wallMs / steps));
         } else {
             smoothCost(buildCost, wallMs);
         }
         return;
     }
-    // Counters may wrap past their valid bits; masking the difference handles
-    // that. A pass never reads as free, so costs stay positive.
+    // Unsigned subtraction wraps modulo 2^64; masking to the counter's valid
+    // bits turns that into the right difference even when the counter itself
+    // wrapped between the two timestamps.
     auto elapsedMs = [&](Timestamp from, Timestamp to) {
         uint64_t elapsedTicks = (ticks[to] - ticks[from]) & timestampMask_;
-        return std::max(1e-4, static_cast<double>(elapsedTicks) * msPerTimestampTick_);
+        return std::max(MIN_PASS_MS, static_cast<double>(elapsedTicks) * msPerTimestampTick_);
     };
     double stepMs = elapsedMs(BeforeSteps, AfterSteps);
     double buildMs = elapsedMs(AfterSteps, AfterBuild);

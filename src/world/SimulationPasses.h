@@ -34,6 +34,7 @@ class ImmediateCommands;
 // generation, so this many generations can run before the CPU must add chunks.
 constexpr uint32_t MAX_BATCH = 8;
 
+// What one call to SimulationPasses::run does.
 struct BatchRequest {
     uint32_t steps = 0;         // generations to advance, at most MAX_BATCH
     bool animate = false;       // flag births and keep the last deaths in the block list
@@ -45,6 +46,8 @@ struct BatchRequest {
     float cullDistance = 0.0f; // chunks farther than this are not drawn
 };
 
+// Owns the two compute pipelines, their descriptor sets, the block list
+// buffers and the timestamp queries; ChunkWorld owns the buffers they work on.
 class SimulationPasses {
 public:
     void init(const GpuContext& gpu, BufferAllocator& allocator, ImmediateCommands& commands,
@@ -79,7 +82,7 @@ private:
     void recordBuild(VkCommandBuffer cmd, const BatchRequest& request, const ChunkWorld& world,
                      uint32_t newest);
     void recordReadback(VkCommandBuffer cmd, const BatchRequest& request, const ChunkWorld& world);
-    void updateCosts(uint32_t steps, bool drawOnly, double wallMs);
+    void updateCosts(uint32_t steps, bool drawOnlyBuild, double wallMs);
 
     const GpuContext* gpu_ = nullptr;
     BufferAllocator* allocator_ = nullptr;
@@ -90,14 +93,16 @@ private:
     VkPipeline stepPipeline_ = VK_NULL_HANDLE;
     VkPipeline buildPipeline_ = VK_NULL_HANDLE;
     VkDescriptorPool descriptorPool_ = VK_NULL_HANDLE;
-    // descriptorSets_[b] reads cell buffer b as the current generation.
+    // descriptorSets_[b] reads cell buffer b as the current generation and binds
+    // the other as the next (step) or previous (build) generation.
     std::array<VkDescriptorSet, 2> descriptorSets_{};
 
     GpuBuffer instanceBuffer_; // the block list
     GpuBuffer indirectBuffer_; // VkDrawIndexedIndirectCommand for drawing it
     GpuBuffer readbackBuffer_; // a CPU copy of the indirect command, for the block count
 
-    // GPU timestamps: before the steps, after the steps, after the build.
+    // GPU timestamps: before the steps, after the steps, after the build. Null
+    // when the queue cannot write timestamps; costs then come from wall time.
     VkQueryPool timestamps_ = VK_NULL_HANDLE;
     double msPerTimestampTick_ = 0.0;
     uint64_t timestampMask_ = ~0ull; // the bits a timestamp counter actually has
