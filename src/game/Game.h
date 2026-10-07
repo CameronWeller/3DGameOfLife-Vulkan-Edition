@@ -13,7 +13,8 @@
 //   GameChecks.cpp     --verify (GPU against the CPU reference) and --bench
 //
 // Each frame (mainLoop):
-//   1. input: GLFW callbacks have already updated the player and the hotbar;
+//   1. input: glfwPollEvents() runs the GLFW callbacks, which update the player,
+//      the hotbar and the open screen;
 //   2. movement and simulation: updateMovement(), then updateSimulation() runs
 //      as many generations as the frame's time budget allows;
 //   3. edits and camera moves since the last build trigger a block-list rebuild;
@@ -77,6 +78,10 @@ private:
     // ...or turns most of the way out of the culling view, which is this much
     // wider than the camera's on every side.
     static constexpr float CULL_MARGIN_DEGREES = 20.0f;
+    // Because the camera may travel REBUILD_DISTANCE before the next rebuild,
+    // culling keeps blocks this far past the fog and starts this far behind
+    // the camera.
+    static constexpr float CULL_SLACK = 2.0f * REBUILD_DISTANCE;
     // At max speed or during a fast-forward the simulation may take at least
     // this much of each frame, whatever the "time per frame" setting says.
     static constexpr int FLAT_OUT_MIN_BUDGET_MS = 25;
@@ -96,10 +101,11 @@ private:
     struct Brush {
         static constexpr int EMPTY_HAND = -1;
         int hotbarSlot = 0; // a Stamp, or EMPTY_HAND: nothing to place, no outline
-        bool emptyHand() const { return hotbarSlot == EMPTY_HAND; }
         CellKind material = CellKind::Life;
         int rotation = 0; // quarter turns around the placement surface (Q/E)
         int tilt = 0;     // quarter turns around the world x axis (Z/C)
+
+        bool emptyHand() const { return hotbarSlot == EMPTY_HAND; }
     };
 
     // A mouse button that repeats its action while held.
@@ -110,7 +116,7 @@ private:
 
     // The last change's birth/death animation.
     struct ChangeAnimation {
-        double startTime = -100.0;
+        double startTime = -100.0;      // glfwGetTime() seconds; long ago until the first change
         float seconds = 0.0f;           // 0 = the last change is not animated
         bool lastBuildAnimated = false; // the current block list has birth/death flags
     };
@@ -131,6 +137,7 @@ private:
 
     // ---- Game.cpp: the frame loop
     void mainLoop();
+    void rebuildIfOutdated(const IsSolid& isSolid);
     void drawFrame();
     FrameUniforms frameUniforms() const;
     std::vector<Box> outlineBoxes();
@@ -164,8 +171,8 @@ private:
     // updates the chunk set and rebuilds the block list as `options` say.
     void runBatch(uint32_t steps, BatchOptions options = {});
     void rebuild(Rebuild reason);
-    // Runs n generations as fast as possible, in full batches (scripts, --steps).
-    void advanceGenerations(uint64_t n);
+    // Runs `generations` as fast as possible, in full batches (scripts, --steps).
+    void advanceGenerations(uint64_t generations);
     void updateSimulation(float deltaTime);
     uint64_t generationsDue(float deltaTime);
     uint64_t runDueGenerations(uint64_t due, bool flatOut, double budgetMs,
@@ -269,7 +276,11 @@ private:
     // Window and GPU.
     GLFWwindow* window_ = nullptr;
     bool fullscreen_ = false;
-    int windowedX_ = 100, windowedY_ = 100, windowedWidth_ = 1280, windowedHeight_ = 800;
+    // The window's place and size before going fullscreen, restored when leaving it.
+    int windowedX_ = 100;
+    int windowedY_ = 100;
+    int windowedWidth_ = 1280;
+    int windowedHeight_ = 800;
     GpuContext gpu_;
     BufferAllocator buffers_;
     ImmediateCommands commands_;
@@ -288,6 +299,8 @@ private:
     bool editOpen_ = false;
     bool blockListStale_ = false; // the last batch skipped the block list
     bool pausedAtLimit_ = false;  // paused once already at the chunk limit
+    // Where the camera was when the chunks were last sorted by distance (far away
+    // at first, so the first block list sorts), and when the block list was built.
     glm::vec3 lastSortEye_{1e9f};
     glm::vec3 lastBuildEye_{0.0f};
     glm::vec3 lastBuildForward_{1.0f, 0.0f, 0.0f};
@@ -302,9 +315,9 @@ private:
     uint64_t fastForward_ = 0; // generations left in a J / Shift+J fast-forward
     uint64_t fastForwardTotal_ = 0;
     double simCooldownUntil_ = 0.0; // after a frame far over budget, skip simulating until then
-    RateMeter rateMeter_;
-    SlowdownIndicator slowdown_;
-    float lastSimMs_ = 0.0f;
+    RateMeter rateMeter_;           // the speed actually reached, for the HUD
+    SlowdownIndicator slowdown_;    // whether the governor recently fell behind the target
+    float lastSimMs_ = 0.0f;        // wall time the last frame spent simulating
 
     // The player and their tools.
     Player player_;
@@ -317,13 +330,14 @@ private:
     // Mouse and keys.
     bool cursorCaptured_ = false;
     bool haveCursorPosition_ = false;
-    double lastCursorX_ = 0.0, lastCursorY_ = 0.0;
+    double lastCursorX_ = 0.0;
+    double lastCursorY_ = 0.0;
     bool f3UsedInCombo_ = false; // F3+G used: releasing F3 does not toggle the debug overlay
 
     // HUD and menus.
     Screen screen_ = Screen::Playing;
-    Screen shownScreen_ = Screen::Playing;
-    double menuOpenedAt_ = 0.0; // menus fade in
+    Screen shownScreen_ = Screen::Playing; // the screen drawn last frame, to see when one opens
+    double menuOpenedAt_ = 0.0;            // menus fade in
     bool runningBeforePause_ = false;
     bool hudVisible_ = true;
     bool showDebug_ = false;
@@ -331,8 +345,8 @@ private:
     bool imguiReady_ = false;
     float uiScale_ = 0.0f;
     ImFont* titleFont_ = nullptr;
-    ImGuiStyle baseStyle_; // the style at scale 1, rescaled when the GUI scale changes
-    double slotNameUntil_ = 0.0;
+    ImGuiStyle baseStyle_;       // the style at scale 1, rescaled when the GUI scale changes
+    double slotNameUntil_ = 0.0; // glfwGetTime() at which the selected stamp's name is gone
     std::string toast_;
     double toastUntil_ = 0.0;
     NewWorldForm newWorldForm_;
@@ -342,8 +356,8 @@ private:
 
     // Frame timing.
     std::chrono::steady_clock::time_point startTime_ = std::chrono::steady_clock::now();
-    float titleTimer_ = 0.0f;
-    uint32_t titleFrames_ = 0;
+    float titleTimer_ = 0.0f;  // seconds since the window title was last refreshed
+    uint32_t titleFrames_ = 0; // frames since then: together they give fps_
     float fps_ = 0.0f;
     uint64_t framesRendered_ = 0;
     float worstFrameMs_ = 0.0f;

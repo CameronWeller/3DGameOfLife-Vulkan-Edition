@@ -19,9 +19,10 @@ struct ReferenceBox {
     static constexpr int SIZE = 96;
     static constexpr int HALF = SIZE / 2; // the box spans -48..47 on each axis
 
+    // One entry per cell, x fastest, then y, then z (see index()).
     std::vector<uint32_t> cells = std::vector<uint32_t>(static_cast<size_t>(SIZE) * SIZE * SIZE);
-    std::vector<uint8_t> blocks = std::vector<uint8_t>(cells.size()); // CellKind values, 0 = none
-    std::vector<uint32_t> scratch;
+    std::vector<uint8_t> blocks = std::vector<uint8_t>(cells.size()); // Stone or Ember, 0 = none
+    std::vector<uint32_t> scratch; // the next generation, swapped into `cells`
 
     static size_t index(int x, int y, int z) {
         return (static_cast<size_t>(z) * SIZE + y) * SIZE + x;
@@ -29,9 +30,42 @@ struct ReferenceBox {
     // The world cell at box position (x, y, z).
     static glm::ivec3 worldCell(int x, int y, int z) { return glm::ivec3(x, y, z) - HALF; }
 
+    // Copies the GPU world's cells and blocks inside the box.
+    void copyFrom(const ChunkWorld& world) {
+        for (int z = 0; z < SIZE; ++z) {
+            for (int y = 0; y < SIZE; ++y) {
+                for (int x = 0; x < SIZE; ++x) {
+                    std::optional<CellKind> kind = world.cellKind(worldCell(x, y, z));
+                    bool isBlock = kind && *kind != CellKind::Life;
+                    cells[index(x, y, z)] = kind == CellKind::Life ? 1u : 0u;
+                    blocks[index(x, y, z)] = isBlock ? static_cast<uint8_t>(*kind) : 0;
+                }
+            }
+        }
+    }
+
     void step(const LifeRule& rule) {
         stepLifeReference(cells, scratch, SIZE, SIZE, SIZE, rule, &blocks);
         cells.swap(scratch);
+    }
+
+    // The cells inside the box that differ from `world`, plus one if the box's
+    // population differs from the world's (which catches stray cells outside it).
+    size_t countMismatches(const ChunkWorld& world, uint64_t worldPopulation) const {
+        size_t mismatches = 0;
+        uint64_t expectedPopulation = 0;
+        for (int z = 0; z < SIZE; ++z) {
+            for (int y = 0; y < SIZE; ++y) {
+                for (int x = 0; x < SIZE; ++x) {
+                    uint32_t expected = cells[index(x, y, z)];
+                    expectedPopulation += expected;
+                    bool alive = world.isAlive(worldCell(x, y, z));
+                    if ((alive ? 1u : 0u) != expected) ++mismatches;
+                }
+            }
+        }
+        if (expectedPopulation != worldPopulation) ++mismatches;
+        return mismatches;
     }
 };
 
@@ -63,8 +97,11 @@ bool Game::verifyAgainstReference() {
 size_t Game::verifyRule(uint32_t batch) {
     constexpr int SOUP = 14; // the soup spans -7..6 on each axis
     constexpr int STEPS = 24;
+    // A cell's roll in [0, 1) picks what it starts as: Stone below STONE_BELOW,
+    // Ember below EMBER_BELOW, then Life with the rule's soup density.
+    constexpr float STONE_BELOW = 0.015f;
+    constexpr float EMBER_BELOW = 0.03f;
 
-    // The soup: about 1.5% Stone, 1.5% Ember, the rest life at the rule's density.
     resetWorld();
     generation_ = 0;
     rng_.seed(options_.seed + static_cast<uint32_t>(ruleIndex_));
@@ -74,11 +111,11 @@ size_t Game::verifyRule(uint32_t batch) {
         for (int y = -SOUP / 2; y < SOUP / 2; ++y) {
             for (int x = -SOUP / 2; x < SOUP / 2; ++x) {
                 float roll = chance(rng_);
-                if (roll < 0.015f) {
+                if (roll < STONE_BELOW) {
                     placeCell({x, y, z}, CellKind::Stone);
-                } else if (roll < 0.03f) {
+                } else if (roll < EMBER_BELOW) {
                     placeCell({x, y, z}, CellKind::Ember);
-                } else if (roll < 0.03f + density) {
+                } else if (roll < EMBER_BELOW + density) {
                     world_.setLife({x, y, z}, true);
                 }
             }
@@ -86,20 +123,8 @@ size_t Game::verifyRule(uint32_t batch) {
     }
     runBatch(0);
 
-    // Copy the GPU world into the reference box.
     ReferenceBox reference;
-    const int size = ReferenceBox::SIZE;
-    for (int z = 0; z < size; ++z) {
-        for (int y = 0; y < size; ++y) {
-            for (int x = 0; x < size; ++x) {
-                std::optional<CellKind> kind = world_.cellKind(ReferenceBox::worldCell(x, y, z));
-                bool isBlock = kind && *kind != CellKind::Life;
-                reference.cells[ReferenceBox::index(x, y, z)] = kind == CellKind::Life ? 1u : 0u;
-                reference.blocks[ReferenceBox::index(x, y, z)] =
-                    isBlock ? static_cast<uint8_t>(*kind) : 0;
-            }
-        }
-    }
+    reference.copyFrom(world_);
 
     // Step both and compare after every batch.
     size_t mismatches = 0;
@@ -108,24 +133,13 @@ size_t Game::verifyRule(uint32_t batch) {
             reference.step(rule());
         }
         runBatch(batch);
-        uint64_t expectedPopulation = 0;
-        for (int z = 0; z < size; ++z) {
-            for (int y = 0; y < size; ++y) {
-                for (int x = 0; x < size; ++x) {
-                    uint32_t want = reference.cells[ReferenceBox::index(x, y, z)];
-                    expectedPopulation += want;
-                    bool got = world_.isAlive(ReferenceBox::worldCell(x, y, z));
-                    if ((got ? 1u : 0u) != want) ++mismatches;
-                }
-            }
-        }
-        // A population mismatch catches stray cells outside the box.
-        if (expectedPopulation != population_) ++mismatches;
+        mismatches += reference.countMismatches(world_, population_);
     }
     return mismatches;
 }
 
 // --bench N: the simulation alone, as fast as it goes, from the starting world.
+// Stops early after the batch that reaches the chunk limit.
 int Game::runBenchmark(uint64_t generations) {
     uint64_t peakChunks = world_.activeChunkCount();
     const uint64_t startPopulation = population_;

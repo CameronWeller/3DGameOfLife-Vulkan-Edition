@@ -20,10 +20,44 @@ namespace {
 
 constexpr double TOAST_SECONDS = 4.0;
 constexpr double FADE_OUT_SECONDS = 0.5; // toasts and stamp names fade over their last half second
+constexpr int QUARTER_TURN_DEGREES = 90;
+constexpr float TITLE_REFRESH_SECONDS = 0.25f;
+
+// The hotbar's metrics in pixels at scale 1, as in shaders/life3d_screen.frag
+// (HUD_SCALE_HEIGHT, HOTBAR_SLOT). The stamp name sits STAMP_NAME_LIFT above
+// the hotbar's slots: the shader's 10-pixel bottom margin plus a 6-pixel gap.
+constexpr float HUD_SCALE_HEIGHT = 540.0f;
+constexpr float HOTBAR_SLOT = 40.0f;
+constexpr float STAMP_NAME_LIFT = 16.0f;
+
+// The run-state icon in the status panel, in fractions of its line height: a
+// play triangle, or two pause bars, both ICON_WIDTH wide.
+constexpr float ICON_WIDTH = 0.62f;
+
+// The population graph's "peak" label is drawn at this fraction of the font
+// size; its measured width is scaled to match.
+constexpr float PEAK_LABEL_SCALE = 0.8f;
 
 // Alpha for something that fades out as `secondsLeft` reaches zero.
 int fadeOutAlpha(double secondsLeft) {
     return static_cast<int>(255.0 * std::min(1.0, secondsLeft / FADE_OUT_SECONDS));
+}
+
+// A play triangle in `accent` while the simulation runs, two pause bars in
+// `muted` while it is paused. (x, y) is its top left; `icon` its height, the
+// line height.
+void drawRunStateIcon(ImDrawList* draw, float x, float y, float icon, bool running, ImU32 accent,
+                      ImU32 muted) {
+    using ui::px;
+    if (running) {
+        draw->AddTriangleFilled(ImVec2(x, y + icon * 0.15f), ImVec2(x, y + icon * 0.85f),
+                                ImVec2(x + icon * ICON_WIDTH, y + icon * 0.5f), accent);
+    } else {
+        draw->AddRectFilled(ImVec2(x, y + icon * 0.18f), ImVec2(x + icon * 0.22f, y + icon * 0.82f),
+                            muted, px(1));
+        draw->AddRectFilled(ImVec2(x + icon * 0.4f, y + icon * 0.18f),
+                            ImVec2(x + icon * ICON_WIDTH, y + icon * 0.82f), muted, px(1));
+    }
 }
 
 } // namespace
@@ -45,9 +79,11 @@ std::string Game::handLabel() const {
         label += std::string(" of ") + cellType(brush_.material).name;
     }
     if (brush_.rotation != 0) {
-        label += " (rotated " + std::to_string(brush_.rotation * 90) + " deg)";
+        label += " (rotated " + std::to_string(brush_.rotation * QUARTER_TURN_DEGREES) + " deg)";
     }
-    if (brush_.tilt != 0) label += " (tilted " + std::to_string(brush_.tilt * 90) + " deg)";
+    if (brush_.tilt != 0) {
+        label += " (tilted " + std::to_string(brush_.tilt * QUARTER_TURN_DEGREES) + " deg)";
+    }
     return label;
 }
 
@@ -162,19 +198,11 @@ void Game::drawStatusPanel(const std::string& title, ImU32 accent,
     draw->AddRectFilled(min, ImVec2(min.x + px(3), max.y), accent, px(8),
                         ImDrawFlags_RoundCornersLeft);
 
-    // Run state icon (a play triangle or pause bars), then the title.
+    // Run state icon, then the title.
     float x = min.x + px(12);
     float y = min.y + px(6);
-    if (running_ || fastForward_ > 0) {
-        draw->AddTriangleFilled(ImVec2(x, y + icon * 0.15f), ImVec2(x, y + icon * 0.85f),
-                                ImVec2(x + icon * 0.62f, y + icon * 0.5f), accent);
-    } else {
-        draw->AddRectFilled(ImVec2(x, y + icon * 0.18f), ImVec2(x + icon * 0.22f, y + icon * 0.82f),
-                            muted, px(1));
-        draw->AddRectFilled(ImVec2(x + icon * 0.4f, y + icon * 0.18f),
-                            ImVec2(x + icon * 0.62f, y + icon * 0.82f), muted, px(1));
-    }
-    draw->AddText(ImVec2(x + icon * 0.62f + px(6), y), white, title.c_str());
+    drawRunStateIcon(draw, x, y, icon, running_ || fastForward_ > 0, accent, muted);
+    draw->AddText(ImVec2(x + icon * ICON_WIDTH + px(6), y), white, title.c_str());
     y += line;
     for (const HudLine& row : lines) {
         draw->AddText(ImVec2(x, y), row.color, row.text.c_str());
@@ -190,13 +218,13 @@ void Game::drawStatusPanel(const std::string& title, ImU32 accent,
     y += line;
 
     if (showProgress && fastForwardTotal_ > 0) {
-        float done = static_cast<float>(fastForwardTotal_ - fastForward_) /
-                     static_cast<float>(fastForwardTotal_);
+        float doneFraction = static_cast<float>(fastForwardTotal_ - fastForward_) /
+                             static_cast<float>(fastForwardTotal_);
         ImVec2 barMin(x, y + px(2));
         ImVec2 barMax(min.x + width + px(10), y + px(6));
         draw->AddRectFilled(barMin, barMax, ui::color(ui::palette::TRACK), px(2));
-        draw->AddRectFilled(barMin, ImVec2(barMin.x + (barMax.x - barMin.x) * done, barMax.y),
-                            ui::accentColor(), px(2));
+        const float filledRight = barMin.x + (barMax.x - barMin.x) * doneFraction;
+        draw->AddRectFilled(barMin, ImVec2(filledRight, barMax.y), ui::accentColor(), px(2));
         y += px(8);
     }
     if (showGraph) {
@@ -213,16 +241,19 @@ void Game::drawPopulationGraph(ImDrawList* draw, ImVec2 min, ImVec2 max) {
         peak = std::max(peak, value);
     }
     const size_t count = populationHistory_.size();
+    // Sample i, from the oldest at the left edge to the newest at the right.
     auto point = [&](size_t i) {
-        float t = static_cast<float>(i) / static_cast<float>(count - 1);
-        return ImVec2(min.x + t * (max.x - min.x),
+        float across = static_cast<float>(i) / static_cast<float>(count - 1);
+        return ImVec2(min.x + across * (max.x - min.x),
                       max.y - (max.y - min.y) * populationHistory_[i] / peak);
     };
     draw->AddLine(ImVec2(min.x, max.y), max, ui::color(ui::palette::BORDER, 60), px(1)); // baseline
+    // The fill: one quad from the baseline up to each segment of the line.
     for (size_t i = 0; i + 1 < count; ++i) {
-        ImVec2 a = point(i);
-        ImVec2 b = point(i + 1);
-        draw->AddQuadFilled(ImVec2(a.x, max.y), a, b, ImVec2(b.x, max.y), ui::accentColor(46));
+        ImVec2 left = point(i);
+        ImVec2 right = point(i + 1);
+        draw->AddQuadFilled(ImVec2(left.x, max.y), left, right, ImVec2(right.x, max.y),
+                            ui::accentColor(46));
     }
     std::vector<ImVec2> points(count);
     for (size_t i = 0; i < count; ++i) {
@@ -231,24 +262,24 @@ void Game::drawPopulationGraph(ImDrawList* draw, ImVec2 min, ImVec2 max) {
     draw->AddPolyline(points.data(), static_cast<int>(count), ui::accentColor(220), px(1.5f));
     const std::string label = "peak " + ui::withCommas(static_cast<uint64_t>(peak));
     const ImVec2 labelSize = ImGui::CalcTextSize(label.c_str());
-    draw->AddText(ImGui::GetFont(), ImGui::GetFontSize() * 0.8f,
-                  ImVec2(max.x - labelSize.x * 0.8f, min.y - px(2)),
+    draw->AddText(ImGui::GetFont(), ImGui::GetFontSize() * PEAK_LABEL_SCALE,
+                  ImVec2(max.x - labelSize.x * PEAK_LABEL_SCALE, min.y - px(2)),
                   ui::color(ui::palette::HUD_TEXT, 200), label.c_str());
 }
 
-// The selected stamp's name above the hotbar, fading out. The hotbar's metrics
-// (540-line scale steps, 40-pixel slots) match hotbar() in
-// shaders/life3d_screen.frag.
+// The selected stamp's name above the hotbar, fading out. The hotbar itself is
+// drawn by hotbar() in shaders/life3d_screen.frag, whose scale (whole steps
+// with the window height) this repeats.
 void Game::drawSelectedStampName(ImDrawList* draw) {
     const double secondsLeft = slotNameUntil_ - glfwGetTime();
     if (secondsLeft <= 0.0 || brush_.emptyHand()) return;
     const ImVec2 screen = ImGui::GetIO().DisplaySize;
-    const float hotbarScale = std::max(1.0f, std::floor(screen.y / 540.0f));
-    const float slotSize = 40.0f * hotbarScale;
+    const float hotbarScale = std::max(1.0f, std::floor(screen.y / HUD_SCALE_HEIGHT));
+    const float slotSize = HOTBAR_SLOT * hotbarScale;
     const std::string name = handLabel();
     const ImVec2 textSize = ImGui::CalcTextSize(name.c_str());
     const ImVec2 position((screen.x - textSize.x) * 0.5f,
-                          screen.y - slotSize - 16.0f * hotbarScale - textSize.y);
+                          screen.y - slotSize - STAMP_NAME_LIFT * hotbarScale - textSize.y);
     ui::shadowText(draw, position, name, IM_COL32(255, 255, 255, fadeOutAlpha(secondsLeft)));
 }
 
@@ -275,8 +306,8 @@ void Game::drawToast() {
 void Game::updateWindowTitle(float deltaTime) {
     titleTimer_ += deltaTime;
     titleFrames_++;
-    if (titleTimer_ < 0.25f) return;
-    fps_ = titleFrames_ / titleTimer_;
+    if (titleTimer_ < TITLE_REFRESH_SECONDS) return;
+    fps_ = static_cast<float>(titleFrames_) / titleTimer_;
     titleTimer_ = 0.0f;
     titleFrames_ = 0;
     const glm::vec3 feet = player_.feet();

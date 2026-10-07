@@ -22,6 +22,10 @@ constexpr size_t POPULATION_HISTORY = 240;      // generations shown in the HUD 
 constexpr float NEAR_PLANE = 0.05f;
 constexpr float FAR_PLANE = 1000.0f;         // fog ends well before this
 constexpr float CULLING_FAR_PLANE = 4096.0f; // beyond the largest render distance
+const glm::vec3 WORLD_UP(0.0f, 1.0f, 0.0f);
+// The culling view is never wider than this on either side of its center, so
+// the widened projection stays finite (tan(90 degrees) is infinite).
+constexpr float MAX_CULL_HALF_ANGLE_DEGREES = 85.0f;
 
 // Speeds up to this many generations per second animate every generation's
 // births and deaths, over STEP_ANIMATION_SECONDS or 3/4 of a tick if shorter.
@@ -58,7 +62,7 @@ void Game::runBatch(uint32_t steps, BatchOptions options) {
     request.cullViewProjection = cullingViewProjection();
     request.eye = player_.eye;
     // A little past the fog, so blocks do not pop in before the next rebuild.
-    request.cullDistance = static_cast<float>(settings_.renderDistance) + 2.0f * REBUILD_DISTANCE;
+    request.cullDistance = static_cast<float>(settings_.renderDistance) + CULL_SLACK;
     passes_.run(request, world_);
 
     generation_ += steps;
@@ -103,11 +107,12 @@ void Game::recordPopulation() {
     }
 }
 
-void Game::advanceGenerations(uint64_t n) {
-    while (n > 0) {
-        uint32_t batch = static_cast<uint32_t>(std::min<uint64_t>(n, MAX_BATCH));
-        n -= batch;
-        bool lastBatch = n == 0;
+void Game::advanceGenerations(uint64_t generations) {
+    uint64_t left = generations;
+    while (left > 0) {
+        uint32_t batch = static_cast<uint32_t>(std::min<uint64_t>(left, MAX_BATCH));
+        left -= batch;
+        bool lastBatch = left == 0;
         runBatch(batch, {.writeBlockList = lastBatch}); // only the last block list is ever seen
     }
 }
@@ -148,6 +153,7 @@ void Game::updateSimulation(float deltaTime) {
     settleDebt(due, done, flatOut, now);
 
     lastSimMs_ = static_cast<float>(millisecondsSince(start));
+    // Idle for as long as the overrun took (milliseconds to seconds).
     if (lastSimMs_ > OVERRUN_FACTOR * budgetMs) simCooldownUntil_ = now + lastSimMs_ / 1000.0;
 }
 
@@ -279,24 +285,34 @@ glm::mat4 Game::viewProjection() const {
         glm::perspective(glm::radians(settings_.fov), aspect, NEAR_PLANE, FAR_PLANE);
     projection[1][1] *= -1; // Vulkan's clip space has y pointing down
     const glm::vec3 forward = player_.forward();
-    return projection * glm::lookAt(player_.eye, player_.eye + forward, glm::vec3(0, 1, 0));
+    return projection * glm::lookAt(player_.eye, player_.eye + forward, WORLD_UP);
 }
 
 // The view the block list is culled to: CULL_MARGIN_DEGREES wider than the
 // camera's on every side, and starting a little behind it, so turning a little
 // or stepping back does not uncover missing blocks before the next rebuild.
+//
+// The projection is not flipped like viewProjection()'s: the culling pass only
+// tests whether a chunk is inside, which a y flip does not change.
 glm::mat4 Game::cullingViewProjection() const {
     const float aspect = renderer_.swapchain().aspectRatio();
-    const float maxHalfAngle = glm::radians(85.0f);
-    const float halfY = glm::radians(settings_.fov * 0.5f);
-    const float halfX = std::atan(std::tan(halfY) * aspect);
-    const float wideY = std::min(halfY + glm::radians(CULL_MARGIN_DEGREES), maxHalfAngle);
-    const float wideX = std::min(halfX + glm::radians(CULL_MARGIN_DEGREES), maxHalfAngle);
-    glm::mat4 projection = glm::perspective(2.0f * wideY, std::tan(wideX) / std::tan(wideY),
-                                            NEAR_PLANE, CULLING_FAR_PLANE);
+    const float maxHalfAngle = glm::radians(MAX_CULL_HALF_ANGLE_DEGREES);
+    // Half-angles of the camera's view, vertically and horizontally.
+    const float halfAngleY = glm::radians(settings_.fov * 0.5f);
+    const float halfAngleX = std::atan(std::tan(halfAngleY) * aspect);
+    // The same, widened by the margin.
+    const float wideHalfAngleY =
+        std::min(halfAngleY + glm::radians(CULL_MARGIN_DEGREES), maxHalfAngle);
+    const float wideHalfAngleX =
+        std::min(halfAngleX + glm::radians(CULL_MARGIN_DEGREES), maxHalfAngle);
+    // glm::perspective takes a vertical field of view and the width/height
+    // ratio of the image plane, which is the ratio of the half-angles' tangents.
+    const float wideAspect = std::tan(wideHalfAngleX) / std::tan(wideHalfAngleY);
+    glm::mat4 projection =
+        glm::perspective(2.0f * wideHalfAngleY, wideAspect, NEAR_PLANE, CULLING_FAR_PLANE);
     const glm::vec3 forward = player_.forward();
-    const glm::vec3 back = player_.eye - forward * (2.0f * REBUILD_DISTANCE);
-    return projection * glm::lookAt(back, back + forward, glm::vec3(0, 1, 0));
+    const glm::vec3 back = player_.eye - forward * CULL_SLACK;
+    return projection * glm::lookAt(back, back + forward, WORLD_UP);
 }
 
 } // namespace gol3d

@@ -1,3 +1,7 @@
+// The Game class's spine: construction from the command line, window and GPU
+// setup, the frame loop, and the world's lifecycle (new worlds, edits, saves,
+// tutorial scenes). See Game.h for how the class is split across files.
+
 #include "game/Game.h"
 
 #include <algorithm>
@@ -15,7 +19,27 @@
 namespace gol3d {
 namespace {
 
+// Toward the sun (FrameUniforms::sun): high in the sky and off to one side.
 const glm::vec3 SUN_DIRECTION = glm::normalize(glm::vec3(0.45f, 0.80f, 0.30f));
+
+// The first frames include one-off start-up work, so the "worst frame" in the
+// exit summary only counts frames after this many have been rendered.
+constexpr uint64_t UNTIMED_STARTUP_FRAMES = 2;
+// A longer frame (a breakpoint, a dragged window) is treated as this long, so a
+// stall does not fling the player or pile up owed generations.
+constexpr float MAX_FRAME_SECONDS = 0.25f;
+// The block list is rebuilt once the camera turns through this fraction of the
+// culling view's extra margin (CULL_MARGIN_DEGREES).
+constexpr float REBUILD_TURN_FRACTION = 0.75f;
+// Fog thickens from this fraction of the render distance to the full distance.
+constexpr float FOG_START_FRACTION = 0.45f;
+
+// The outline color of a placement preview in `material`.
+BoxColor placementColor(CellKind material) {
+    if (material == CellKind::Stone) return BoxColor::PlaceStone;
+    if (material == CellKind::Ember) return BoxColor::PlaceEmber;
+    return BoxColor::PlaceLife;
+}
 
 } // namespace
 
@@ -135,11 +159,12 @@ void Game::openStartupMenu() {
     } else if (menu == "newworld") {
         openPauseMenu();
         openNewWorldScreen();
-    } else if (menu.rfind("tutorial", 0) == 0) {
-        // --menu tutorial:N opens lesson N; --steps then advances the lesson's scene.
+    } else if (menu.starts_with("tutorial")) {
+        // --menu tutorial:N opens lesson N (counting from 1; plain "tutorial" opens
+        // the first); --steps then advances the lesson's scene.
         const std::string prefix = "tutorial:";
-        size_t lesson =
-            menu.size() > prefix.size() ? std::stoul(menu.substr(prefix.size())) - 1 : 0;
+        size_t lesson = 0;
+        if (menu.size() > prefix.size()) lesson = std::stoul(menu.substr(prefix.size())) - 1;
         openTutorial(lesson);
         advanceGenerations(options_.warmupSteps);
     } else {
@@ -165,9 +190,10 @@ void Game::mainLoop() {
         auto now = std::chrono::steady_clock::now();
         float frameSeconds = std::chrono::duration<float>(now - lastTime).count();
         lastTime = now;
-        if (framesRendered_ > 2) worstFrameMs_ = std::max(worstFrameMs_, frameSeconds * 1000.0f);
-        // A long stall (a breakpoint, a dragged window) must not fling the player.
-        float deltaTime = std::min(frameSeconds, 0.25f);
+        if (framesRendered_ > UNTIMED_STARTUP_FRAMES) {
+            worstFrameMs_ = std::max(worstFrameMs_, frameSeconds * 1000.0f);
+        }
+        float deltaTime = std::min(frameSeconds, MAX_FRAME_SECONDS);
 
         if (!worldFrozen()) {
             updateMovement(deltaTime);
@@ -175,19 +201,7 @@ void Game::mainLoop() {
         }
         target_ = player_.aim(isSolid);
         if (screen_ == Screen::Playing) updateHeldButtons(deltaTime);
-
-        // The block list only covers what the camera could see when it was
-        // built; rebuild it after edits and once the camera has moved or
-        // turned far enough to uncover blocks it left out.
-        if (refreshPending_) {
-            rebuild(Rebuild::Edit);
-            target_ = player_.aim(isSolid);
-        } else {
-            bool movedFar = glm::distance(player_.eye, lastBuildEye_) > REBUILD_DISTANCE;
-            bool turnedFar = glm::dot(player_.forward(), lastBuildForward_) <
-                             std::cos(glm::radians(0.75f * CULL_MARGIN_DEGREES));
-            if (movedFar || turnedFar) rebuild(Rebuild::Camera);
-        }
+        rebuildIfOutdated(isSolid);
 
         const bool lastFrame =
             options_.exitAfterFrames && framesRendered_ + 1 == options_.exitAfterFrames;
@@ -201,6 +215,21 @@ void Game::mainLoop() {
     }
     vkDeviceWaitIdle(gpu_.device);
     printExitSummary();
+}
+
+// The block list only covers what the camera could see when it was built;
+// rebuilds it after edits and once the camera has moved or turned far enough
+// to uncover blocks it left out.
+void Game::rebuildIfOutdated(const IsSolid& isSolid) {
+    if (refreshPending_) {
+        rebuild(Rebuild::Edit);
+        target_ = player_.aim(isSolid); // the edit may have changed what the crosshair hits
+        return;
+    }
+    bool movedFar = glm::distance(player_.eye, lastBuildEye_) > REBUILD_DISTANCE;
+    bool turnedFar = glm::dot(player_.forward(), lastBuildForward_) <
+                     std::cos(glm::radians(REBUILD_TURN_FRACTION * CULL_MARGIN_DEGREES));
+    if (movedFar || turnedFar) rebuild(Rebuild::Camera);
 }
 
 void Game::drawFrame() {
@@ -231,13 +260,16 @@ FrameUniforms Game::frameUniforms() const {
                   static_cast<float>(std::min<uint64_t>(drawnBlocks_, MAX_BLOCK_INSTANCES)));
     uniforms.hotbar =
         glm::ivec4(brush_.hotbarSlot, STAMP_COUNT, static_cast<int>(brush_.material), 0);
-    uniforms.fog = glm::vec4(0.45f * renderDistance, renderDistance, 0.0f, 0.0f);
+    uniforms.fog = glm::vec4(FOG_START_FRACTION * renderDistance, renderDistance, 0.0f, 0.0f);
     uniforms.anim =
         glm::vec4(animationProgress, settings_.smoothLighting ? 1.0f : 0.0f, 0.0f, 0.0f);
     uniforms.sun = glm::vec4(SUN_DIRECTION, 0.0f);
     return uniforms;
 }
 
+// The wireframe boxes drawn this frame, in world units: the targeted block, the
+// placement preview, tutorial marks and chunk borders. Each box is padded a
+// little in or out of its cells so its edges do not z-fight with block faces.
 std::vector<Box> Game::outlineBoxes() {
     std::vector<Box> boxes;
     auto add = [&](const glm::vec3& min, const glm::vec3& max, float thickness, float colorId) {
@@ -245,19 +277,17 @@ std::vector<Box> Game::outlineBoxes() {
             boxes.push_back({glm::vec4(min, thickness), glm::vec4(max, colorId)});
         }
     };
-    auto colorId = [](BoxColor color) { return static_cast<float>(color); };
+    auto colorIdOf = [](BoxColor color) { return static_cast<float>(color); };
 
     if (hudVisible_ && target_.hit) {
         glm::vec3 block(target_.block);
-        add(block - 0.004f, block + 1.004f, 0.03f, colorId(BoxColor::Target));
+        add(block - 0.004f, block + 1.004f, 0.03f, colorIdOf(BoxColor::Target));
     }
     if (hudVisible_ && target_.canPlace && !brush_.emptyHand()) {
-        // Around the whole (rotated) stamp, in the material's color.
+        // Around the whole (rotated) stamp, just inside its cells, in the material's color.
         CellBounds bounds = boundsOf(stampCells(placementAtTarget(true), rule(), rng_));
-        BoxColor color = brush_.material == CellKind::Stone   ? BoxColor::PlaceStone
-                         : brush_.material == CellKind::Ember ? BoxColor::PlaceEmber
-                                                              : BoxColor::PlaceLife;
-        add(glm::vec3(bounds.min) + 0.02f, glm::vec3(bounds.max) + 0.98f, 0.03f, colorId(color));
+        add(glm::vec3(bounds.min) + 0.02f, glm::vec3(bounds.max) + 0.98f, 0.03f,
+            colorIdOf(placementColor(brush_.material)));
     }
     if (hudVisible_ && tutorial_.active()) {
         for (const tutorial::MarkedCell& mark : tutorial_.lesson().marks) {
@@ -275,12 +305,13 @@ std::vector<Box> Game::outlineBoxes() {
             glm::vec3 high = low + static_cast<float>(CHUNK_SIZE);
             glm::vec3 nearest = glm::clamp(player_.eye, low, high);
             if (glm::distance(nearest, player_.eye) > reach) return;
-            add(low, high, 0.08f, colorId(BoxColor::ChunkBorder));
+            add(low, high, 0.08f, colorIdOf(BoxColor::ChunkBorder));
         });
     }
     return boxes;
 }
 
+// Where the run ended and how fast it went, printed when the game closes.
 void Game::printExitSummary() const {
     const VkExtent2D extent = renderer_.swapchain().extent();
     const glm::vec3 feet = player_.feet();
@@ -324,11 +355,13 @@ void Game::newWorld(bool seeded) {
     if (seeded) seedSoup(glm::ivec3(-size / 2, 0, -size / 2), glm::ivec3(size), rule().seedDensity);
     rebuild(Rebuild::Reset);
 
-    // Spawn on the ground at a distance, facing the seed.
+    // Spawn on the ground at a distance, looking at a point 40% of the way up
+    // the soup. (0.6, 0.8) is a unit direction, so `distance` is the distance
+    // from the soup's vertical axis.
     float distance = std::max(20.0f, 1.6f * static_cast<float>(size));
     player_.eye = glm::vec3(0.6f * distance, Player::EYE_HEIGHT, 0.8f * distance);
-    glm::vec3 toSeed =
-        glm::normalize(glm::vec3(0.0f, 0.4f * static_cast<float>(size), 0.0f) - player_.eye);
+    const glm::vec3 lookTarget(0.0f, 0.4f * static_cast<float>(size), 0.0f);
+    glm::vec3 toSeed = glm::normalize(lookTarget - player_.eye);
     player_.yaw = glm::degrees(std::atan2(toSeed.z, toSeed.x));
     player_.pitch = glm::degrees(std::asin(toSeed.y));
     player_.flying = false;
@@ -417,7 +450,7 @@ bool Game::loadWorld(const std::string& path) {
     tutorial_.close();
     resetWorld();
     for (const SavedBlock& block : saved.blocks) {
-        // Skip Life (stored with the cells) and kinds from newer versions.
+        // Skip Life (kind 0, stored with the cells) and kinds from newer versions.
         bool knownBlockKind = block.kind > 0 && block.kind < static_cast<int>(cellTypes().size());
         if (knownBlockKind) placeCell(block.cell, static_cast<CellKind>(block.kind));
     }
