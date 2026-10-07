@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
-#include <limits>
 
 #include <GLFW/glfw3.h>
 
@@ -24,8 +23,37 @@ constexpr float BREAK_REPEAT_SECONDS = 0.25f;    // a held right button removes 
 constexpr float PLACE_REPEAT_SECONDS = 0.20f;    // a held left button places this often
 constexpr double SLOT_NAME_SECONDS = 2.0; // the hotbar shows a new selection's name this long
 
+// J and Shift+J fast-forward this many generations (the pause menu's Skip
+// buttons match them).
+constexpr uint64_t FAST_FORWARD_GENERATIONS = 100;
+constexpr uint64_t LONG_FAST_FORWARD_GENERATIONS = 1000;
+// Speed changes are counted in doublings: Shift makes one press 2^3 = 8x.
+constexpr int SHIFT_SPEED_STEPS = 3;
+
+constexpr int QUARTER_TURNS_PER_TURN = 4;
+constexpr int DEGREES_PER_QUARTER_TURN = 90;
+
 Game* gameOf(GLFWwindow* window) {
     return static_cast<Game*>(glfwGetWindowUserPointer(window));
+}
+
+// `value` wrapped into [0, count). Unlike `%` alone, it also wraps negative
+// values, so stepping back from 0 lands on count - 1.
+int wrapIndex(int value, int count) {
+    return (value % count + count) % count;
+}
+
+// When the hotbar should stop showing the selection's name, if it changes now.
+double slotNameDeadline() {
+    return glfwGetTime() + SLOT_NAME_SECONDS;
+}
+
+// The extent of the stamp a scripted --place is about to put down.
+void printStampBounds(const CellBounds& bounds, int rotation, int tilt) {
+    std::cout << "stamp bounds (" << bounds.min.x << "," << bounds.min.y << "," << bounds.min.z
+              << ")-(" << bounds.max.x << "," << bounds.max.y << "," << bounds.max.z
+              << ") rotation " << rotation * DEGREES_PER_QUARTER_TURN << " tilt "
+              << tilt * DEGREES_PER_QUARTER_TURN << std::endl;
 }
 
 } // namespace
@@ -55,8 +83,10 @@ void Game::installInputCallbacks() {
 
 // ----------------------------------------------------------------- keyboard
 
+// Every key event lands here. Ctrl+Q quits from anywhere; menus get only the
+// keys that close them; the rest goes to onPlayingKey().
 void Game::onKey(int key, int action, int mods) {
-    const bool ctrl = mods & GLFW_MOD_CONTROL;
+    const bool ctrl = (mods & GLFW_MOD_CONTROL) != 0;
     if (action == GLFW_PRESS && ctrl && key == GLFW_KEY_Q) {
         glfwSetWindowShouldClose(window_, GLFW_TRUE);
         return;
@@ -65,7 +95,7 @@ void Game::onKey(int key, int action, int mods) {
     // In menus only Esc (and Tab in the inventory) do anything; ImGui handles the rest.
     if (screen_ != Screen::Playing) {
         if (action != GLFW_PRESS) return;
-        bool closesScreen =
+        const bool closesScreen =
             key == GLFW_KEY_ESCAPE || (key == GLFW_KEY_TAB && screen_ == Screen::Inventory);
         if (!closesScreen) return;
         switch (screen_) {
@@ -102,9 +132,10 @@ void Game::onKey(int key, int action, int mods) {
     if (action == GLFW_PRESS) onPlayingKey(key, mods);
 }
 
+// A key press while playing.
 void Game::onPlayingKey(int key, int mods) {
-    const bool ctrl = mods & GLFW_MOD_CONTROL;
-    const bool shift = mods & GLFW_MOD_SHIFT;
+    const bool ctrl = (mods & GLFW_MOD_CONTROL) != 0;
+    const bool shift = (mods & GLFW_MOD_SHIFT) != 0;
 
     // An open lesson panel takes the arrow keys and Backspace.
     tutorial::Tutorial::Request request = tutorial_.handleKey(key);
@@ -112,8 +143,9 @@ void Game::onPlayingKey(int key, int mods) {
         handleTutorialRequest(request);
         return;
     }
+    // GLFW's number keys are consecutive, so 1..STAMP_COUNT map straight to slots.
     if (key >= GLFW_KEY_1 && key < GLFW_KEY_1 + STAMP_COUNT) {
-        int slot = key - GLFW_KEY_1;
+        const int slot = key - GLFW_KEY_1;
         // Pressing the selected number again empties the hand.
         selectSlot(slot == brush_.hotbarSlot ? Brush::EMPTY_HAND : slot);
         return;
@@ -147,7 +179,7 @@ void Game::onPlayingKey(int key, int mods) {
 
         // Movement.
         case GLFW_KEY_SPACE: {
-            double now = glfwGetTime();
+            const double now = glfwGetTime();
             if (now - lastSpacePress_ < DOUBLE_TAP_SECONDS) {
                 player_.toggleFlying();
                 lastSpacePress_ = -1.0; // a third press starts a new double tap
@@ -166,15 +198,20 @@ void Game::onPlayingKey(int key, int mods) {
             break;
         case GLFW_KEY_N:
             if (ctrl) {
-                newWorld(!shift);
+                newWorld(/*seeded=*/!shift);
                 notify(shift ? "New empty world" : std::string("New world: ") + rule().name);
             } else {
                 stepOnce();
             }
             break;
         case GLFW_KEY_R: {
-            size_t count = lifeRules().size();
-            ruleIndex_ = shift ? (ruleIndex_ + count - 1) % count : (ruleIndex_ + 1) % count;
+            // Next rule, or the previous one with Shift; both wrap around the list.
+            const size_t count = lifeRules().size();
+            if (shift) {
+                ruleIndex_ = (ruleIndex_ + count - 1) % count;
+            } else {
+                ruleIndex_ = (ruleIndex_ + 1) % count;
+            }
             announceRule();
             break;
         }
@@ -189,18 +226,19 @@ void Game::onPlayingKey(int key, int mods) {
             }
             break;
         case GLFW_KEY_J:
-            queueFastForward(shift ? 1000 : 100);
+            // While a fast-forward runs, J cancels it instead (queueFastForward()).
+            queueFastForward(shift ? LONG_FAST_FORWARD_GENERATIONS : FAST_FORWARD_GENERATIONS);
             break;
         // Speed doubles or halves per press; Shift makes it 8x.
         case GLFW_KEY_EQUAL:
         case GLFW_KEY_KP_ADD:
         case GLFW_KEY_RIGHT_BRACKET:
-            changeSpeed(shift ? 3 : 1);
+            changeSpeed(shift ? SHIFT_SPEED_STEPS : 1);
             break;
         case GLFW_KEY_MINUS:
         case GLFW_KEY_KP_SUBTRACT:
         case GLFW_KEY_LEFT_BRACKET:
-            changeSpeed(shift ? -3 : -1);
+            changeSpeed(shift ? -SHIFT_SPEED_STEPS : -1);
             break;
 
         // Display.
@@ -227,10 +265,11 @@ void Game::onMouseButton(int button, int action) {
     if (screen_ != Screen::Playing) return; // menus handle their own clicks
     if (!cursorCaptured_) {
         // The first click only grabs the mouse, unless it lands on the tutorial panel.
-        bool overPanel = imguiReady_ && ImGui::GetIO().WantCaptureMouse;
+        const bool overPanel = imguiReady_ && ImGui::GetIO().WantCaptureMouse;
         if (action == GLFW_PRESS && !overPanel) setCursorCaptured(true);
         return;
     }
+    // A press acts at once and starts the repeat timer (updateHeldButtons()).
     if (button == GLFW_MOUSE_BUTTON_LEFT) {
         placeButton_.held = action == GLFW_PRESS;
         placeButton_.sinceLastRepeat = 0.0f;
@@ -242,13 +281,17 @@ void Game::onMouseButton(int button, int action) {
     }
 }
 
+// GLFW reports absolute cursor positions (unbounded while the cursor is
+// captured); the view turns by the change since the last report.
 void Game::onCursorMove(double x, double y) {
     if (screen_ == Screen::Playing && cursorCaptured_ && haveCursorPosition_) {
-        float degrees =
+        // settings_.sensitivity is a percentage.
+        const float degreesPerPixel =
             MOUSE_DEGREES_PER_PIXEL * static_cast<float>(settings_.sensitivity) / 100.0f;
-        float yawChange = static_cast<float>(x - lastCursorX_) * degrees;
-        float pitchChange =
-            static_cast<float>(y - lastCursorY_) * degrees * (settings_.invertY ? -1.0f : 1.0f);
+        const float verticalSign = settings_.invertY ? -1.0f : 1.0f;
+        const float yawChange = static_cast<float>(x - lastCursorX_) * degreesPerPixel;
+        const float pitchChange =
+            static_cast<float>(y - lastCursorY_) * degreesPerPixel * verticalSign;
         player_.turn(yawChange, -pitchChange); // screen y grows downward
     }
     lastCursorX_ = x;
@@ -261,9 +304,13 @@ void Game::onCursorMove(double x, double y) {
 void Game::onScroll(double yOffset) {
     if (screen_ != Screen::Playing || yOffset == 0.0) return;
     const bool down = yOffset < 0;
-    int next =
-        brush_.emptyHand() ? (down ? 0 : STAMP_COUNT - 1) : brush_.hotbarSlot + (down ? 1 : -1);
-    selectSlot((next % STAMP_COUNT + STAMP_COUNT) % STAMP_COUNT);
+    int next = 0;
+    if (brush_.emptyHand()) {
+        next = down ? 0 : STAMP_COUNT - 1;
+    } else {
+        next = brush_.hotbarSlot + (down ? 1 : -1);
+    }
+    selectSlot(wrapIndex(next, STAMP_COUNT));
 }
 
 void Game::onFocusChange(bool focused) {
@@ -297,25 +344,24 @@ void Game::updateMovement(float deltaTime) {
     player_.update(keys, deltaTime, solidCells());
 }
 
+// A held mouse button repeats its action at a fixed interval, like Minecraft's.
 void Game::updateHeldButtons(float deltaTime) {
-    if (breakButton_.held) {
-        breakButton_.sinceLastRepeat += deltaTime;
-        if (breakButton_.sinceLastRepeat >= BREAK_REPEAT_SECONDS) {
-            breakButton_.sinceLastRepeat = 0.0f;
-            breakBlock();
-        }
-    }
-    if (placeButton_.held) {
-        placeButton_.sinceLastRepeat += deltaTime;
-        if (placeButton_.sinceLastRepeat >= PLACE_REPEAT_SECONDS) {
-            placeButton_.sinceLastRepeat = 0.0f;
-            placeStamp();
-        }
-    }
+    // True when `button` is held and its interval has passed; restarts the interval.
+    auto repeatDue = [deltaTime](HeldButton& button, float intervalSeconds) {
+        if (!button.held) return false;
+        button.sinceLastRepeat += deltaTime;
+        if (button.sinceLastRepeat < intervalSeconds) return false;
+        button.sinceLastRepeat = 0.0f;
+        return true;
+    };
+    if (repeatDue(breakButton_, BREAK_REPEAT_SECONDS)) breakBlock();
+    if (repeatDue(placeButton_, PLACE_REPEAT_SECONDS)) placeStamp();
 }
 
 // ------------------------------------------------------------ the brush
 
+// The current brush placed at the crosshair. `solid` fills soups completely
+// (for outlines and bounds) instead of drawing them from the RNG.
 StampPlacement Game::placementAtTarget(bool solid) const {
     StampPlacement placement;
     placement.stamp = static_cast<Stamp>(brush_.hotbarSlot);
@@ -332,7 +378,7 @@ StampPlacement Game::placementAtTarget(bool solid) const {
 // the cells the player stands in.
 void Game::placeStamp() {
     if (!target_.canPlace || brush_.emptyHand()) return;
-    for (const glm::ivec3& cell : stampCells(placementAtTarget(false), rule(), rng_)) {
+    for (const glm::ivec3& cell : stampCells(placementAtTarget(/*solid=*/false), rule(), rng_)) {
         if (!player_.overlaps(cell)) placeCell(cell, brush_.material);
     }
 }
@@ -343,38 +389,44 @@ void Game::breakBlock() {
 
 void Game::selectSlot(int hotbarSlot) {
     brush_.hotbarSlot = hotbarSlot;
-    slotNameUntil_ = glfwGetTime() + SLOT_NAME_SECONDS;
+    slotNameUntil_ = slotNameDeadline();
 }
 
 IsSolid Game::solidCells() const {
     return [this](const glm::ivec3& cell) { return world_.isOccupied(cell); };
 }
 
-// A seed for the New World screen, kept positive so it reads well in the field.
+// A seed for the New World screen, kept positive so it reads well in the field:
+// the mask clears the sign bit of the 32-bit draw.
 int Game::newRandomSeed() {
     return static_cast<int>(rng_() & 0x7FFFFFFF);
 }
 
+// Rotating, tilting and changing material show the hotbar name again, which
+// carries the brush's orientation and material.
 void Game::rotateBrush(int quarterTurns) {
-    brush_.rotation = ((brush_.rotation + quarterTurns) % 4 + 4) % 4;
-    slotNameUntil_ = glfwGetTime() + SLOT_NAME_SECONDS;
+    brush_.rotation = wrapIndex(brush_.rotation + quarterTurns, QUARTER_TURNS_PER_TURN);
+    slotNameUntil_ = slotNameDeadline();
 }
 
 void Game::tiltBrush(int quarterTurns) {
-    brush_.tilt = ((brush_.tilt + quarterTurns) % 4 + 4) % 4;
-    slotNameUntil_ = glfwGetTime() + SLOT_NAME_SECONDS;
+    brush_.tilt = wrapIndex(brush_.tilt + quarterTurns, QUARTER_TURNS_PER_TURN);
+    slotNameUntil_ = slotNameDeadline();
 }
 
+// CellKind values are the indices of cellTypes(), so stepping the index steps the material.
 void Game::cycleMaterial(int direction) {
     const int count = static_cast<int>(cellTypes().size());
-    const int next = ((static_cast<int>(brush_.material) + direction) % count + count) % count;
+    const int next = wrapIndex(static_cast<int>(brush_.material) + direction, count);
     brush_.material = static_cast<CellKind>(next);
     notify(std::string("Building with ") + cellType(brush_.material).name);
-    slotNameUntil_ = glfwGetTime() + SLOT_NAME_SECONDS;
+    slotNameUntil_ = slotNameDeadline();
 }
 
 // ------------------------------------------------------------- screens
 
+// Fullscreen takes the primary monitor at its current video mode; leaving it
+// restores the window's last position and size.
 void Game::toggleFullscreen() {
     fullscreen_ = !fullscreen_;
     if (fullscreen_) {
@@ -390,6 +442,7 @@ void Game::toggleFullscreen() {
     renderer_.onResize();
 }
 
+// The pause menu stops the simulation and remembers whether it ran, for resumeGame().
 void Game::openPauseMenu() {
     if (screen_ != Screen::Playing) return;
     runningBeforePause_ = running_;
@@ -427,6 +480,9 @@ bool Game::worldFrozen() const {
 
 // ------------------------------------------------------- scripted input
 
+// One scripted-input option from the command line (--pos, --look, --place...).
+// They drive the game like a player would, in order, before the frame loop
+// starts; some print what happened so a test run can check it.
 void Game::applyScriptAction(const ScriptAction& action) {
     const IsSolid isSolid = solidCells();
     switch (action.kind) {
@@ -461,14 +517,14 @@ void Game::applyScriptAction(const ScriptAction& action) {
         case ScriptAction::Place:
         case ScriptAction::Break: {
             const bool place = action.kind == ScriptAction::Place;
+            // Scripts run before the frame loop, which would otherwise update the aim.
             target_ = player_.aim(isSolid);
             const uint64_t before = population_;
             if (place && !brush_.emptyHand() && target_.canPlace) {
-                CellBounds bounds = boundsOf(stampCells(placementAtTarget(true), rule(), rng_));
-                std::cout << "stamp bounds (" << bounds.min.x << "," << bounds.min.y << ","
-                          << bounds.min.z << ")-(" << bounds.max.x << "," << bounds.max.y << ","
-                          << bounds.max.z << ") rotation " << brush_.rotation * 90 << " tilt "
-                          << brush_.tilt * 90 << std::endl;
+                // A solid placement draws nothing from rng_, so the real one below is unaffected.
+                const CellBounds bounds =
+                    boundsOf(stampCells(placementAtTarget(/*solid=*/true), rule(), rng_));
+                printStampBounds(bounds, brush_.rotation, brush_.tilt);
             }
             if (place) {
                 placeStamp();

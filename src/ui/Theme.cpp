@@ -1,3 +1,6 @@
+// The menu look (see Theme.h): sRGB-to-linear color helpers and the Dear ImGui
+// style that applyMenuStyle() installs once at startup.
+
 #include "ui/Theme.h"
 
 #include <cmath>
@@ -9,6 +12,7 @@ float srgbToLinear(float channel) {
 }
 
 ImU32 color(int r, int g, int b, int alpha) {
+    // An 8-bit sRGB channel to an 8-bit linear one.
     auto toLinear255 = [](int value) {
         return static_cast<int>(
             std::lround(255.0f * srgbToLinear(static_cast<float>(value) / 255.0f)));
@@ -35,7 +39,9 @@ ImU32 materialColor(CellKind kind, int alpha) {
 
 void applyMenuStyle() {
     ImGuiStyle& style = ImGui::GetStyle();
+    // Start from Dear ImGui's dark theme for every slot not overridden below.
     ImGui::StyleColorsDark(&style);
+    // Sizes are at GUI scale 1; Game::updateUiScale() scales a copy of this style.
     style.WindowRounding = 12.0f;
     style.ChildRounding = 8.0f;
     style.PopupRounding = 8.0f;
@@ -54,7 +60,7 @@ void applyMenuStyle() {
     style.GrabMinSize = 10.0f;
     style.ScrollbarSize = 10.0f;
 
-    // Style colors are given in sRGB here and converted to linear below.
+    // Style colors are given in sRGB here and converted to linear at the end.
     auto srgb = [](Rgb c, float alpha = 1.0f) {
         return ImVec4(c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, alpha);
     };
@@ -86,9 +92,10 @@ void applyMenuStyle() {
     colors[ImGuiCol_ScrollbarGrabActive] = srgb({90, 106, 144});
     colors[ImGuiCol_TextSelectedBg] = srgb(ACCENT, 0.35f);
     colors[ImGuiCol_NavCursor] = srgb(ACCENT);
+    // Every slot, including those StyleColorsDark() set, is sRGB until now.
     for (int i = 0; i < ImGuiCol_COUNT; ++i) {
-        colors[i] = ImVec4(srgbToLinear(colors[i].x), srgbToLinear(colors[i].y),
-                           srgbToLinear(colors[i].z), colors[i].w);
+        const ImVec4 srgbColor = colors[i];
+        colors[i] = linearFromSrgb(srgbColor.x, srgbColor.y, srgbColor.z, srgbColor.w);
     }
 }
 

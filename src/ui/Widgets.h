@@ -19,6 +19,7 @@ namespace gol3d::ui {
 
 // The GUI scale and the font for card titles, for the widgets below.
 void setLayout(float scale, ImFont* titleFont);
+// The GUI scale given to setLayout().
 float scale();
 // A length at the current GUI scale.
 float px(float value);
@@ -40,6 +41,7 @@ void rightAlignNext(float width);
 void hoverHint(const char* text);
 
 enum class ButtonKind { Normal, Primary, Danger };
+// The height of menu buttons, a little taller than Dear ImGui's default.
 float buttonHeight();
 // Accent-colored button style; pop with popAccentButton().
 void pushAccentButton();

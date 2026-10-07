@@ -22,7 +22,50 @@ namespace {
 
 using ui::px;
 
+constexpr ImU32 WHITE = IM_COL32_WHITE;
 constexpr double MENU_FADE_SECONDS = 0.14;
+
+// Card widths, at GUI scale 1.
+constexpr float PAUSE_CARD_WIDTH = 340.0f;
+constexpr float SETTINGS_CARD_WIDTH = 440.0f;
+constexpr float INVENTORY_CARD_WIDTH = 760.0f;
+constexpr float NEW_WORLD_CARD_WIDTH = 440.0f;
+
+// Picker tiles in the inventory (stamps and materials).
+constexpr float TILE_SPACING = 6.0f;
+constexpr float TILE_ROUNDING = 6.0f;
+constexpr float TILE_OUTLINE_WIDTH = 2.0f; // around the selected tile
+
+// Wide tooltips, in pixels at GUI scale 1.
+constexpr float TOOLTIP_WIDTH = 300.0f;
+constexpr float RULE_TOOLTIP_WIDTH = 320.0f;
+
+// Automatic GUI scale: 1x at 720 lines, in quarter steps, from 1x up to the
+// largest scale the settings offer.
+constexpr float AUTO_SCALE_REFERENCE_HEIGHT = 720.0f;
+constexpr float AUTO_SCALE_STEPS_PER_UNIT = 4.0f;
+
+float autoGuiScale(float windowHeight) {
+    const float steps =
+        std::round(AUTO_SCALE_STEPS_PER_UNIT * windowHeight / AUTO_SCALE_REFERENCE_HEIGHT);
+    return std::clamp(steps / AUTO_SCALE_STEPS_PER_UNIT, 1.0f,
+                      static_cast<float>(Settings::MAX_GUI_SCALE));
+}
+
+// Adds the embedded Karla font to the atlas. As the atlas's first font it is
+// also Dear ImGui's default, so it serves body text as well as card titles.
+ImFont* addMenuFont() {
+    ImFontConfig font;
+    font.FontDataOwnedByAtlas = false; // the TTF lives in the executable (MenuFont.h)
+    void* ttf = const_cast<unsigned char*>(MENU_FONT_TTF);
+    return ImGui::GetIO().Fonts->AddFontFromMemoryTTF(ttf, MENU_FONT_TTF_SIZE, ui::BODY_FONT_SIZE,
+                                                      &font);
+}
+
+// Quadratic ease-out: fast at first, settling gently at 1.
+float easeOut(float progress) {
+    return progress * (2.0f - progress);
+}
 
 // Vertical breathing room inside a card.
 void gap(float height) {
@@ -61,7 +104,36 @@ void tooltip(const char* text, float width) {
     ImGui::EndTooltip();
 }
 
-const ImU32 WHITE = IM_COL32(255, 255, 255, 255);
+// The background of an inventory tile, plus a tinted fill and an outline when
+// it is the current choice.
+void drawPickerTile(ImDrawList* draw, ImVec2 min, ImVec2 max, bool hovered, bool selected,
+                    ImU32 selectedFill, ImU32 selectedOutline) {
+    const ImU32 background =
+        ImGui::GetColorU32(hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
+    draw->AddRectFilled(min, max, background, px(TILE_ROUNDING));
+    if (!selected) return;
+    draw->AddRectFilled(min, max, selectedFill, px(TILE_ROUNDING));
+    draw->AddRect(min, max, selectedOutline, px(TILE_ROUNDING), px(TILE_OUTLINE_WIDTH));
+}
+
+// The empty hand's tile icon: a slashed circle.
+void drawEmptyHandIcon(ImDrawList* draw, ImVec2 tileMin, float tileSize) {
+    const ImVec2 center(tileMin.x + tileSize * 0.5f, tileMin.y + tileSize * 0.5f);
+    const float radius = tileSize * 0.22f;
+    const float slash = radius * 0.7f; // the slash ends just inside the circle
+    const ImU32 muted = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+    draw->AddCircle(center, radius, muted, 0, px(1.5f));
+    draw->AddLine(ImVec2(center.x - slash, center.y + slash),
+                  ImVec2(center.x + slash, center.y - slash), muted, px(1.5f));
+}
+
+// Draws white `text` centered in the box at `min`, without taking layout space.
+void drawCenteredText(ImVec2 min, ImVec2 boxSize, const std::string& text) {
+    const ImVec2 textSize = ImGui::CalcTextSize(text.c_str());
+    const ImVec2 position(min.x + (boxSize.x - textSize.x) * 0.5f,
+                          min.y + (boxSize.y - textSize.y) * 0.5f);
+    ImGui::GetWindowDrawList()->AddText(position, WHITE, text.c_str());
+}
 
 } // namespace
 
@@ -78,11 +150,19 @@ void Game::initImGui() {
     // Installed after the game's own GLFW callbacks, which ImGui then chains to.
     ImGui_ImplGlfw_InitForVulkan(window_, true);
 
+    // The backend loads its Vulkan functions through this callback before
+    // LoadFunctions returns, so pointing it at a local is safe.
     VkInstance instance = gpu_.instance;
     auto loadFunction = [](const char* name, void* user) {
         return vkGetInstanceProcAddr(*static_cast<VkInstance*>(user), name);
     };
     ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_3, loadFunction, static_cast<void*>(&instance));
+
+    // The backend creates its own descriptor pool: its documented minimum plus
+    // a little headroom.
+    constexpr uint32_t SPARE_DESCRIPTORS = 4;
+    // Dear ImGui's backend needs at least two swapchain images.
+    constexpr uint32_t MIN_IMAGE_COUNT = 2;
     ImGui_ImplVulkan_InitInfo info{};
     info.ApiVersion = VK_API_VERSION_1_3;
     info.Instance = gpu_.instance;
@@ -91,10 +171,11 @@ void Game::initImGui() {
     info.QueueFamily = gpu_.queueFamily;
     info.Queue = gpu_.queue;
     info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE +
-                              IMGUI_IMPL_VULKAN_MINIMUM_SAMPLER_POOL_SIZE + 4;
-    info.MinImageCount = 2;
-    info.ImageCount =
-        std::max<uint32_t>(2, static_cast<uint32_t>(renderer_.swapchain().imageCount()));
+                              IMGUI_IMPL_VULKAN_MINIMUM_SAMPLER_POOL_SIZE + SPARE_DESCRIPTORS;
+    info.MinImageCount = MIN_IMAGE_COUNT;
+    info.ImageCount = std::max<uint32_t>(MIN_IMAGE_COUNT,
+                                         static_cast<uint32_t>(renderer_.swapchain().imageCount()));
+    // Menus are drawn inside the renderer's own dynamic-rendering pass.
     info.UseDynamicRendering = true;
     info.PipelineInfoMain.PipelineRenderingCreateInfo = renderer_.renderingInfo();
     if (!ImGui_ImplVulkan_Init(&info)) {
@@ -111,23 +192,18 @@ void Game::shutdownImGui() {
     imguiReady_ = false;
 }
 
-// Applies the GUI scale. Automatic scale follows the window height (1x at 720
-// lines) in quarter steps. Dear ImGui rasterizes glyphs at the size they are
-// drawn, so text stays sharp at every scale without rebuilding the font atlas.
+// Applies the GUI scale (Settings::guiScale, or autoGuiScale() for "Auto").
+// Dear ImGui rasterizes glyphs at the size they are drawn, so text stays sharp
+// at every scale without rebuilding the font atlas.
 void Game::updateUiScale() {
     float scale = static_cast<float>(settings_.guiScale);
     if (settings_.guiScale <= 0) {
-        float height = static_cast<float>(renderer_.swapchain().extent().height);
-        scale = std::clamp(std::round(4.0f * height / 720.0f) / 4.0f, 1.0f, 4.0f);
+        scale = autoGuiScale(static_cast<float>(renderer_.swapchain().extent().height));
     }
     if (scale == uiScale_) return;
-    if (uiScale_ == 0.0f) {
-        ImFontConfig font;
-        font.FontDataOwnedByAtlas = false; // the TTF lives in the executable (MenuFont.h)
-        void* ttf = const_cast<unsigned char*>(MENU_FONT_TTF);
-        titleFont_ = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(ttf, MENU_FONT_TTF_SIZE,
-                                                                ui::BODY_FONT_SIZE, &font);
-    }
+    const bool firstCall = uiScale_ == 0.0f;
+    if (firstCall) titleFont_ = addMenuFont();
+    // Scale a fresh copy of the unscaled style; scaling the live one would compound.
     ImGuiStyle& style = ImGui::GetStyle();
     style = baseStyle_;
     style.ScaleAllSizes(scale);
@@ -149,7 +225,8 @@ void Game::buildUi() {
     // While playing, the mouse belongs to the game unless the tutorial panel is
     // open and the cursor is free to click it.
     ImGuiIO& io = ImGui::GetIO();
-    bool gameOwnsMouse = screen_ == Screen::Playing && (cursorCaptured_ || !tutorial_.active());
+    const bool gameOwnsMouse =
+        screen_ == Screen::Playing && (cursorCaptured_ || !tutorial_.active());
     if (gameOwnsMouse) {
         io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
     } else {
@@ -159,24 +236,25 @@ void Game::buildUi() {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    // Menus fade in over a short moment instead of popping up.
+    // Menus fade in over a short moment instead of popping up. Captures skip
+    // the fade so their screenshots do not depend on timing.
     if (screen_ != shownScreen_) {
         shownScreen_ = screen_;
         menuOpenedAt_ = glfwGetTime();
     }
     float fade = 1.0f;
     if (!capturing_) {
-        fade = static_cast<float>(
-            std::clamp((glfwGetTime() - menuOpenedAt_) / MENU_FADE_SECONDS, 0.0, 1.0));
+        const double secondsOpen = glfwGetTime() - menuOpenedAt_;
+        fade = static_cast<float>(std::clamp(secondsOpen / MENU_FADE_SECONDS, 0.0, 1.0));
     }
-    float alpha = screen_ == Screen::Playing ? 1.0f : fade * (2.0f - fade); // ease out
+    const float alpha = screen_ == Screen::Playing ? 1.0f : easeOut(fade);
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, alpha);
     switch (screen_) {
         case Screen::Playing:
             drawHud();
             if (hudVisible_ && tutorial_.active()) {
-                tutorial::Tutorial::Status status{describeRule(rule()), generation_, population_,
-                                                  running_};
+                const tutorial::Tutorial::Status status{describeRule(rule()), generation_,
+                                                        population_, running_};
                 handleTutorialRequest(tutorial_.draw(uiScale_, status));
             }
             break;
@@ -207,7 +285,7 @@ void Game::buildUi() {
 // ------------------------------------------------------------------- pause
 
 void Game::drawPauseMenu() {
-    if (ui::beginCard("##pause", 340)) {
+    if (ui::beginCard("##pause", PAUSE_CARD_WIDTH)) {
         ui::cardHeader("3D Life", "Paused");
         ui::statChips({{"RULE", rule().name},
                        {"GENERATION", ui::withCommas(generation_)},
@@ -234,16 +312,19 @@ void Game::drawPauseMenu() {
 }
 
 // Run/pause, slower/faster and fast-forward, for players who don't know the keys.
+// `running` is the state to edit: the pause menu passes the state to resume with.
 void Game::drawSimulationControls(bool& running) {
+    constexpr float SPEED_BUTTON_ASPECT = 1.15f; // width over height of the - and + buttons
+    constexpr float TOGGLE_WIDTH_SHARE = 0.34f;  // of the row, for Running/Paused
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
     const float fullWidth = ImGui::GetContentRegionAvail().x;
     const float height = ui::buttonHeight();
-    const float smallWidth = height * 1.15f;
-    const float toggleWidth = fullWidth * 0.34f;
+    const float smallWidth = height * SPEED_BUTTON_ASPECT;
+    const float toggleWidth = fullWidth * TOGGLE_WIDTH_SHARE;
 
     // [Running|Paused] [-] speed [+]
     if (running) ui::pushAccentButton();
-    bool toggled = ImGui::Button(running ? "Running" : "Paused", ImVec2(toggleWidth, height));
+    const bool toggled = ImGui::Button(running ? "Running" : "Paused", ImVec2(toggleWidth, height));
     if (running) ui::popAccentButton();
     if (toggled) {
         running = !running;
@@ -254,19 +335,18 @@ void Game::drawSimulationControls(bool& running) {
     if (ImGui::Button("-##slower", ImVec2(smallWidth, height))) changeSpeed(-1);
     ui::hoverHint("Half as fast ([)");
     ImGui::SameLine();
+    // The speed label fills what the three buttons and their three gaps leave.
     const std::string label = speed_.unlimited() ? std::string("max speed") : speed_.label();
     const float labelWidth = fullWidth - toggleWidth - 2.0f * smallWidth - 3.0f * spacing;
-    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const ImVec2 labelMin = ImGui::GetCursorScreenPos();
     ImGui::Dummy(ImVec2(labelWidth, height));
-    const ImVec2 textSize = ImGui::CalcTextSize(label.c_str());
-    ImGui::GetWindowDrawList()->AddText(
-        ImVec2(at.x + (labelWidth - textSize.x) * 0.5f, at.y + (height - textSize.y) * 0.5f), WHITE,
-        label.c_str());
+    drawCenteredText(labelMin, ImVec2(labelWidth, height), label);
     ImGui::SameLine();
     if (ImGui::Button("+##faster", ImVec2(smallWidth, height))) changeSpeed(1);
     ui::hoverHint("Twice as fast (])");
 
-    // [Skip 100 generations] [Skip 1,000], or [Cancel fast-forward] while one runs.
+    // [Skip 100 generations] [Skip 1,000], or [Cancel fast-forward] while one
+    // runs (queueFastForward() cancels a running fast-forward).
     const float halfWidth = (fullWidth - spacing) * 0.5f;
     const bool forwarding = fastForward_ > 0;
     const char* skipLabel = forwarding ? "Cancel fast-forward" : "Skip 100 generations";
@@ -295,12 +375,13 @@ void Game::drawUpdatePanel() {
             ui::note("Update available: 3D Life " + release.version + " (you have " +
                          updater_->currentVersion() + ")",
                      noticeColor);
-            bool installs = updater_->method() != InstallMethod::OpenPage;
-            if (installs &&
+            // Some installs can only be updated by hand from the download page.
+            const bool canInstall = updater_->method() != InstallMethod::OpenPage;
+            if (canInstall &&
                 ui::menuItem("Download and Install", nullptr, ui::ButtonKind::Primary)) {
                 updater_->installAsync();
             }
-            if (ui::menuItem(installs ? "Release Notes" : "Open Download Page")) {
+            if (ui::menuItem(canInstall ? "Release Notes" : "Open Download Page")) {
                 openInBrowser(release.pageUrl);
             }
             break;
@@ -319,7 +400,7 @@ void Game::drawUpdatePanel() {
             } else {
                 ui::note("3D Life " + release.version + " is downloaded and verified.",
                          ui::accentColor());
-                bool install =
+                const bool install =
                     ui::menuItem("Install and Restart", nullptr, ui::ButtonKind::Primary);
                 if (install && updater_->launchInstaller()) {
                     glfwSetWindowShouldClose(window_, GLFW_TRUE);
@@ -342,10 +423,12 @@ void Game::drawUpdatePanel() {
 // ---------------------------------------------------------------- settings
 
 void Game::drawSettingsMenu() {
-    if (ui::beginCard("##settings", 440)) {
+    if (ui::beginCard("##settings", SETTINGS_CARD_WIDTH)) {
         ui::cardHeader("Settings");
         if (ImGui::BeginTable("##options", 2)) {
-            ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, px(150));
+            constexpr float LABEL_COLUMN_WIDTH = 150.0f;
+            ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed,
+                                    px(LABEL_COLUMN_WIDTH));
             ImGui::TableSetupColumn("control", ImGuiTableColumnFlags_WidthStretch);
 
             optionSection("View", true);
@@ -359,6 +442,7 @@ void Game::drawSettingsMenu() {
                 refreshPending_ = true; // the block list is culled to the render distance
             }
             optionRow("Fullscreen");
+            // The checkbox edits a copy: toggleFullscreen() flips fullscreen_ itself.
             bool wantFullscreen = fullscreen_;
             if (ImGui::Checkbox("##fullscreen", &wantFullscreen)) toggleFullscreen();
             optionRow("Smooth lighting");
@@ -377,6 +461,7 @@ void Game::drawSettingsMenu() {
 
             optionSection("Interface");
             optionRow("GUI scale");
+            // 0 is "Auto" (see updateUiScale()).
             ImGui::SliderInt("##gui", &settings_.guiScale, 0, Settings::MAX_GUI_SCALE,
                              settings_.guiScale == 0 ? "Auto" : "%dx");
             optionRow("Show HUD");
@@ -386,8 +471,9 @@ void Game::drawSettingsMenu() {
 
             optionSection("Simulation");
             optionRow("Speed");
+            // The slider moves in doublings; its top stop is "as fast as possible".
             int exponent = speed_.exponent();
-            std::string speedText =
+            const std::string speedText =
                 speed_.unlimited() ? std::string("As fast as possible") : speed_.label();
             if (ImGui::SliderInt("##speed", &exponent, SimulationSpeed::MIN_EXPONENT,
                                  SimulationSpeed::UNLIMITED_EXPONENT, speedText.c_str())) {
@@ -435,7 +521,7 @@ void Game::drawSettingsMenu() {
 // ------------------------------------------------------- stamps and rules
 
 void Game::drawInventory() {
-    if (ui::beginCard("##inventory", 760)) {
+    if (ui::beginCard("##inventory", INVENTORY_CARD_WIDTH)) {
         ui::cardHeader("Stamps & Rules", "Tab to close");
         // Two columns: what to build on the left, the rule on the right.
         ImGui::BeginTable("##inventory-columns", 2, ImGuiTableFlags_BordersInnerV);
@@ -453,7 +539,7 @@ void Game::drawInventory() {
         gap(6);
         switch (ui::buttonPair("New World with This Rule", "Done", ui::ButtonKind::Primary)) {
             case ui::PairChoice::Left:
-                newWorld(true);
+                newWorld(/*seeded=*/true);
                 notify(std::string("New world: ") + rule().name);
                 closeInventory();
                 break;
@@ -473,7 +559,7 @@ void Game::drawStampPicker() {
     ui::mutedText("Left click places, right click removes. Q/E rotate, Z/C tilt around x.");
     ImDrawList* draw = ImGui::GetWindowDrawList();
     constexpr int TILES_PER_ROW = 5;
-    const float spacing = px(6);
+    const float spacing = px(TILE_SPACING);
     const float tile = std::floor(
         (ImGui::GetContentRegionAvail().x - spacing * (TILES_PER_ROW - 1)) / TILES_PER_ROW);
     for (int slot = -1; slot < STAMP_COUNT; ++slot) {
@@ -484,25 +570,13 @@ void Game::drawStampPicker() {
         const ImVec2 max(min.x + tile, min.y + tile);
         const bool clicked = ImGui::InvisibleButton("tile", ImVec2(tile, tile));
         const bool hovered = ImGui::IsItemHovered();
-        draw->AddRectFilled(
-            min, max, ImGui::GetColorU32(hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg),
-            px(6));
-        if (slot == brush_.hotbarSlot) {
-            draw->AddRectFilled(min, max, ui::accentColor(40), px(6));
-            draw->AddRect(min, max, ui::accentColor(), px(6), px(2));
-        }
+        drawPickerTile(draw, min, max, hovered, slot == brush_.hotbarSlot, ui::accentColor(40),
+                       ui::accentColor());
         if (slot >= 0) {
             ui::drawIcon5x5(draw, min, tile, stampInfos()[slot].icon,
                             ui::materialColor(brush_.material));
         } else {
-            // The empty hand: a slashed circle.
-            const ImVec2 center(min.x + tile * 0.5f, min.y + tile * 0.5f);
-            const float radius = tile * 0.22f;
-            const float slash = radius * 0.7f;
-            const ImU32 muted = ImGui::GetColorU32(ImGuiCol_TextDisabled);
-            draw->AddCircle(center, radius, muted, 0, px(1.5f));
-            draw->AddLine(ImVec2(center.x - slash, center.y + slash),
-                          ImVec2(center.x + slash, center.y - slash), muted, px(1.5f));
+            drawEmptyHandIcon(draw, min, tile);
         }
         if (hovered) {
             if (slot >= 0) {
@@ -527,33 +601,34 @@ void Game::drawStampPicker() {
 void Game::drawMaterialPicker() {
     ui::sectionLabel("Material");
     ui::mutedText("What stamps are made of. M cycles through them in game.");
+    // One row of equal tiles, each a cube icon and the material's name.
+    constexpr float TILE_HEIGHT_IN_FRAMES = 1.9f;
+    constexpr float ICON_LEFT = 10.0f; // from the tile's left edge
+    constexpr float TEXT_LEFT = 18.0f; // from the tile's left edge, plus the icon's width
     ImDrawList* draw = ImGui::GetWindowDrawList();
-    const float spacing = px(6);
+    const float spacing = px(TILE_SPACING);
     const float count = static_cast<float>(cellTypes().size());
     const float width =
         std::floor((ImGui::GetContentRegionAvail().x - spacing * (count - 1.0f)) / count);
-    const float height = ImGui::GetFrameHeight() * 1.9f;
+    const float height = ImGui::GetFrameHeight() * TILE_HEIGHT_IN_FRAMES;
     for (const CellType& type : cellTypes()) {
-        if (type.kind != CellKind::Life) ImGui::SameLine(0, spacing);
+        const bool firstTile = type.kind == CellKind::Life;
+        if (!firstTile) ImGui::SameLine(0, spacing);
         ImGui::PushID(static_cast<int>(type.kind));
         const ImVec2 min = ImGui::GetCursorScreenPos();
         const ImVec2 max(min.x + width, min.y + height);
         const bool clicked = ImGui::InvisibleButton("material", ImVec2(width, height));
         const bool hovered = ImGui::IsItemHovered();
-        draw->AddRectFilled(
-            min, max, ImGui::GetColorU32(hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg),
-            px(6));
-        if (type.kind == brush_.material) {
-            draw->AddRectFilled(min, max, ui::materialColor(type.kind, 36), px(6));
-            draw->AddRect(min, max, ui::materialColor(type.kind), px(6), px(2));
-        }
+        drawPickerTile(draw, min, max, hovered, type.kind == brush_.material,
+                       ui::materialColor(type.kind, 36), ui::materialColor(type.kind));
         const float icon = height * 0.5f;
-        ui::drawCubeIcon(draw, ImVec2(min.x + px(10) + icon * 0.5f, min.y + height * 0.5f), icon,
-                         type.rgb);
+        const ImVec2 iconCenter(min.x + px(ICON_LEFT) + icon * 0.5f, min.y + height * 0.5f);
+        ui::drawCubeIcon(draw, iconCenter, icon, type.rgb);
         const ImVec2 textSize = ImGui::CalcTextSize(type.name);
-        draw->AddText(ImVec2(min.x + px(18) + icon, min.y + (height - textSize.y) * 0.5f), WHITE,
-                      type.name);
-        if (hovered) tooltip(type.description, 300);
+        const ImVec2 textPosition(min.x + px(TEXT_LEFT) + icon,
+                                  min.y + (height - textSize.y) * 0.5f);
+        draw->AddText(textPosition, WHITE, type.name);
+        if (hovered) tooltip(type.description, TOOLTIP_WIDTH);
         if (clicked) brush_.material = type.kind;
         ImGui::PopID();
     }
@@ -564,6 +639,7 @@ void Game::drawMaterialPicker() {
 void Game::drawRulePicker() {
     ui::sectionLabel("Rule");
     ui::mutedText("Switching rules keeps the current cells.");
+    // Tall enough to list every rule without scrolling.
     const float listHeight =
         ImGui::GetTextLineHeightWithSpacing() * static_cast<float>(lifeRules().size()) +
         ImGui::GetStyle().WindowPadding.y * 2.0f;
@@ -577,7 +653,7 @@ void Game::drawRulePicker() {
             announceRule();
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetNextWindowSize(ImVec2(px(320), 0));
+            ImGui::SetNextWindowSize(ImVec2(px(RULE_TOOLTIP_WIDTH), 0));
             ImGui::BeginTooltip();
             ImGui::TextWrapped("%s", explainRule(candidate).c_str());
             ImGui::Spacing();
@@ -596,11 +672,13 @@ void Game::drawRulePicker() {
 // --------------------------------------------------------------- new world
 
 void Game::drawNewWorldMenu() {
-    if (ui::beginCard("##newworld", 440)) {
+    if (ui::beginCard("##newworld", NEW_WORLD_CARD_WIDTH)) {
         ui::cardHeader("New World");
         const LifeRule& chosen = lifeRules()[newWorldForm_.rule];
         if (ImGui::BeginTable("##newworld-options", 2)) {
-            ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, px(100));
+            constexpr float LABEL_COLUMN_WIDTH = 100.0f;
+            ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed,
+                                    px(LABEL_COLUMN_WIDTH));
             ImGui::TableSetupColumn("control", ImGuiTableColumnFlags_WidthStretch);
             optionRow("Rule");
             if (ImGui::BeginCombo("##rule", chosen.name)) {
@@ -609,14 +687,15 @@ void Game::drawNewWorldMenu() {
                         newWorldForm_.rule = index;
                     }
                     if (ImGui::IsItemHovered()) {
-                        tooltip(explainRule(lifeRules()[index]).c_str(), 300);
+                        tooltip(explainRule(lifeRules()[index]).c_str(), TOOLTIP_WIDTH);
                     }
                 }
                 ImGui::EndCombo();
             }
             optionRow("Seed");
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - px(80));
-            ImGui::InputInt("##seed", &newWorldForm_.seed, 0);
+            constexpr float RANDOM_BUTTON_WIDTH = 80.0f; // with the gap before it
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - px(RANDOM_BUTTON_WIDTH));
+            ImGui::InputInt("##seed", &newWorldForm_.seed, /*step=*/0); // 0: no +/- buttons
             ImGui::SameLine();
             if (ImGui::Button("Random", ImVec2(-FLT_MIN, 0))) {
                 newWorldForm_.seed = newRandomSeed();

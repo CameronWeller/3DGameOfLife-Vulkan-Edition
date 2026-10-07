@@ -17,11 +17,17 @@ namespace gol3d::ui {
 
 // An sRGB color, 0-255 per channel.
 struct Rgb {
-    int r, g, b;
+    int r;
+    int g;
+    int b;
 };
 
+// The named colors of the menus and the HUD. Colors used by only one style
+// slot are written inline in applyMenuStyle() instead.
 namespace palette {
-constexpr Rgb ACCENT{94, 230, 168}; // mint: live cells, primary buttons, highlights
+// Mint: primary buttons and highlights. It is the Life material's swatch color
+// (CellTypes.h, CellKind::Life), so the two must change together.
+constexpr Rgb ACCENT{94, 230, 168};
 constexpr Rgb ACCENT_HOVERED{130, 240, 192};
 constexpr Rgb ACCENT_PRESSED{70, 200, 140};
 constexpr Rgb ON_ACCENT{10, 30, 22};       // text on accent-filled buttons
@@ -42,10 +48,12 @@ constexpr Rgb DANGER_PRESSED{180, 66, 74};
 constexpr float BODY_FONT_SIZE = 15.0f;
 constexpr float TITLE_FONT_SIZE = 22.0f;
 
-// sRGB channel (0-1) to linear, with the common 2.2 gamma approximation.
+// sRGB channel (0-1) to linear, with the common 2.2 gamma approximation of the
+// exact sRGB curve (IEC 61966-2-1).
 float srgbToLinear(float channel);
 
-// A packed linear color for ImGui draw lists.
+// A packed linear color for ImGui draw lists, from sRGB channels in 0-255.
+// `alpha` is not gamma-encoded and passes through unchanged.
 ImU32 color(int r, int g, int b, int alpha = 255);
 ImU32 color(Rgb rgb, int alpha = 255);
 ImU32 accentColor(int alpha = 255);
