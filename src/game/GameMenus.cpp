@@ -197,7 +197,7 @@ void Game::shutdownImGui() {
 // at every scale without rebuilding the font atlas.
 void Game::updateUiScale() {
     float scale = static_cast<float>(settings_.guiScale);
-    if (settings_.guiScale <= 0) {
+    if (settings_.guiScale <= Settings::AUTOMATIC_GUI_SCALE) {
         scale = autoGuiScale(static_cast<float>(renderer_.swapchain().extent().height));
     }
     if (scale == uiScale_) return;
@@ -356,8 +356,9 @@ void Game::drawSimulationControls(bool& running) {
     if (!forwarding) {
         ui::hoverHint("J in game. Runs as fast as the GPU allows, then returns to the set speed.");
         ImGui::SameLine();
-        if (ImGui::Button("Skip 1,000", ImVec2(halfWidth, height)))
+        if (ImGui::Button("Skip 1,000", ImVec2(halfWidth, height))) {
             queueFastForward(LONG_FAST_FORWARD_GENERATIONS);
+        }
         ui::hoverHint("Shift+J in game");
     }
 }
@@ -489,9 +490,10 @@ void Game::drawMouseOptions() {
 void Game::drawInterfaceOptions() {
     optionSection("Interface");
     optionRow("GUI scale");
-    // 0 is "Auto" (see updateUiScale()).
-    ImGui::SliderInt("##gui", &settings_.guiScale, 0, Settings::MAX_GUI_SCALE,
-                     settings_.guiScale == 0 ? "Auto" : "%dx");
+    // The slider's bottom stop is "Auto" (see updateUiScale()).
+    const bool automatic = settings_.guiScale == Settings::AUTOMATIC_GUI_SCALE;
+    ImGui::SliderInt("##gui", &settings_.guiScale, Settings::AUTOMATIC_GUI_SCALE,
+                     Settings::MAX_GUI_SCALE, automatic ? "Auto" : "%dx");
     optionRow("Show HUD");
     ImGui::Checkbox("##hud", &hudVisible_);
     optionRow("Chunk borders");
