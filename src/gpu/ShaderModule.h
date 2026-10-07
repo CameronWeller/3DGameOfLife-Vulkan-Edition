@@ -1,5 +1,8 @@
 #pragma once
 
+// Loading compiled shaders. The GLSL in shaders/ is compiled at build time to
+// SPIR-V, the binary shader format Vulkan drivers take.
+
 #include <filesystem>
 
 #include <volk.h>

@@ -14,6 +14,9 @@
 
 namespace gol3d {
 
+// An incremental SHA-256: feed the message in pieces of any size, then finish.
+// The message is processed in 64-byte blocks; bytes that do not yet fill a
+// block wait in block_.
 class Sha256 {
 public:
     // Feeds more message bytes; may be called any number of times.
@@ -23,15 +26,18 @@ public:
     std::string finishHex();
 
 private:
+    static constexpr size_t BLOCK_BYTES = 64;
+
     void compressBlock();
 
-    // The hash state: the first 32 bits of the fractional parts of the square
-    // roots of the first 8 primes.
+    // The hash state, which becomes the digest. It starts as the first 32 bits
+    // of the fractional parts of the square roots of the first 8 primes
+    // (FIPS 180-4, section 5.3.3).
     std::array<uint32_t, 8> state_ = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
                                       0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
-    std::array<uint8_t, 64> block_{}; // message bytes not yet compressed
-    size_t blockUsed_ = 0;
-    uint64_t messageBits_ = 0;
+    std::array<uint8_t, BLOCK_BYTES> block_{}; // message bytes not yet compressed
+    size_t blockUsed_ = 0;                     // how many bytes of block_ are filled
+    uint64_t messageBits_ = 0;                 // message length so far, in bits
 };
 
 // Hex digest of a byte string.

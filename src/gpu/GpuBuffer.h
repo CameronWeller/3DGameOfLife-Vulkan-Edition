@@ -2,6 +2,11 @@
 
 // GPU buffers and where their memory comes from.
 //
+// A Vulkan buffer is only a handle; its bytes live in a separate memory
+// allocation bound to it. A GPU offers several memory types (fast GPU-only
+// memory, memory the CPU can map, ...), each with property flags, and a buffer
+// can only use the types its requirements allow.
+//
 // Every buffer gets its own memory allocation. That is wasteful for many small
 // buffers, but the game has a few dozen, mostly large ones, and it keeps
 // ownership obvious. Host-visible buffers stay mapped for their whole life.
@@ -21,13 +26,14 @@ struct GpuBuffer {
     void* mapped = nullptr; // null for device-only memory
     VkDeviceSize size = 0;
 
+    // The CPU mapping viewed as an array of T; null for device-only memory.
     template <typename T>
     T* as() const {
         return static_cast<T*>(mapped);
     }
 };
 
-// Memory property sets to ask for, most preferred first.
+// Memory property sets to ask for; callers list them most preferred first.
 namespace memory {
 // CPU-visible and coherent: no flushes needed.
 constexpr VkMemoryPropertyFlags HOST =
@@ -50,6 +56,8 @@ constexpr VkBufferUsageFlags STORAGE_COPY = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                             VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 } // namespace usage
 
+// Creates and frees GpuBuffers on one device, and keeps a running total of the
+// memory they use.
 class BufferAllocator {
 public:
     void init(VkDevice device, const VkPhysicalDeviceMemoryProperties& memoryProperties);

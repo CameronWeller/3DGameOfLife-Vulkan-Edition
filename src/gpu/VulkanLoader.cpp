@@ -1,3 +1,6 @@
+// Loads the Vulkan library through volk, which fills in the global vk*
+// function pointers that the rest of the code calls.
+
 #include "gpu/VulkanLoader.h"
 
 #include <stdexcept>
@@ -15,7 +18,8 @@ namespace {
 
 #if defined(__APPLE__)
 // Loads the MoltenVK shipped inside the app bundle (or next to a build-tree
-// executable). Returns false when there is none.
+// executable). Returns false when there is none. The library stays loaded for
+// the life of the process, so its handle is never closed.
 bool loadBundledMoltenVk(const std::filesystem::path& exeDir) {
     const std::filesystem::path candidates[] = {
         exeDir / ".." / "Frameworks" / "libMoltenVK.dylib",
@@ -47,8 +51,10 @@ void initVulkanLoader([[maybe_unused]] const std::filesystem::path& exeDir) {
             "Vulkan is not available. Install a GPU driver with Vulkan support "
             "(on Linux also the Vulkan loader, e.g. libvulkan1 or vulkan-icd-loader).");
     }
+    // GLFW 3.4 and later can be told which loader to use, so that it creates
+    // window surfaces through the same one (older versions find their own).
 #if GLFW_VERSION_MAJOR > 3 || (GLFW_VERSION_MAJOR == 3 && GLFW_VERSION_MINOR >= 4)
-    glfwInitVulkanLoader(vkGetInstanceProcAddr); // GLFW creates surfaces through the same loader
+    glfwInitVulkanLoader(vkGetInstanceProcAddr);
 #endif
 }
 

@@ -1,3 +1,6 @@
+// SHA-256 as specified in FIPS 180-4; the comments give the section for each
+// step. tests/UpdaterTest.cpp checks it against the standard's test vectors.
+
 #include "update/Sha256.h"
 
 #include <fstream>
@@ -5,9 +8,12 @@
 namespace gol3d {
 namespace {
 
+constexpr int ROUNDS = 64;
+constexpr int BLOCK_WORDS = 16; // 32-bit words in a 64-byte block
+
 // The round constants: the first 32 bits of the fractional parts of the cube
-// roots of the first 64 primes.
-constexpr std::array<uint32_t, 64> ROUND_CONSTANTS = {
+// roots of the first 64 primes (section 4.2.2).
+constexpr std::array<uint32_t, ROUNDS> ROUND_CONSTANTS = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
     0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
@@ -17,6 +23,7 @@ constexpr std::array<uint32_t, 64> ROUND_CONSTANTS = {
     0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
 
+// Every caller passes 0 < bits < 32, where both shifts are defined.
 uint32_t rotateRight(uint32_t x, int bits) {
     return (x >> bits) | (x << (32 - bits));
 }
@@ -60,12 +67,13 @@ uint32_t readBigEndian32(const uint8_t* bytes) {
 
 // Mixes one 64-byte block into the state (FIPS 180-4, section 6.2.2).
 void Sha256::compressBlock() {
-    // 1. The message schedule: the block's 16 big-endian words, extended to 64.
-    std::array<uint32_t, 64> schedule{};
-    for (int t = 0; t < 16; ++t) {
+    // 1. The message schedule: the block's 16 big-endian words, extended to one
+    //    word per round. `t` is the round number, as in the standard.
+    std::array<uint32_t, ROUNDS> schedule{};
+    for (int t = 0; t < BLOCK_WORDS; ++t) {
         schedule[t] = readBigEndian32(&block_[t * 4]);
     }
-    for (int t = 16; t < 64; ++t) {
+    for (int t = BLOCK_WORDS; t < ROUNDS; ++t) {
         schedule[t] = smallSigma1(schedule[t - 2]) + schedule[t - 7] +
                       smallSigma0(schedule[t - 15]) + schedule[t - 16];
     }
@@ -83,7 +91,7 @@ void Sha256::compressBlock() {
     // 3. 64 rounds. Each computes two temporaries from the variables, then shifts
     //    the variables down one place (h is dropped, a takes the new value) with
     //    the first temporary also added into e.
-    for (int t = 0; t < 64; ++t) {
+    for (int t = 0; t < ROUNDS; ++t) {
         uint32_t temp1 = h + bigSigma1(e) + choose(e, f, g) + ROUND_CONSTANTS[t] + schedule[t];
         uint32_t temp2 = bigSigma0(a) + majority(a, b, c);
         h = g;
@@ -122,11 +130,13 @@ std::string Sha256::finishHex() {
     // Padding (FIPS 180-4, section 5.1.1): a single 1 bit, zeros until 8 bytes
     // short of a block boundary, then the message length in bits as a 64-bit
     // big-endian number.
+    // The length is captured first: update() below counts the padding too.
+    constexpr size_t LENGTH_FIELD_BYTES = 8;
     const uint64_t lengthBits = messageBits_;
     const uint8_t oneBit = 0x80;
     const uint8_t zero = 0;
     update(&oneBit, 1);
-    while (blockUsed_ != 56) {
+    while (blockUsed_ != BLOCK_BYTES - LENGTH_FIELD_BYTES) {
         update(&zero, 1);
     }
     for (int shift = 56; shift >= 0; shift -= 8) {
@@ -134,6 +144,8 @@ std::string Sha256::finishHex() {
         update(&byte, 1);
     }
 
+    // The digest is the state words in order, each as 8 hex digits, most
+    // significant first.
     constexpr const char* HEX_DIGITS = "0123456789abcdef";
     std::string hex;
     for (uint32_t word : state_) {
@@ -154,7 +166,10 @@ std::optional<std::string> sha256OfFile(const std::filesystem::path& file) {
     std::ifstream in(file, std::ios::binary);
     if (!in) return std::nullopt;
     Sha256 sha;
-    std::array<char, 65536> buffer{};
+    constexpr size_t READ_CHUNK_BYTES = 64 * 1024; // the file is read a piece at a time
+    std::array<char, READ_CHUNK_BYTES> buffer{};
+    // The last read() comes up short and ends the loop, but gcount() still
+    // says how many bytes it got.
     while (in) {
         in.read(buffer.data(), buffer.size());
         sha.update(reinterpret_cast<const uint8_t*>(buffer.data()),

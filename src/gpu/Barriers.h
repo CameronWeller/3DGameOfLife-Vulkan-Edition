@@ -3,6 +3,13 @@
 // Pipeline barriers (Vulkan synchronization2), spelled out as "work of these
 // stages, with these accesses, must finish before work of those stages with
 // those accesses starts".
+//
+// The GPU runs the commands of a command buffer overlapped and out of order, and
+// its caches do not see each other's writes. A barrier is how a command buffer
+// says "this later work depends on that earlier work": it waits for the source
+// stages and makes their writes visible to the destination accesses. Without
+// one, a compute pass could read a buffer that a copy before it has not
+// finished writing.
 
 #include <volk.h>
 
@@ -24,6 +31,8 @@ inline void memoryBarrier(VkCommandBuffer cmd, VkPipelineStageFlags2 srcStage,
 }
 
 // The common "GPU copies are done; the CPU may now read or write the memory".
+// The CPU must still wait for the submission's fence before touching it: the
+// barrier only makes the copied data visible to the host once the work is done.
 inline void copiesVisibleToHost(VkCommandBuffer cmd) {
     memoryBarrier(cmd, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                   VK_PIPELINE_STAGE_2_HOST_BIT,
@@ -31,7 +40,9 @@ inline void copiesVisibleToHost(VkCommandBuffer cmd) {
 }
 
 // Moves one mip level and layer of an image from layout `from` to `to`, with
-// the same ordering as memoryBarrier.
+// the same ordering as memoryBarrier. A layout is how the GPU arranges an
+// image's pixels for one kind of use (drawing into, copying from, presenting);
+// an image must be in the right layout before each use.
 inline void imageBarrier(VkCommandBuffer cmd, VkImage image, VkImageAspectFlags aspect,
                          VkImageLayout from, VkImageLayout to, VkPipelineStageFlags2 srcStage,
                          VkAccessFlags2 srcAccess, VkPipelineStageFlags2 dstStage,
@@ -43,10 +54,15 @@ inline void imageBarrier(VkCommandBuffer cmd, VkImage image, VkImageAspectFlags 
     barrier.dstAccessMask = dstAccess;
     barrier.oldLayout = from;
     barrier.newLayout = to;
+    // Not a hand-over between queue families: the game uses a single queue.
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = image;
-    barrier.subresourceRange = {aspect, 0, 1, 0, 1};
+    barrier.subresourceRange = {.aspectMask = aspect,
+                                .baseMipLevel = 0,
+                                .levelCount = 1,
+                                .baseArrayLayer = 0,
+                                .layerCount = 1};
     VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     dependency.imageMemoryBarrierCount = 1;
     dependency.pImageMemoryBarriers = &barrier;

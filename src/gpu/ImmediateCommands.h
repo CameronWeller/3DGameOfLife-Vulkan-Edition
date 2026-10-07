@@ -19,7 +19,8 @@ public:
 
     // Resets the command buffer and starts recording.
     VkCommandBuffer begin();
-    // Ends recording, submits, and waits; `what` names the work in errors.
+    // Ends recording, submits to the GPU's queue, and blocks until the GPU has
+    // finished; `what` names the work in errors.
     void submitAndWait(const char* what);
 
 private:

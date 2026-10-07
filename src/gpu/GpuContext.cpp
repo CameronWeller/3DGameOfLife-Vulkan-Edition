@@ -1,3 +1,6 @@
+// Opens Vulkan: creates the instance, picks the GPU and opens a device with the
+// one queue the game uses. See GpuContext.h for what each object is.
+
 #include "gpu/GpuContext.h"
 
 #include <algorithm>
@@ -21,6 +24,9 @@ constexpr const char* PORTABILITY_SUBSET = "VK_KHR_portability_subset";
 constexpr VkSubgroupFeatureFlags SUBGROUP_OPS = VK_SUBGROUP_FEATURE_BASIC_BIT |
                                                 VK_SUBGROUP_FEATURE_ARITHMETIC_BIT |
                                                 VK_SUBGROUP_FEATURE_BALLOT_BIT;
+// The queue family must do all three: the game uses a single queue.
+constexpr VkQueueFlags NEEDED_QUEUE_ABILITIES = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT;
+constexpr uint32_t NO_QUEUE_FAMILY = UINT32_MAX;
 
 // True when the environment variable is set to anything but "" or "0".
 bool envFlag(const char* name) {
@@ -35,7 +41,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL onValidationMessage(VkDebugUtilsMessageSeverityFl
     if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
         std::cerr << "Vulkan: " << data->pMessage << std::endl;
     }
-    return VK_FALSE;
+    return VK_FALSE; // VK_TRUE would make the call that triggered the message fail
 }
 
 bool hasExtension(const std::vector<VkExtensionProperties>& list, const char* name) {
@@ -44,6 +50,8 @@ bool hasExtension(const std::vector<VkExtensionProperties>& list, const char* na
     });
 }
 
+// Vulkan lists things in two calls: the first asks only for the count, the
+// second fills an array of that size. The same pattern appears throughout.
 std::vector<VkExtensionProperties> instanceExtensions() {
     uint32_t count = 0;
     vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
@@ -75,8 +83,9 @@ std::string versionString(uint32_t version) {
            std::to_string(VK_API_VERSION_MINOR(version));
 }
 
-// Discrete GPUs first, software renderers last.
-int preference(VkPhysicalDeviceType type) {
+// How much the game prefers a kind of GPU; higher wins. Discrete GPUs first,
+// software renderers last.
+int typeRank(VkPhysicalDeviceType type) {
     switch (type) {
         case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
             return 4;
@@ -91,16 +100,38 @@ int preference(VkPhysicalDeviceType type) {
     }
 }
 
+// The first queue family of `device` that can draw, compute and present to
+// `surface`, or NO_QUEUE_FAMILY.
+uint32_t findQueueFamily(VkPhysicalDevice device, VkSurfaceKHR surface) {
+    uint32_t familyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &familyCount, nullptr);
+    std::vector<VkQueueFamilyProperties> families(familyCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &familyCount, families.data());
+    for (uint32_t i = 0; i < familyCount; ++i) {
+        VkBool32 presents = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presents);
+        const bool hasAbilities =
+            (families[i].queueFlags & NEEDED_QUEUE_ABILITIES) == NEEDED_QUEUE_ABILITIES;
+        if (presents && hasAbilities) return i;
+    }
+    return NO_QUEUE_FAMILY;
+}
+
 // What the game needs to know about a GPU it could use.
 struct Candidate {
     VkPhysicalDevice device = VK_NULL_HANDLE;
     VkPhysicalDeviceProperties properties{};
-    uint32_t queueFamily = UINT32_MAX;
+    uint32_t queueFamily = NO_QUEUE_FAMILY;
 };
 
 // Why `device` cannot run the game, or "" when it can (then `out` is filled).
+// The checks run from the most basic requirement to the most specific, so the
+// reason given is the most useful one.
 std::string whyUnsuitable(VkPhysicalDevice device, VkSurfaceKHR surface, const char* wantedName,
                           Candidate& out) {
+    // Vulkan returns extra information through a chain of structs linked by
+    // their second member (pNext): here the subgroup properties ride along
+    // with the general ones.
     VkPhysicalDeviceSubgroupProperties subgroup{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
     VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
@@ -125,25 +156,31 @@ std::string whyUnsuitable(VkPhysicalDevice device, VkSurfaceKHR surface, const c
         return "no swapchain";
     }
 
-    // One queue family must draw, compute and present to the window.
-    uint32_t familyCount = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &familyCount, nullptr);
-    std::vector<VkQueueFamilyProperties> families(familyCount);
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &familyCount, families.data());
-    uint32_t family = UINT32_MAX;
-    for (uint32_t i = 0; i < familyCount && family == UINT32_MAX; ++i) {
-        VkBool32 presents = VK_FALSE;
-        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presents);
-        const VkQueueFlags needed = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT;
-        if (presents && (families[i].queueFlags & needed) == needed) family = i;
+    const uint32_t family = findQueueFamily(device, surface);
+    if (family == NO_QUEUE_FAMILY) {
+        return "no queue that draws, computes and presents to this window";
     }
-    if (family == UINT32_MAX) return "no queue that draws, computes and presents to this window";
 
     if (wantedName && *wantedName && !std::strstr(deviceProperties.deviceName, wantedName)) {
         return "not selected by GOL3D_GPU";
     }
     out = Candidate{device, deviceProperties, family};
     return "";
+}
+
+// Prints validation warnings and errors through onValidationMessage.
+VkDebugUtilsMessengerEXT createValidationMessenger(VkInstance instance) {
+    VkDebugUtilsMessengerCreateInfoEXT messengerInfo{
+        VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
+    messengerInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                    VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    messengerInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                                VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                                VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    messengerInfo.pfnUserCallback = onValidationMessage;
+    VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
+    vkCreateDebugUtilsMessengerEXT(instance, &messengerInfo, nullptr, &messenger);
+    return messenger;
 }
 
 } // namespace
@@ -158,6 +195,8 @@ void GpuContext::init(GLFWwindow* window) {
 }
 
 void GpuContext::createInstance() {
+    // vkEnumerateInstanceVersion only exists from Vulkan 1.1 on; without it the
+    // loader is 1.0.
     uint32_t loaderVersion = VK_API_VERSION_1_0;
     if (vkEnumerateInstanceVersion) vkEnumerateInstanceVersion(&loaderVersion);
     if (loaderVersion < VK_API_VERSION_1_3) {
@@ -205,20 +244,12 @@ void GpuContext::createInstance() {
     if (VkResult result = vkCreateInstance(&createInfo, nullptr, &instance); result != VK_SUCCESS) {
         throw std::runtime_error("Could not start Vulkan (error " + std::to_string(result) + ").");
     }
+    // Loads the instance-level function pointers. Device-level ones are loaded
+    // later by volkLoadDevice, straight from the driver, which skips the
+    // loader's per-call dispatch.
     volkLoadInstanceOnly(instance);
 
-    if (!layers.empty()) {
-        // Print validation warnings and errors.
-        VkDebugUtilsMessengerCreateInfoEXT messengerInfo{
-            VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
-        messengerInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-        messengerInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                                    VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                                    VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-        messengerInfo.pfnUserCallback = onValidationMessage;
-        vkCreateDebugUtilsMessengerEXT(instance, &messengerInfo, nullptr, &messenger_);
-    }
+    if (!layers.empty()) messenger_ = createValidationMessenger(instance);
 }
 
 // Picks the most capable GPU that can run the game, or explains why none can.
@@ -230,7 +261,7 @@ void GpuContext::choosePhysicalDevice() {
 
     const char* wantedName = std::getenv("GOL3D_GPU");
     std::ostringstream rejected;
-    int bestPreference = -1;
+    int bestRank = -1;
     for (VkPhysicalDevice device : devices) {
         Candidate candidate;
         std::string why = whyUnsuitable(device, surface, wantedName, candidate);
@@ -240,8 +271,9 @@ void GpuContext::choosePhysicalDevice() {
             rejected << "\n  " << deviceProperties.deviceName << ": " << why;
             continue;
         }
-        if (preference(candidate.properties.deviceType) > bestPreference) {
-            bestPreference = preference(candidate.properties.deviceType);
+        const int rank = typeRank(candidate.properties.deviceType);
+        if (rank > bestRank) {
+            bestRank = rank;
             physicalDevice = candidate.device;
             queueFamily = candidate.queueFamily;
             properties = candidate.properties;
@@ -257,12 +289,15 @@ void GpuContext::choosePhysicalDevice() {
 }
 
 void GpuContext::createDevice() {
+    // With a single queue its priority (0 to 1) has nothing to be weighed against.
     float priority = 1.0f;
     VkDeviceQueueCreateInfo queueInfo{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     queueInfo.queueFamilyIndex = queueFamily;
     queueInfo.queueCount = 1;
     queueInfo.pQueuePriorities = &priority;
 
+    // A portability driver (MoltenVK) requires the game to enable this
+    // extension, acknowledging that it does not implement all of Vulkan.
     std::vector<const char*> extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     if (hasExtension(deviceExtensions(physicalDevice), PORTABILITY_SUBSET)) {
         extensions.push_back(PORTABILITY_SUBSET);
@@ -310,18 +345,24 @@ void GpuContext::waitForFence(VkFence fence, const char* what) const {
 SurfaceSupport GpuContext::querySurface() const {
     SurfaceSupport support;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &support.capabilities);
-    uint32_t count = 0;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &count, nullptr);
-    support.formats.resize(count);
-    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &count, support.formats.data());
-    vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &count, nullptr);
-    support.presentModes.resize(count);
-    vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &count,
+
+    uint32_t formatCount = 0;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr);
+    support.formats.resize(formatCount);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount,
+                                         support.formats.data());
+
+    uint32_t presentModeCount = 0;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, nullptr);
+    support.presentModes.resize(presentModeCount);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount,
                                               support.presentModes.data());
     return support;
 }
 
 void GpuContext::destroy() {
+    // Children before parents: the pool belongs to the device, and the device,
+    // surface and messenger to the instance.
     if (device) {
         vkDestroyCommandPool(device, commandPool, nullptr);
         vkDestroyDevice(device, nullptr);

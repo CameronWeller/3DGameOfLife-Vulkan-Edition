@@ -1,5 +1,7 @@
 #pragma once
 
+// Finds the Vulkan library at startup, before any other Vulkan call.
+
 #include <filesystem>
 
 namespace gol3d {

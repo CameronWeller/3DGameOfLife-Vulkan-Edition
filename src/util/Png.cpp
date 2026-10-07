@@ -1,3 +1,8 @@
+// The PNG writer. A PNG file is an 8-byte signature followed by chunks; this
+// one writes the three a valid file needs: IHDR (size and pixel format), IDAT
+// (the pixels, as a zlib stream) and IEND. Format: the PNG specification
+// (ISO/IEC 15948), zlib (RFC 1950) and deflate (RFC 1951).
+
 #include "util/Png.h"
 
 #include <algorithm>
@@ -7,21 +12,29 @@
 namespace gol3d {
 namespace {
 
+constexpr size_t BYTES_PER_PIXEL = 3; // R, G, B
+
 void appendBigEndian32(std::vector<uint8_t>& out, uint32_t value) {
     for (int shift = 24; shift >= 0; shift -= 8) {
         out.push_back(static_cast<uint8_t>(value >> shift));
     }
 }
 
+void appendLittleEndian16(std::vector<uint8_t>& out, uint16_t value) {
+    out.push_back(static_cast<uint8_t>(value & 0xFF));
+    out.push_back(static_cast<uint8_t>(value >> 8));
+}
+
 // Each row of PNG image data starts with a filter type; 0 means "None", the
 // row's bytes as they are.
 std::vector<uint8_t> unfilteredRows(uint32_t width, uint32_t height,
                                     const std::vector<uint8_t>& rgb) {
-    const size_t rowBytes = static_cast<size_t>(width) * 3;
+    constexpr uint8_t FILTER_NONE = 0;
+    const size_t rowBytes = static_cast<size_t>(width) * BYTES_PER_PIXEL;
     std::vector<uint8_t> rows;
     rows.reserve((rowBytes + 1) * height);
     for (uint32_t y = 0; y < height; ++y) {
-        rows.push_back(0); // filter type: None
+        rows.push_back(FILTER_NONE);
         auto rowStart = rgb.begin() + static_cast<std::ptrdiff_t>(y * rowBytes);
         rows.insert(rows.end(), rowStart, rowStart + static_cast<std::ptrdiff_t>(rowBytes));
     }
@@ -31,21 +44,20 @@ std::vector<uint8_t> unfilteredRows(uint32_t width, uint32_t height,
 // A zlib stream (RFC 1950) holding `data` in "stored" deflate blocks (RFC 1951,
 // section 3.2.4), which copy bytes without compressing them.
 std::vector<uint8_t> zlibStored(const std::vector<uint8_t>& data) {
-    constexpr size_t MAX_STORED_BLOCK = 65535;
+    constexpr size_t MAX_STORED_BLOCK = 65535; // the largest 16-bit length
     // Header: deflate with a 32 KB window (0x78), no preset dictionary, fastest
     // level (0x01); together they are a multiple of 31 as RFC 1950 requires.
     std::vector<uint8_t> out = {0x78, 0x01};
     size_t pos = 0;
+    // do-while: even empty data needs one (empty) final block.
     do {
         const size_t length = std::min(MAX_STORED_BLOCK, data.size() - pos);
         const bool lastBlock = pos + length == data.size();
         // Block header byte: bit 0 = last block, bits 1-2 = type 00 (stored).
         out.push_back(lastBlock ? 1 : 0);
-        // Length and its one's complement, both little-endian 16-bit.
-        out.push_back(length & 0xFF);
-        out.push_back((length >> 8) & 0xFF);
-        out.push_back(~length & 0xFF);
-        out.push_back((~length >> 8) & 0xFF);
+        // The length, then its one's complement as a check.
+        appendLittleEndian16(out, static_cast<uint16_t>(length));
+        appendLittleEndian16(out, static_cast<uint16_t>(~length));
         out.insert(out.end(), data.begin() + static_cast<std::ptrdiff_t>(pos),
                    data.begin() + static_cast<std::ptrdiff_t>(pos + length));
         pos += length;
@@ -56,12 +68,14 @@ std::vector<uint8_t> zlibStored(const std::vector<uint8_t>& data) {
 
 // A PNG chunk: length, 4-letter type, data, then a CRC over type and data.
 void writeChunk(std::ofstream& file, const char type[4], const std::vector<uint8_t>& data) {
+    constexpr size_t LENGTH_BYTES = 4;
+    constexpr size_t TYPE_BYTES = 4;
     std::vector<uint8_t> chunk;
     appendBigEndian32(chunk, static_cast<uint32_t>(data.size()));
-    chunk.insert(chunk.end(), type, type + 4);
+    chunk.insert(chunk.end(), type, type + TYPE_BYTES);
     chunk.insert(chunk.end(), data.begin(), data.end());
-    const uint8_t* typeAndData = chunk.data() + 4;
-    appendBigEndian32(chunk, crc32(typeAndData, 4 + data.size()));
+    const uint8_t* typeAndData = chunk.data() + LENGTH_BYTES;
+    appendBigEndian32(chunk, crc32(typeAndData, TYPE_BYTES + data.size()));
     file.write(reinterpret_cast<const char*>(chunk.data()),
                static_cast<std::streamsize>(chunk.size()));
 }
@@ -70,21 +84,25 @@ void writeChunk(std::ofstream& file, const char type[4], const std::vector<uint8
 
 uint32_t crc32(const uint8_t* data, size_t size) {
     // Table-driven CRC with the reversed polynomial 0xEDB88320: entry n is the
-    // CRC of the single byte n.
+    // CRC of the single byte n, so each input byte costs one lookup.
+    constexpr uint32_t POLYNOMIAL = 0xEDB88320u;
     static const std::array<uint32_t, 256> TABLE = [] {
         std::array<uint32_t, 256> table{};
         for (uint32_t n = 0; n < 256; ++n) {
-            uint32_t c = n;
+            uint32_t crc = n;
             for (int bit = 0; bit < 8; ++bit) {
-                c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+                crc = (crc & 1) ? POLYNOMIAL ^ (crc >> 1) : crc >> 1;
             }
-            table[n] = c;
+            table[n] = crc;
         }
         return table;
     }();
+    // The register starts as all ones and is inverted at the end, as the
+    // standard requires.
     uint32_t crc = 0xFFFFFFFFu;
     for (size_t i = 0; i < size; ++i) {
-        crc = TABLE[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+        const uint8_t tableIndex = (crc ^ data[i]) & 0xFF;
+        crc = TABLE[tableIndex] ^ (crc >> 8);
     }
     return ~crc;
 }
@@ -106,6 +124,8 @@ bool writePng(const std::string& path, uint32_t width, uint32_t height,
     std::ofstream file(path, std::ios::binary);
     if (!file) return false;
 
+    // The bytes every PNG starts with; the odd ones catch files damaged by
+    // text-mode transfers.
     constexpr char SIGNATURE[8] = {'\x89', 'P', 'N', 'G', '\r', '\n', '\x1a', '\n'};
     file.write(SIGNATURE, sizeof(SIGNATURE));
 
