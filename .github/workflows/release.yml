@@ -74,7 +74,7 @@ jobs:
           path: spirv
       - name: Build
         run: |
-          cmake -S prototype -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
             -DGOL3D_BUNDLE_DEPS=ON -DGOL3D_SHADER_DIR="$PWD/spirv" \
             -DGOL3D_VERSION="$VERSION" -DGOL3D_PACKAGE_PLATFORM="linux-${{ matrix.arch }}"
           cmake --build build
@@ -153,7 +153,7 @@ jobs:
         shell: pwsh
         run: |
           $platform = "windows-${{ matrix.arch }}".ToLower()
-          cmake -S prototype -B build -A ${{ matrix.arch }} -DGOL3D_BUNDLE_DEPS=ON `
+          cmake -S . -B build -A ${{ matrix.arch }} -DGOL3D_BUNDLE_DEPS=ON `
             "-DGOL3D_SHADER_DIR=$env:GITHUB_WORKSPACE/spirv" "-DGOL3D_VERSION=$env:VERSION" "-DGOL3D_PACKAGE_PLATFORM=$platform"
           cmake --build build --config Release
       - name: Test (CPU)
@@ -190,7 +190,7 @@ jobs:
           lipo -info MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib
       - name: Build
         run: |
-          cmake -S prototype -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
             -DGOL3D_BUNDLE_DEPS=ON -DGOL3D_SHADER_DIR="$PWD/spirv" -DGOL3D_VERSION="$VERSION" \
             -DGOL3D_MOLTENVK_DYLIB="$PWD/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib" \
             -DGOL3D_PACKAGE_PLATFORM=macos-universal

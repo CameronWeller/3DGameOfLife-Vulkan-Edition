@@ -13,7 +13,7 @@ makedepends=('cmake' 'ninja' 'shaderc' 'libx11' 'libxrandr' 'libxinerama' 'libxc
 options=('!debug')
 
 build() {
-    cmake -S "$startdir/../../prototype" -B build -G Ninja \
+    cmake -S "$startdir/../.." -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
         -DGOL3D_BUNDLE_DEPS=ON -DGOL3D_VERSION="$pkgver" -DGOL3D_PACKAGE_PLATFORM="linux-$CARCH"
     cmake --build build

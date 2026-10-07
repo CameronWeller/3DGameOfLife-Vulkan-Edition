@@ -1,15 +1,15 @@
-# Playable prototype
+# Playing 3D Life
 
-`prototype/` builds `gol3d`, a Minecraft-style 3D Game of Life. You walk or fly
+The repository builds `gol3d`, a Minecraft-style 3D Game of Life. You walk or fly
 through an unbounded world, break and place live blocks, and watch the automaton
 evolve.
 It needs only Vulkan, GLFW and GLM. CMake uses installed GLFW and GLM when it
 finds them and otherwise downloads pinned releases, so no vcpkg setup is needed.
 
 ```bash
-cmake -S prototype -B build/prototype -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build/prototype
-./build/prototype/gol3d
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./build/gol3d
 ```
 
 Requirements: a Vulkan 1.3 GPU driver (with compute subgroup operations, which
@@ -152,7 +152,7 @@ G to run, and click the world to look around.
 8. **Beyond Life**: the block under Crystal, and the non-Life-like rules.
 
 Lesson content lives in `src/tutorial/TutorialLessons.cpp`, the panel in
-`src/tutorial/Tutorial.cpp`, and the patterns in `include/Life3DPatterns.h`.
+`src/tutorial/Tutorial.cpp`, and the patterns in `src/life/Patterns.h`.
 
 ## Rules
 
@@ -198,10 +198,12 @@ Stamps are made of the selected material:
 
 Placing fills only empty cells; right click removes any block. Saves (`L3D2`)
 store blocks after the live cells; `L3D1` saves from earlier versions load too.
-The kinds live in `include/CellTypes.h`, which also explains how the GPU stores
+The kinds live in `src/life/CellTypes.h`, which also explains how the GPU stores
 them (bit planes per behavior) and how to add more.
 
 ## How it works
+
+[ARCHITECTURE.md](ARCHITECTURE.md) is a guided tour of the source. In short:
 
 - **World:** cells are stored one bit each in 32³ chunks (1024 rows of 32 cells)
   that exist only where life is or can reach within the next 8 generations.
@@ -257,15 +259,15 @@ directory makes the packages for the host platform.
 ## Testing
 
 ```bash
-ctest --test-dir build/prototype            # CPU rule, engine and updater checks + GPU check
-ctest --test-dir build/prototype -LE gpu    # CPU-only
+ctest --test-dir build -LE gpu    # CPU-only
+ctest --test-dir build            # CPU checks plus the GPU check
 ```
 
 `gol3d --verify` steps soups with Stone and Ember blocks, centered on a chunk
 corner, for 24 generations, one generation per GPU batch and then eight. It
-compares every cell with a dense CPU reference (`include/Life3DRules.h`).
-`life3d_bits_test` runs the shader's bit-sliced arithmetic
-(`shaders/life3d_bits.glsl`, through `include/BitLife.h`) on the CPU against the
+compares every cell with a dense CPU reference (`src/life/LifeRules.h`).
+The `bit_life` test runs the shader's bit-sliced arithmetic
+(`shaders/life3d_bits.glsl`, through `src/life/BitLife.h`) on the CPU against the
 same reference for every rule, and checks the chunk hash map, so CI covers the
 engine without a GPU. `gol3d --rule N --bench G` times G generations of the
 simulation alone.
@@ -273,7 +275,7 @@ Scripted input drives the real picking and editing code for end-to-end
 screenshots. For example:
 
 ```bash
-./build/prototype/gol3d --empty --pos 0.5,1.5,-6 --look 90,0 --place --slot 6 --place \
+./build/gol3d --empty --pos 0.5,1.5,-6 --look 90,0 --place --slot 6 --place \
   --screenshot shot.png
 ```
 
@@ -290,19 +292,19 @@ Other scripted actions:
 
 Run `gol3d --help` for all options.
 
-`life3d_patterns_test` checks every pattern claim the tutorial makes against the
+The `patterns` test checks every pattern claim the tutorial makes against the
 CPU reference: still lifes, oscillator periods, glider periods and shifts, that
 doubled Conway patterns follow Conway's 2D game under Life 5766, and what each
 lesson's scene does. Tutorial lessons render headlessly with
 `--menu tutorial:N` (lesson N); `--steps` then advances that lesson's scene:
 
 ```bash
-./build/prototype/gol3d --empty --menu tutorial:3 --steps 12 --screenshot lesson3.png
+./build/gol3d --empty --menu tutorial:3 --steps 12 --screenshot lesson3.png
 ```
 
 The gliders came from a brute-force soup search, built on request:
 
 ```bash
-cmake --build build/prototype --target life3d_find_patterns
-./build/prototype/life3d_find_patterns "Life 4555" 20000
+cmake --build build --target find_patterns
+./build/find_patterns "Life 4555" 20000
 ```
