@@ -17,6 +17,8 @@ using testing::expect;
 
 namespace {
 
+// A path in a folder of its own under the system temp folder, unique to this
+// run, so saveSettings has to create the folder.
 std::filesystem::path tempFile(const std::string& name) {
     static const std::string RUN_ID = std::to_string(std::random_device{}());
     return std::filesystem::temp_directory_path() / ("gol3d-test-" + RUN_ID) / name;
@@ -45,6 +47,7 @@ void checkSettingsFile() {
                !loaded.smoothLighting && !loaded.animate && loaded.simBudget == 12,
            "every setting survives a save and load");
 
+    // A damaged file: too large, not a number, not a setting, unknown, too small.
     {
         std::ofstream out(path);
         out << "fov:500\nsensitivity:banana\nno colon here\nfutureSetting:1\nsimBudget:1\n";
@@ -56,6 +59,7 @@ void checkSettingsFile() {
     std::filesystem::remove_all(path.parent_path());
 }
 
+// Parses the arguments as if typed after "gol3d".
 ParsedCommandLine parse(std::vector<const char*> args) {
     args.insert(args.begin(), "gol3d");
     return parseCommandLine(static_cast<int>(args.size()), args.data());
@@ -74,7 +78,7 @@ void checkCommandLine() {
     Options options =
         parse({"--rule", "2", "--seed", "42", "--empty", "--fly", "--speed", "64"}).options;
     expect(options.rule == 1 && options.seed == 42 && options.empty && options.fly,
-           "basic options");
+           "basic options (--rule counts from 1, Options::rule from 0)");
     expect(options.speedExponent == 6, "--speed 64 is 2^6 generations per second");
     expect(parse({"--chunks", "10"}).options.chunkLimit == 64,
            "--chunks is clamped to at least 64");
@@ -82,19 +86,20 @@ void checkCommandLine() {
            "a screenshot run ends after 3 frames");
     expect(parse({"--view", "5000"}).options.renderDistance == 1024, "--view is clamped");
 
-    Options script = parse({"--pos", "1,2,3", "--look", "90,-10", "--slot", "5", "--material",
-                            "stone", "--place"})
-                         .options;
-    expect(script.script.size() == 5, "scripted actions are kept in order");
-    if (script.script.size() == 5) {
-        expect(script.script[0].kind == ScriptAction::Position &&
-                   script.script[0].vector == glm::vec3(1, 2, 3),
+    Options scripted = parse({"--pos", "1,2,3", "--look", "90,-10", "--slot", "5", "--material",
+                              "stone", "--place"})
+                           .options;
+    expect(scripted.script.size() == 5, "scripted actions are kept in order");
+    if (scripted.script.size() == 5) {
+        expect(scripted.script[0].kind == ScriptAction::Position &&
+                   scripted.script[0].vector == glm::vec3(1, 2, 3),
                "--pos");
-        expect(script.script[1].vector.x == 90.0f && script.script[1].vector.y == -10.0f, "--look");
-        expect(script.script[3].kind == ScriptAction::Material &&
-                   script.script[3].number == static_cast<int>(CellKind::Stone),
+        expect(scripted.script[1].vector.x == 90.0f && scripted.script[1].vector.y == -10.0f,
+               "--look");
+        expect(scripted.script[3].kind == ScriptAction::Material &&
+                   scripted.script[3].number == static_cast<int>(CellKind::Stone),
                "--material by name");
-        expect(script.script[4].kind == ScriptAction::Place, "--place");
+        expect(scripted.script[4].kind == ScriptAction::Place, "--place");
     }
 
     expect(parse({"--help"}).action == ParsedCommandLine::Action::PrintHelp, "--help");

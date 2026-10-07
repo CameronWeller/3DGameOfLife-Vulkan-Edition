@@ -29,7 +29,10 @@ struct CrosshairTarget {
 
 // Movement keys held this frame.
 struct MoveKeys {
-    bool forward = false, back = false, left = false, right = false;
+    bool forward = false;
+    bool back = false;
+    bool left = false;
+    bool right = false;
     bool up = false;   // Space: jump, or rise while flying
     bool down = false; // Left Shift: sink while flying
     bool sprint = false;
@@ -44,7 +47,8 @@ public:
 
     static constexpr float WALK_SPEED = 4.317f;
     static constexpr float SPRINT_SPEED = 5.612f;
-    static constexpr float FLY_SPEED = 10.92f; // sprinting doubles it
+    static constexpr float FLY_SPEED = 10.92f;
+    static constexpr float FLY_SPRINT_FACTOR = 2.0f; // sprinting while flying doubles the speed
     static constexpr float GRAVITY = 32.0f;
     static constexpr float JUMP_SPEED = 8.9f; // clears a 1.25-block jump
     static constexpr float TERMINAL_SPEED = 78.4f;

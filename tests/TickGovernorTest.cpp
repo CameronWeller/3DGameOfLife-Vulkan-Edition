@@ -26,31 +26,43 @@ void checkSpeed() {
 }
 
 void checkPlanning() {
-    constexpr uint32_t MAX = 8;
-    PassCosts unmeasured;
-    expect(planBatch(100, 0, 0.0, 8.0, 0.0, unmeasured, MAX) == MAX,
+    constexpr uint32_t BATCH_LIMIT = 8; // most generations in one batch
+    constexpr double BUDGET_MS = 8.0;   // the default Settings::simBudget
+    constexpr double NO_RESERVE_MS = 0.0;
+    constexpr double RESERVE_MS = 1.0;  // set aside for the frame's block-list build
+    constexpr uint64_t FIRST_BATCH = 0; // generations already done this frame
+    constexpr uint64_t LATER_BATCH = 5;
+
+    const PassCosts unmeasured;
+    expect(planBatch(100, FIRST_BATCH, 0.0, BUDGET_MS, NO_RESERVE_MS, unmeasured, BATCH_LIMIT) ==
+               BATCH_LIMIT,
            "without measurements, run a full batch");
-    expect(planBatch(3, 0, 0.0, 8.0, 0.0, unmeasured, MAX) == 3, "never more than what is owed");
+    expect(planBatch(3, FIRST_BATCH, 0.0, BUDGET_MS, NO_RESERVE_MS, unmeasured, BATCH_LIMIT) == 3,
+           "never more than what is owed");
 
     PassCosts costs;
     costs.stepMs = 1.0;
     costs.statsMs = 0.5;
     costs.overheadMs = 0.5;
     // 8 ms budget, 2 ms spent, 1 ms reserved: 8 - 2 - 1 - 0.5 - 0.5 = 4 generations fit.
-    expect(planBatch(100, 5, 2.0, 8.0, 1.0, costs, MAX) == 4,
+    expect(planBatch(100, LATER_BATCH, 2.0, BUDGET_MS, RESERVE_MS, costs, BATCH_LIMIT) == 4,
            "the batch fits the rest of the budget");
-    expect(planBatch(100, 5, 8.0, 8.0, 1.0, costs, MAX) == 0, "a spent budget stops the frame");
-    expect(planBatch(100, 5, 7.5, 8.0, 1.0, costs, MAX) == 0,
+    expect(planBatch(100, LATER_BATCH, 8.0, BUDGET_MS, RESERVE_MS, costs, BATCH_LIMIT) == 0,
+           "a spent budget stops the frame");
+    // 7.5 ms spent leaves 8 - 7.5 - 1 - 0.5 - 0.5 < 0 ms.
+    expect(planBatch(100, LATER_BATCH, 7.5, BUDGET_MS, RESERVE_MS, costs, BATCH_LIMIT) == 0,
            "too little room for one step stops it too");
-    expect(planBatch(100, 0, 50.0, 8.0, 1.0, costs, MAX) == 1,
+    expect(planBatch(100, FIRST_BATCH, 50.0, BUDGET_MS, RESERVE_MS, costs, BATCH_LIMIT) == 1,
            "the first batch always runs one generation");
 
     costs.stepMs = 0.01;
-    expect(planBatch(100, 5, 0.0, 8.0, 1.0, costs, MAX) == MAX,
+    expect(planBatch(100, LATER_BATCH, 0.0, BUDGET_MS, RESERVE_MS, costs, BATCH_LIMIT) ==
+               BATCH_LIMIT,
            "cheap steps are capped at a full batch");
 }
 
 void checkRateMeter() {
+    // Samples are (time in seconds, generation count).
     RateMeter meter;
     meter.sample(0.0, 0);
     meter.sample(0.1, 10);
@@ -64,6 +76,7 @@ void checkRateMeter() {
 }
 
 void checkSlowdownIndicator() {
+    // note(time in seconds, slowed down this frame).
     SlowdownIndicator indicator;
     indicator.note(0.0, false);
     expect(!indicator.active(), "off until a slowdown");

@@ -21,17 +21,18 @@ const LifeRule& ruleNamed(const std::string& name) {
     std::exit(1);
 }
 
+// A cube of `size`^3 cells for the dense reference, 1 = alive.
 struct Grid {
     int size;
     std::vector<uint32_t> cells;
-    explicit Grid(int n) : size(n), cells(static_cast<size_t>(n) * n * n, 0) {}
+    explicit Grid(int edge) : size(edge), cells(static_cast<size_t>(edge) * edge * edge, 0) {}
     uint32_t& at(int x, int y, int z) {
         return cells[(static_cast<size_t>(z) * size + y) * size + x];
     }
     size_t population() const {
         size_t count = 0;
-        for (uint32_t c : cells) {
-            count += c;
+        for (uint32_t cell : cells) {
+            count += cell;
         }
         return count;
     }
@@ -42,6 +43,7 @@ struct Grid {
     }
 };
 
+// A 2x2x2 block (cells 3..4 on each axis) in the middle of an 8^3 grid.
 Grid blockGrid() {
     Grid grid(8);
     for (int z = 3; z < 5; ++z) {

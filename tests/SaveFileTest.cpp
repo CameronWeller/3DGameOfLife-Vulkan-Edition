@@ -15,6 +15,14 @@ using testing::expect;
 
 namespace {
 
+// The file layout from SaveFile.h, in bytes.
+constexpr size_t HEADER_BYTES = 4 + 4 + 8 + 12 + 4 + 4; // magic, rule, generation, eye, yaw, pitch
+constexpr size_t COUNT_BYTES = 8;                       // a uint64 cell or block count
+constexpr size_t CELL_BYTES = 3 * 4;                    // int32 x, y, z
+constexpr size_t BLOCK_BYTES = 4 * 4;                   // int32 x, y, z, kind
+constexpr size_t MAGIC_VERSION_INDEX = 3;               // the '2' of "L3D2"
+
+// How many rules a file may refer to (the game has this many).
 constexpr size_t RULE_COUNT = 8;
 
 std::filesystem::path tempFile(const std::string& name) {
@@ -22,6 +30,9 @@ std::filesystem::path tempFile(const std::string& name) {
     return std::filesystem::temp_directory_path() / ("gol3d-test-" + RUN_ID + "-" + name);
 }
 
+// A world with a value in every field: a generation past 32 bits, negative and
+// fractional floats, cells far from the origin in both directions, and one
+// block of each static kind (1 Stone, 2 Ember).
 SavedWorld sampleWorld() {
     SavedWorld world;
     world.ruleIndex = 3;
@@ -57,8 +68,9 @@ void checkRoundTrip() {
            "the camera survives");
     expect(loaded.cells == original.cells && loaded.blocks == original.blocks,
            "cells and blocks survive");
-    // Header 4 + 4 + 8 + 12 + 4 + 4, then 8 + 3 * 12 for cells, 8 + 2 * 16 for blocks.
-    expect(std::filesystem::file_size(path) == 36 + 44 + 40, "the file has the documented layout");
+    const size_t expectedSize = HEADER_BYTES + COUNT_BYTES + original.cells.size() * CELL_BYTES +
+                                COUNT_BYTES + original.blocks.size() * BLOCK_BYTES;
+    expect(std::filesystem::file_size(path) == expectedSize, "the file has the documented layout");
     std::filesystem::remove(path);
 }
 
@@ -69,8 +81,8 @@ void checkOldFormat() {
     world.blocks.clear();
     writeSaveFile(path.string(), world);
     std::string bytes = readBytes(path);
-    bytes[3] = '1';
-    bytes.resize(bytes.size() - 8); // drop the (empty) block count
+    bytes[MAGIC_VERSION_INDEX] = '1';
+    bytes.resize(bytes.size() - COUNT_BYTES); // drop the (empty) block count
     writeBytes(path, bytes);
     SavedWorld loaded;
     expect(readSaveFile(path.string(), RULE_COUNT, loaded) == SaveFileStatus::Ok,
@@ -93,19 +105,21 @@ void checkDamagedFiles() {
     expect(readSaveFile(path.string(), RULE_COUNT, loaded) == SaveFileStatus::NotASave,
            "a wrong magic is rejected");
 
+    // The sample world uses rule index 3, which a game with only 2 rules lacks.
     writeBytes(path, good);
     expect(readSaveFile(path.string(), 2, loaded) == SaveFileStatus::NotASave,
            "an unknown rule is rejected");
 
+    // Cut off partway through the last block.
     writeBytes(path, good.substr(0, good.size() - 5));
     expect(readSaveFile(path.string(), RULE_COUNT, loaded) == SaveFileStatus::Truncated,
            "a cut-off file is truncated");
 
     // A cell count far beyond the file's size must be refused, not allocated.
     std::string huge = good;
-    const size_t countOffset = 36;
-    for (int i = 0; i < 8; ++i) {
-        huge[countOffset + i] = static_cast<char>(0xFF);
+    const size_t cellCountOffset = HEADER_BYTES;
+    for (size_t i = 0; i < COUNT_BYTES; ++i) {
+        huge[cellCountOffset + i] = static_cast<char>(0xFF);
     }
     writeBytes(path, huge);
     expect(readSaveFile(path.string(), RULE_COUNT, loaded) == SaveFileStatus::NotASave,

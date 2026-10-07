@@ -34,6 +34,8 @@ struct ScriptAction {
     int number = 0;
 };
 
+// Everything the command line can set, initialized to what applies when an
+// option is not given.
 struct Options {
     size_t rule = 0;   // index into lifeRules(); 0 is Life 5766
     uint32_t seed = 0; // random seed for soups (parseCommandLine picks one unless --seed)
@@ -53,13 +55,14 @@ struct Options {
     std::string updateFeed; // releases JSON URL to check instead of GitHub (file:// works)
 
     // Test and capture hooks.
-    std::string screenshotPath; // save a PNG of the last frame
-    uint32_t exitAfterFrames = 0;
+    std::string screenshotPath;    // save a PNG of the last frame
+    uint32_t exitAfterFrames = 0;  // 0 = run until the window is closed
     bool verify = false;           // compare the GPU with the CPU reference and exit
     uint64_t benchGenerations = 0; // time this many generations at full speed and exit
     std::vector<ScriptAction> script;
 };
 
+// What main() should do: run the game with `options`, or print and exit.
 struct ParsedCommandLine {
     enum class Action { Run, PrintHelp, PrintVersion };
     Action action = Action::Run;
@@ -70,6 +73,7 @@ struct ParsedCommandLine {
 // Parsing stops at --help or --version.
 ParsedCommandLine parseCommandLine(int argc, const char* const* argv);
 
+// Prints the --help text to stdout.
 void printUsage();
 
 } // namespace gol3d

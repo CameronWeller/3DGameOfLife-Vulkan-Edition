@@ -1,3 +1,6 @@
+// Reading and writing options.txt. The key names here are the file format:
+// renaming one forgets that setting in every existing file.
+
 #include "game/Settings.h"
 
 #include <algorithm>
@@ -12,7 +15,10 @@ const char* boolText(bool value) {
     return value ? "true" : "false";
 }
 
-// Applies one "key:value" line; throws std::exception for unparsable numbers.
+// Applies one "key:value" line; std::stoi and std::stof throw for unparsable
+// numbers. A flag only changes from its default when the value spells out the
+// other choice ("true" for invertY, "false" for the rest), so a garbled flag
+// keeps its default.
 void applySetting(Settings& settings, const std::string& key, const std::string& value) {
     if (key == "fov") {
         settings.fov = std::clamp(std::stof(value), Settings::MIN_FOV, Settings::MAX_FOV);
@@ -25,7 +31,8 @@ void applySetting(Settings& settings, const std::string& key, const std::string&
         settings.renderDistance = std::clamp(std::stoi(value), Settings::MIN_RENDER_DISTANCE,
                                              Settings::MAX_RENDER_DISTANCE);
     } else if (key == "guiScale") {
-        settings.guiScale = std::clamp(std::stoi(value), 0, Settings::MAX_GUI_SCALE);
+        settings.guiScale =
+            std::clamp(std::stoi(value), Settings::AUTOMATIC_GUI_SCALE, Settings::MAX_GUI_SCALE);
     } else if (key == "checkUpdates") {
         settings.checkUpdates = value != "false";
     } else if (key == "smoothLighting") {

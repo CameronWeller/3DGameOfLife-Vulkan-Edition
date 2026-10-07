@@ -1,3 +1,7 @@
+// Parses argv into Options, and prints the --help text. Options are split into
+// groups (world, view, test hooks, scripted input), each handled by one
+// parse*Option function.
+
 #include "game/CommandLine.h"
 
 #include <algorithm>
@@ -15,6 +19,13 @@
 
 namespace gol3d {
 namespace {
+
+// A run that saves a screenshot without --frames ends after this many frames
+// (the --help text promises 3).
+constexpr uint32_t SCREENSHOT_RUN_FRAMES = 3;
+
+// Width of the option column in the --help text.
+constexpr int HELP_OPTION_COLUMN_WIDTH = 18;
 
 // Walks argv; value() consumes the argument after the current option.
 class ArgumentReader {
@@ -39,12 +50,14 @@ private:
 
 // "1,2,3" -> (1, 2, 3); the text must hold exactly `components` numbers.
 glm::vec3 parseVector(const std::string& text, int components) {
+    constexpr int MAX_COMPONENTS = 3; // a glm::vec3 holds no more
     glm::vec3 vector(0.0f);
     std::stringstream stream(text);
     std::string part;
     int count = 0;
-    while (std::getline(stream, part, ',') && count < 3) {
-        vector[count++] = std::stof(part);
+    while (std::getline(stream, part, ',') && count < MAX_COMPONENTS) {
+        vector[count] = std::stof(part);
+        ++count;
     }
     if (count != components) {
         throw std::runtime_error("Expected " + std::to_string(components) +
@@ -53,7 +66,8 @@ glm::vec3 parseVector(const std::string& text, int components) {
     return vector;
 }
 
-// "stone" -> CellKind::Stone, matching names case-insensitively.
+// "stone" -> CellKind::Stone. Material names are lowercased before comparing,
+// so the argument must be lowercase.
 CellKind parseMaterial(const std::string& name) {
     for (const CellType& type : cellTypes()) {
         std::string lowerName = type.name;
@@ -69,6 +83,7 @@ CellKind parseMaterial(const std::string& name) {
 // false when `arg` is not one of its options.
 bool parseWorldOption(const std::string& arg, ArgumentReader& args, Options& options) {
     if (arg == "--rule") {
+        // Counted from 1 on the command line, from 0 in Options::rule.
         size_t rule = std::stoul(args.value());
         if (rule < 1 || rule > lifeRules().size()) {
             throw std::runtime_error("--rule is out of range");
@@ -141,24 +156,24 @@ bool parseTestOption(const std::string& arg, ArgumentReader& args, Options& opti
 // Scripted input, kept in order.
 bool parseScriptOption(const std::string& arg, ArgumentReader& args, Options& options) {
     using Kind = ScriptAction::Kind;
-    auto addVector = [&](Kind kind, glm::vec3 vector = glm::vec3(0.0f)) {
+    auto addAction = [&](Kind kind, glm::vec3 vector = glm::vec3(0.0f)) {
         options.script.push_back(ScriptAction{kind, vector, 0});
     };
     auto addNumber = [&](Kind kind, int number) {
         options.script.push_back(ScriptAction{kind, glm::vec3(0.0f), number});
     };
     if (arg == "--pos") {
-        addVector(Kind::Position, parseVector(args.value(), 3));
+        addAction(Kind::Position, parseVector(args.value(), 3));
     } else if (arg == "--look") {
-        addVector(Kind::Look, parseVector(args.value(), 2));
+        addAction(Kind::Look, parseVector(args.value(), 2));
     } else if (arg == "--place") {
-        addVector(Kind::Place);
+        addAction(Kind::Place);
     } else if (arg == "--break") {
-        addVector(Kind::Break);
+        addAction(Kind::Break);
     } else if (arg == "--resize") {
-        addVector(Kind::Resize, parseVector(args.value(), 2));
+        addAction(Kind::Resize, parseVector(args.value(), 2));
     } else if (arg == "--push") {
-        addVector(Kind::Push, parseVector(args.value(), 3));
+        addAction(Kind::Push, parseVector(args.value(), 3));
     } else if (arg == "--slot") {
         addNumber(Kind::Slot, std::stoi(args.value()));
     } else if (arg == "--rotate") {
@@ -198,13 +213,13 @@ ParsedCommandLine parseCommandLine(int argc, const char* const* argv) {
 
     // A screenshot is taken of the last frame, so a run that saves one must end.
     if (!options.screenshotPath.empty() && options.exitAfterFrames == 0) {
-        options.exitAfterFrames = 3;
+        options.exitAfterFrames = SCREENSHOT_RUN_FRAMES;
     }
     return parsed;
 }
 
 void printUsage() {
-    // Options and what they do, printed in two columns.
+    // One row of the help text: an option and what it does.
     struct OptionHelp {
         std::string option;
         std::string description;
@@ -246,8 +261,8 @@ void printUsage() {
     };
     auto printOptions = [](const std::vector<OptionHelp>& list) {
         for (const OptionHelp& help : list) {
-            std::cout << "  " << std::left << std::setw(18) << help.option << help.description
-                      << "\n";
+            std::cout << "  " << std::left << std::setw(HELP_OPTION_COLUMN_WIDTH) << help.option
+                      << help.description << "\n";
         }
     };
 

@@ -12,9 +12,15 @@
 
 namespace gol3d::tutorial {
 
+// Which lesson is open, and the panel that shows it. Methods that react to the
+// player return a Request telling the game what to do next.
 class Tutorial {
 public:
-    enum class Request { None, LoadScene, Close };
+    enum class Request {
+        None,
+        LoadScene, // load the current lesson's scene (a new lesson, or Replay)
+        Close,     // the tutorial was closed
+    };
 
     // What the panel shows about the running world.
     struct Status {
@@ -42,7 +48,10 @@ public:
     static glm::vec3 markColor(Mark mark);
 
 private:
+    // Switches to `lesson` if it exists.
     Request go(size_t lesson);
+    // The Back, Replay and Next/Finish buttons.
+    Request drawNavigation();
 
     bool isOpen_ = false;
     size_t index_ = 0;

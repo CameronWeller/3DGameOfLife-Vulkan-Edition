@@ -24,6 +24,7 @@ constexpr int STAMP_COUNT = static_cast<int>(Stamp::Glider) + 1;
 // soups mostly die before they do anything interesting.
 constexpr float MIN_SOUP_DENSITY = 0.25f;
 
+// How a stamp is presented in the hotbar and the inventory.
 struct StampInfo {
     const char* name;
     const char* description;
