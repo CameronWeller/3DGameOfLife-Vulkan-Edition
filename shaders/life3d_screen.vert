@@ -7,7 +7,9 @@
 layout(location = 0) out vec2 ndc;
 
 void main() {
-    // Bit 1 of (index << 1) is bit 0 of the index; bit 1 of index is itself.
+    // No vertex buffer: the position comes from the vertex index alone.
+    // x = 2 * bit 0 of the index, y = bit 1 of the index (as 0 or 2), giving
+    // (0, 0), (2, 0), (0, 2), which "* 2 - 1" maps to the corners above.
     ndc = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2) * 2.0 - 1.0;
     gl_Position = vec4(ndc, 0.0, 1.0);
 }

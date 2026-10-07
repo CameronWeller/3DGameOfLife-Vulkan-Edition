@@ -31,22 +31,65 @@ float hash(ivec3 p) {
     return float(h & 0xFFFFu) / 65535.0;
 }
 
-// Whether the cell at offset o (each component -1..1) from this block is
+const float TWO_PI = 6.28318;
+
+// Whether the cell at `offset` (each component -1..1) from this block is
 // occupied, from the instance's 27 neighbor bits.
-bool occupied(uint neighborBits, ivec3 o) {
-    uint k = uint((o.z + 1) * 9 + (o.y + 1) * 3 + (o.x + 1));
+bool occupied(uint neighborBits, ivec3 offset) {
+    uint k = uint((offset.z + 1) * 9 + (offset.y + 1) * 3 + (offset.x + 1));
     return ((neighborBits >> k) & 1u) != 0u;
 }
 
 // How much light reaches a face corner: 0 (in a crevice) to 3 (open), from the
 // two blocks beside the corner (side1, side2) and the one diagonal to it, as in
-// Minecraft's smooth lighting. n is the face normal; a and b the directions
-// from the face center toward the corner.
+// Minecraft's smooth lighting (described by Mikola Lysenko, "Ambient occlusion
+// for Minecraft-like worlds", 0fps.net, 2013). The three cells checked are in
+// the layer in front of the face. n is the face normal; a and b the directions
+// from the face center toward the corner. Two sides block the corner fully,
+// whatever the diagonal holds.
 float cornerLight(uint neighborBits, ivec3 n, ivec3 a, ivec3 b) {
     bool side1 = occupied(neighborBits, n + a);
     bool side2 = occupied(neighborBits, n + b);
     if (side1 && side2) return 0.0;
     return 3.0 - float(side1) - float(side2) - float(occupied(neighborBits, n + a + b));
+}
+
+// The block's scale over the birth/death animation: newborns grow in and the
+// dying shrink away; everything else is full size.
+float animatedSize(bool born, bool dying, float progress) {
+    float size = 1.0;
+    if (born) {
+        size = smoothstep(0.0, 1.0, progress);
+    } else if (dying) {
+        size = 1.0 - smoothstep(0.0, 1.0, progress);
+    }
+    return size;
+}
+
+// The block's color before lighting, and in `lit` how the fragment shader
+// should light it (LIGHT_*).
+vec3 blockColor(uint kind, ivec3 cell, bool born, bool dying, float progress, out float lit) {
+    float jitter = hash(cell);
+    vec3 color;
+    if (kind == KIND_STONE) {
+        color = vec3(0.30, 0.31, 0.34) * (0.85 + 0.25 * jitter);
+        lit = LIGHT_FACES;
+    } else if (kind == KIND_EMBER) {
+        // Glows and flickers gently, each block at its own phase.
+        float flicker = 0.85 + 0.15 * sin(frame.camera.w * 3.0 + jitter * TWO_PI);
+        color = vec3(1.0, 0.36, 0.06) * flicker;
+        lit = LIGHT_GLOW;
+    } else {
+        // Life: the hue drifts slowly through space (a cosine palette: three
+        // phase-shifted waves for r, g and b); jitter keeps flat walls readable.
+        float band = float(cell.y) * 0.021 + float(cell.x + cell.z) * 0.006;
+        vec3 base = 0.55 + 0.45 * cos(TWO_PI * (vec3(0.0, 0.33, 0.67) + band));
+        color = base * (0.88 + 0.16 * jitter);
+        if (born) color = mix(vec3(1.0), color, 0.35 + 0.65 * progress);       // newborns flash white
+        if (dying) color = mix(color, vec3(0.35, 0.05, 0.04), 0.6 * progress); // the dying redden
+        lit = LIGHT_FACES;
+    }
+    return color;
 }
 
 // Emits a vertex outside the clip volume, which drops its triangle.
@@ -73,7 +116,10 @@ void main() {
     vec3 center = vec3(cell) + 0.5;
 
     // The face for this vertex: vertices 0-3 are the x face, 4-7 y, 8-11 z, each
-    // on whichever side of the block looks toward the camera.
+    // on whichever side of the block looks toward the camera. (Of a cube's six
+    // faces, at most these three can face the camera.) A face is hidden when
+    // the block in front of it is occupied, and all are hidden a little past
+    // the fog end, where nothing shows through the fog.
     int axis = gl_VertexIndex / 4;
     vec3 toCamera = frame.camera.xyz - center;
     ivec3 normal = ivec3(0);
@@ -84,25 +130,22 @@ void main() {
         return;
     }
 
-    // Size: newborns grow in and the dying shrink away over the animation.
     float progress = frame.anim.x;
     bool born = instanceBorn(instance);
     bool dying = instanceDying(instance);
-    float size = 1.0;
-    if (born) {
-        size = smoothstep(0.0, 1.0, progress);
-    } else if (dying) {
-        size = 1.0 - smoothstep(0.0, 1.0, progress);
-    }
+    float size = animatedSize(born, dying, progress);
     if (size <= 0.001) {
         cull();
         return;
     }
 
-    // Quad corners in the face plane. The index buffer splits each quad along
-    // the diagonal from its first corner; starting one corner later splits it
-    // along the other diagonal, which is chosen to be the brighter one so the
-    // occlusion gradient stays symmetric.
+    // Quad corners in the face plane, counterclockwise from (-u, -v):
+    // 0 (-u, -v), 1 (+u, -v), 2 (+u, +v), 3 (-u, +v), where u and v are the
+    // two axes after `axis`. The index buffer splits each quad into triangles
+    // 0-1-2 and 0-2-3, along the diagonal 0-2. Starting one corner later
+    // splits it along 1-3 instead. Lighting is interpolated across each
+    // triangle, so the split runs along the brighter diagonal; otherwise one
+    // dark corner would bleed across half the face (see cornerLight's source).
     ivec3 u = ivec3(0);
     ivec3 v = ivec3(0);
     u[(axis + 1) % 3] = 1;
@@ -117,26 +160,9 @@ void main() {
     vec2 side = vec2(corner == 1 || corner == 2 ? 0.5 : -0.5, corner >= 2 ? 0.5 : -0.5);
     vec3 offset = 0.5 * vec3(normal) + side.x * vec3(u) + side.y * vec3(v);
 
-    uint kind = instanceKind(instance);
-    float jitter = hash(cell);
-    vec3 color;
-    if (kind == KIND_STONE) {
-        color = vec3(0.30, 0.31, 0.34) * (0.85 + 0.25 * jitter);
-        fragLit = LIGHT_FACES;
-    } else if (kind == KIND_EMBER) {
-        // Glows and flickers gently.
-        float flicker = 0.85 + 0.15 * sin(frame.camera.w * 3.0 + jitter * 6.28318);
-        color = vec3(1.0, 0.36, 0.06) * flicker;
-        fragLit = LIGHT_GLOW;
-    } else {
-        // Life: the hue drifts slowly through space; jitter keeps flat walls readable.
-        float band = float(cell.y) * 0.021 + float(cell.x + cell.z) * 0.006;
-        vec3 base = 0.55 + 0.45 * cos(6.28318 * (vec3(0.0, 0.33, 0.67) + band));
-        color = base * (0.88 + 0.16 * jitter);
-        if (born) color = mix(vec3(1.0), color, 0.35 + 0.65 * progress);       // newborns flash white
-        if (dying) color = mix(color, vec3(0.35, 0.05, 0.04), 0.6 * progress); // the dying redden
-        fragLit = LIGHT_FACES;
-    }
+    float lit;
+    vec3 color = blockColor(instanceKind(instance), cell, born, dying, progress, lit);
+    fragLit = lit;
     // Light at a corner, from 0 (crevice) to 3 (open), to brightness.
     const float AO_CURVE[4] = float[4](0.42, 0.62, 0.81, 1.0);
     bool smoothLighting = frame.anim.y > 0.5;

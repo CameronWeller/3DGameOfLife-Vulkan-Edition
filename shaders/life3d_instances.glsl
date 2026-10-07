@@ -9,11 +9,20 @@
 //      bit  30    died in the last generation (shrinks away)
 //   y: bits 0-14  cell within its chunk: x | y << 5 | z << 10
 //      bits 15-31 chunk pool slot
+//
+// The vertex shader turns the slot and local cell back into a world position
+// through the chunk origins buffer, so an instance needs only eight bytes.
 
+const uint INSTANCE_NEIGHBOR_MASK = (1u << 27) - 1u; // bits 0-26
 const uint INSTANCE_KIND_SHIFT = 27u;
+const uint INSTANCE_KIND_MASK = 3u; // two bits after the shift
 const uint INSTANCE_BORN_BIT = 1u << 29;
 const uint INSTANCE_DYING_BIT = 1u << 30;
 const uint INSTANCE_SLOT_SHIFT = 15u;
+
+// A chunk-local coordinate (0..31) takes 5 bits: x at bit 0, y at 5, z at 10.
+const uint LOCAL_AXIS_BITS = 5u;
+const uint LOCAL_AXIS_MASK = 31u;
 
 // Kinds, as in CellKind (src/life/CellTypes.h).
 const uint KIND_LIFE = 0u;
@@ -24,12 +33,12 @@ uvec2 packInstance(uint neighborBits, uint kind, bool born, bool dying, uint slo
                    uint z) {
     uint flags = (kind << INSTANCE_KIND_SHIFT) | (born ? INSTANCE_BORN_BIT : 0u) |
                  (dying ? INSTANCE_DYING_BIT : 0u);
-    uint location = x | (y << 5) | (z << 10) | (slot << INSTANCE_SLOT_SHIFT);
+    uint location = x | (y << LOCAL_AXIS_BITS) | (z << (2u * LOCAL_AXIS_BITS)) | (slot << INSTANCE_SLOT_SHIFT);
     return uvec2(neighborBits | flags, location);
 }
 
-uint instanceNeighbors(uvec2 instance) { return instance.x & ((1u << 27) - 1u); }
-uint instanceKind(uvec2 instance) { return (instance.x >> INSTANCE_KIND_SHIFT) & 3u; }
+uint instanceNeighbors(uvec2 instance) { return instance.x & INSTANCE_NEIGHBOR_MASK; }
+uint instanceKind(uvec2 instance) { return (instance.x >> INSTANCE_KIND_SHIFT) & INSTANCE_KIND_MASK; }
 bool instanceBorn(uvec2 instance) { return (instance.x & INSTANCE_BORN_BIT) != 0u; }
 bool instanceDying(uvec2 instance) { return (instance.x & INSTANCE_DYING_BIT) != 0u; }
 uint instanceSlot(uvec2 instance) { return instance.y >> INSTANCE_SLOT_SHIFT; }
@@ -37,5 +46,6 @@ uint instanceSlot(uvec2 instance) { return instance.y >> INSTANCE_SLOT_SHIFT; }
 // The cell's position within its chunk, 0..31 on each axis.
 ivec3 instanceLocalCell(uvec2 instance) {
     uint local = instance.y & ((1u << INSTANCE_SLOT_SHIFT) - 1u);
-    return ivec3(local & 31u, (local >> 5) & 31u, local >> 10);
+    return ivec3(local & LOCAL_AXIS_MASK, (local >> LOCAL_AXIS_BITS) & LOCAL_AXIS_MASK,
+                 local >> (2u * LOCAL_AXIS_BITS));
 }

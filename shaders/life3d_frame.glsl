@@ -11,7 +11,8 @@ layout(std140, binding = 0) uniform Frame {
     vec4 sun;      // xyz direction toward the sun
 } frame;
 
-// How the screen shaders draw (Renderer::ScreenMode).
+// How the screen shaders draw (Renderer::ScreenMode). The block and box
+// shaders include this file too but never read it.
 layout(push_constant) uniform Draw {
     uint mode;
 } draw;
@@ -27,12 +28,17 @@ const vec3 SKY_HORIZON = vec3(0.62, 0.74, 0.92);
 const vec3 SKY_NADIR = vec3(0.16, 0.19, 0.26);
 const vec3 SUN_COLOR = vec3(1.0, 0.93, 0.80);
 
-// The sky behind everything and the color fog fades toward. A warm glow around
-// the sun and a slightly brighter horizon band give depth without a texture.
+// The sky color in direction `dir` (unit length): the backdrop, and the color
+// fog fades toward. A warm glow around the sun and a slightly brighter horizon
+// band give depth without a texture.
 vec3 skyColor(vec3 dir) {
+    // Horizon to zenith above, horizon to nadir below; the powers below 1
+    // keep the horizon color in a narrow band.
     vec3 color = dir.y >= 0.0 ? mix(SKY_HORIZON, SKY_ZENITH, pow(dir.y, 0.5))
                               : mix(SKY_HORIZON, SKY_NADIR, pow(-dir.y, 0.4));
     color += vec3(0.05, 0.04, 0.02) * exp(-abs(dir.y) * 14.0); // horizon haze
+    // toSun is the cosine of the angle to the sun. Raising it to a power makes
+    // a highlight: a wide halo (12) plus the small bright disc (220).
     float toSun = max(dot(dir, frame.sun.xyz), 0.0);
     color += SUN_COLOR * (0.25 * pow(toSun, 12.0) + 0.6 * pow(toSun, 220.0));
     return color;

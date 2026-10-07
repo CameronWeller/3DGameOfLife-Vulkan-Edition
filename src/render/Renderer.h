@@ -12,7 +12,15 @@
 //
 // The renderer knows nothing about the game: each frame the game fills a
 // FrameUniforms block and a list of boxes between beginFrame() and endFrame().
-// Two frames may be in flight; per-frame buffers are doubled.
+//
+// Two frames may be in flight: the CPU records frame N + 1 while the GPU still
+// draws frame N. Everything the CPU writes per frame (uniforms, boxes, the
+// command buffer) therefore exists twice, one per frame slot, and a fence per
+// slot tells the CPU when the GPU is done with it.
+//
+// Drawing uses Vulkan 1.3 dynamic rendering: vkCmdBeginRendering names the
+// attachments directly, so there are no VkRenderPass or VkFramebuffer
+// objects; pipelines only declare the attachment formats (renderingInfo()).
 
 #include <array>
 #include <filesystem>
@@ -32,7 +40,8 @@ namespace gol3d {
 class GpuContext;
 
 // The per-frame uniform block; must match `Frame` in shaders/life3d_frame.glsl
-// (std140 layout).
+// (std140 layout: only mat4 and 16-byte vectors, so the C++ layout matches
+// without padding).
 struct FrameUniforms {
     glm::mat4 viewProjection;
     glm::mat4 inverseViewProjection;
@@ -44,7 +53,7 @@ struct FrameUniforms {
     glm::vec4 sun;      // xyz direction toward the sun
 };
 
-// An outline box, as life3d_boxes.vert reads it.
+// An outline box, as life3d_boxes.vert reads it (`Boxes`, two vec4 per box).
 struct Box {
     glm::vec4 min; // w = edge thickness
     glm::vec4 max; // w = color id (BoxColor)
@@ -94,9 +103,11 @@ public:
     VkPipelineRenderingCreateInfo renderingInfo() const;
 
 private:
-    // How the shared screen shaders draw (the `mode` push constant).
+    // How the shared screen shaders draw (the `mode` push constant); must
+    // match MODE_* in shaders/life3d_screen.frag.
     enum class ScreenMode : uint32_t { Sky = 0, Grid = 1, Hud = 2 };
 
+    // What differs between the renderer's pipelines; everything else is shared.
     struct PipelineSpec {
         const char* vertexShader = nullptr;
         const char* fragmentShader = nullptr;
@@ -106,14 +117,25 @@ private:
         bool alphaBlend = false;
     };
 
-    void createGeometry();
+    // Setup, in the order initPipelines() calls them.
+    void createCubeVertices();
+    void createBlockIndices();
     void createFrameBuffers();
     void createLayouts();
     VkPipeline createPipeline(const PipelineSpec& spec);
     void createDescriptorSets();
     void createCommandBuffers();
     void createSyncObjects();
+
+    // One frame: endFrame() records (recordCommands, in three steps), submits
+    // and presents.
     void recordCommands(VkCommandBuffer cmd, uint32_t boxCount, bool drawImGui, bool capture);
+    void beginRendering(VkCommandBuffer cmd);
+    void recordDraws(VkCommandBuffer cmd, uint32_t boxCount, bool drawImGui);
+    void finishImage(VkCommandBuffer cmd, bool capture);
+    void submit(VkCommandBuffer cmd);
+    VkResult present();
+
     void prepareCaptureBuffer();
     void saveCapture(const std::string& path, size_t frame);
 
@@ -142,14 +164,18 @@ private:
     std::array<GpuBuffer, MAX_FRAMES_IN_FLIGHT> uniformBuffers_;
     std::array<GpuBuffer, MAX_FRAMES_IN_FLIGHT> boxBuffers_;
 
-    // Frame pacing.
+    // Frame pacing, per frame slot. imageAvailable_ is signaled when the
+    // acquired swapchain image may be drawn into; inFlight_ when the GPU has
+    // finished the slot's commands. (The semaphore the present waits on is
+    // per swapchain image; see Swapchain::renderFinished.)
     std::array<VkCommandBuffer, MAX_FRAMES_IN_FLIGHT> commandBuffers_{};
     std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> imageAvailable_{};
     std::array<VkFence, MAX_FRAMES_IN_FLIGHT> inFlight_{};
-    size_t currentFrame_ = 0;
+    size_t currentFrame_ = 0; // the frame slot in use, 0..MAX_FRAMES_IN_FLIGHT - 1
     uint32_t imageIndex_ = 0; // the image acquired by beginFrame()
 
-    // Screenshots.
+    // Screenshots: the path requested for the next frame, and a host-visible
+    // buffer the frame's image is copied into (only while a capture runs).
     std::string pendingScreenshot_;
     GpuBuffer captureBuffer_;
 };

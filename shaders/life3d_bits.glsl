@@ -62,8 +62,10 @@ Sum2 addBits2(uint a, uint b) {
 }
 
 // The adders below add two sliced numbers digit by digit, like long addition
-// on paper: each digit is a full adder of the two input digits and the carry
-// from the digit below.
+// on paper: each digit is a full adder (the expressions of addBits3) of the two
+// input digits and the carry from the digit below. `partial` is the two digits'
+// sum without the carry; the new carry is set when both digits are, or when
+// one is and the carry in is.
 
 Sum3 addSum2(Sum2 x, Sum2 y) {
     Sum3 sum;
@@ -121,22 +123,25 @@ Sum5 addSum5Sum2(Sum5 x, Sum2 y) {
     return sum;
 }
 
-// Live-neighbor counts for a row. nb[k] is the row of cells at offset
-// (dx, dy, dz) with k = (dz + 1) * 9 + (dy + 1) * 3 + (dx + 1): bit i of nb[k]
-// is the cell at (i + dx, y + dy, z + dz).
-Sum5 countNeighbors(uint nb[27]) {
-    // Nine groups of three rows, except that nb[13] is the row itself and is
-    // not counted, so its group has only two.
-    Sum2 g0 = addBits3(nb[0], nb[1], nb[2]);
-    Sum2 g1 = addBits3(nb[3], nb[4], nb[5]);
-    Sum2 g2 = addBits3(nb[6], nb[7], nb[8]);
-    Sum2 g3 = addBits3(nb[9], nb[10], nb[11]);
-    Sum2 g4 = addBits2(nb[12], nb[14]);
-    Sum2 g5 = addBits3(nb[15], nb[16], nb[17]);
-    Sum2 g6 = addBits3(nb[18], nb[19], nb[20]);
-    Sum2 g7 = addBits3(nb[21], nb[22], nb[23]);
-    Sum2 g8 = addBits3(nb[24], nb[25], nb[26]);
-    // Then add the group sums pairwise, like a tournament bracket.
+// Live-neighbor counts for a row (y, z). neighborRows[k] is the row of cells at
+// offset (dx, dy, dz) with k = (dz + 1) * 9 + (dy + 1) * 3 + (dx + 1): bit i of
+// neighborRows[k] is the cell at (i + dx, y + dy, z + dz). So for every lane,
+// the 27 entries hold that cell's 3 x 3 x 3 neighborhood.
+Sum5 countNeighbors(uint neighborRows[27]) {
+    // Nine groups of three rows (0..3 each), except that neighborRows[13] is
+    // the row itself and is not counted, so its group has only two.
+    Sum2 g0 = addBits3(neighborRows[0], neighborRows[1], neighborRows[2]);
+    Sum2 g1 = addBits3(neighborRows[3], neighborRows[4], neighborRows[5]);
+    Sum2 g2 = addBits3(neighborRows[6], neighborRows[7], neighborRows[8]);
+    Sum2 g3 = addBits3(neighborRows[9], neighborRows[10], neighborRows[11]);
+    Sum2 g4 = addBits2(neighborRows[12], neighborRows[14]);
+    Sum2 g5 = addBits3(neighborRows[15], neighborRows[16], neighborRows[17]);
+    Sum2 g6 = addBits3(neighborRows[18], neighborRows[19], neighborRows[20]);
+    Sum2 g7 = addBits3(neighborRows[21], neighborRows[22], neighborRows[23]);
+    Sum2 g8 = addBits3(neighborRows[24], neighborRows[25], neighborRows[26]);
+    // Then add the group sums pairwise, like a tournament bracket, each round
+    // one digit wider: pairs are 0..6, fours 0..12, the eight groups 0..24,
+    // and the short group g4 (0..2) brings the total to at most 26.
     Sum4 low = addSum3(addSum2(g0, g1), addSum2(g2, g3));
     Sum4 high = addSum3(addSum2(g5, g6), addSum2(g7, g8));
     return addSum5Sum2(addSum4(low, high), g4);
@@ -147,41 +152,51 @@ uint laneMaskFromBit(uint mask, uint n) {
     return 0u - ((mask >> n) & 1u); // 0 - 1 wraps around to 0xFFFFFFFF
 }
 
+// For each lane: the bit of `ifSet` where `selector` is set, else the bit of
+// `ifClear`. A 32-lane version of `selector ? ifSet : ifClear`.
+uint pickLanes(uint selector, uint ifSet, uint ifClear) {
+    return (selector & ifSet) | (~selector & ifClear);
+}
+
 // For each lane: bit `count` of surviveMask if the cell is alive, else bit
 // `count` of birthMask. That is "look up the rule", done for 32 lanes at once.
 //
 // It is a binary multiplexer tree over the count's digits. The 32 leaves are
-// the answers for counts 0..31; each level uses one digit of the count to pick
-// one of each pair, halving the candidates, until one is left.
-uint applyRule(Sum5 n, uint alive, uint surviveMask, uint birthMask) {
+// the answers for counts 0..31 (counts above 26 never occur); each level uses
+// one digit of the count to pick one of each pair, halving the candidates,
+// until one is left. Every lane can pick a different leaf, because the digits
+// are themselves per-lane masks.
+uint applyRule(Sum5 count, uint alive, uint surviveMask, uint birthMask) {
     uint dead = ~alive;
     uint level[16];
     // Level 1 (digit b0): pick between the answers for counts 2i and 2i + 1.
+    // A leaf is the survive bit for live lanes and the birth bit for dead ones.
     for (uint i = 0u; i < 16u; i++) {
         uint even = 2u * i;
         uint odd = even + 1u;
         uint leafEven = (laneMaskFromBit(surviveMask, even) & alive) | (laneMaskFromBit(birthMask, even) & dead);
         uint leafOdd = (laneMaskFromBit(surviveMask, odd) & alive) | (laneMaskFromBit(birthMask, odd) & dead);
-        level[i] = (n.b0 & leafOdd) | (~n.b0 & leafEven);
+        level[i] = pickLanes(count.b0, leafOdd, leafEven);
     }
     // Levels 2-4 (digits b1-b3). Entry i reads entries 2i and 2i + 1, which are
     // not yet overwritten, so the table can shrink in place.
     for (uint i = 0u; i < 8u; i++) {
-        level[i] = (n.b1 & level[2u * i + 1u]) | (~n.b1 & level[2u * i]);
+        level[i] = pickLanes(count.b1, level[2u * i + 1u], level[2u * i]);
     }
     for (uint i = 0u; i < 4u; i++) {
-        level[i] = (n.b2 & level[2u * i + 1u]) | (~n.b2 & level[2u * i]);
+        level[i] = pickLanes(count.b2, level[2u * i + 1u], level[2u * i]);
     }
     for (uint i = 0u; i < 2u; i++) {
-        level[i] = (n.b3 & level[2u * i + 1u]) | (~n.b3 & level[2u * i]);
+        level[i] = pickLanes(count.b3, level[2u * i + 1u], level[2u * i]);
     }
     // Level 5 (digit b4).
-    return (n.b4 & level[1]) | (~n.b4 & level[0]);
+    return pickLanes(count.b4, level[1], level[0]);
 }
 
-// The next generation of a row. nb holds the rows that count as live
-// neighbors (live cells and Ember blocks), alive the row's own live cells and
-// blocked the row's static blocks, which never hold life.
-uint nextRow(uint nb[27], uint alive, uint blocked, uint surviveMask, uint birthMask) {
-    return applyRule(countNeighbors(nb), alive, surviveMask, birthMask) & ~blocked;
+// The next generation of a row. neighborRows holds the rows that count as live
+// neighbors (live cells and Ember blocks; see countNeighbors for the order),
+// alive the row's own live cells and blocked the row's static blocks, which
+// never hold life.
+uint nextRow(uint neighborRows[27], uint alive, uint blocked, uint surviveMask, uint birthMask) {
+    return applyRule(countNeighbors(neighborRows), alive, surviveMask, birthMask) & ~blocked;
 }

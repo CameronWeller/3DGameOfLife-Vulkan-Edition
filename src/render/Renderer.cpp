@@ -1,3 +1,7 @@
+// The Renderer: pipelines and buffers for the frame's draws (setup), then per
+// frame acquiring a swapchain image, recording the draws, submitting and
+// presenting (frames), plus copying a frame out as a PNG (screenshots).
+
 #include "render/Renderer.h"
 
 #include <algorithm>
@@ -24,6 +28,15 @@ struct CubeVertex {
     glm::vec3 normal;
 };
 
+// The cube vertex buffer's layout: binding 0, attributes at locations 0 and 1
+// (inPosition and inNormal in life3d_boxes.vert).
+constexpr VkVertexInputBindingDescription CUBE_VERTEX_BINDING{0, sizeof(CubeVertex),
+                                                              VK_VERTEX_INPUT_RATE_VERTEX};
+constexpr std::array<VkVertexInputAttributeDescription, 2> CUBE_VERTEX_ATTRIBUTES{{
+    {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(CubeVertex, position)},
+    {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(CubeVertex, normal)},
+}};
+
 // Frame descriptor set bindings; see life3d_frame.glsl and the vertex shaders.
 enum FrameBinding : uint32_t {
     FrameUniformsBinding = 0,
@@ -32,10 +45,86 @@ enum FrameBinding : uint32_t {
     ChunkOriginsBinding = 3,
     FrameBindingCount,
 };
+// Bindings 1-3 are storage buffers; binding 0 is the uniform buffer.
+constexpr uint32_t STORAGE_BINDINGS_PER_SET = 3;
 
-constexpr uint64_t ACQUIRE_TIMEOUT_NS = 4'000'000'000;
+constexpr uint64_t ACQUIRE_TIMEOUT_NS = 4'000'000'000; // 4 seconds
 constexpr VkShaderStageFlags DRAW_STAGES =
     VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+// A quad's corners 0-1-2-3 (counterclockwise) as two triangles, 0-1-2 and 0-2-3.
+constexpr std::array<int, 6> QUAD_TRIANGLE_CORNERS = {0, 1, 2, 0, 2, 3};
+constexpr int CORNERS_PER_QUAD = 4;
+constexpr int BLOCK_FACES = 3; // life3d_blocks.vert draws only the camera-facing three
+static_assert(BLOCK_FACES * QUAD_TRIANGLE_CORNERS.size() == BLOCK_INDEX_COUNT);
+
+constexpr uint32_t FULLSCREEN_TRIANGLE_VERTICES = 3; // see life3d_screen.vert
+// Each edge of a box is one instance of the cube, stretched; must match
+// EDGES_PER_BOX in life3d_boxes.vert.
+constexpr uint32_t EDGES_PER_BOX = 12;
+
+// Swapchain images are 8-bit RGBA or BGRA; screenshots are 8-bit RGB.
+constexpr size_t CAPTURE_BYTES_PER_PIXEL = 4;
+constexpr size_t PNG_BYTES_PER_PIXEL = 3;
+
+VkPipelineShaderStageCreateInfo shaderStage(VkShaderStageFlagBits stage, VkShaderModule module) {
+    VkPipelineShaderStageCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+    info.stage = stage;
+    info.module = module;
+    info.pName = "main";
+    return info;
+}
+
+// Vertex input for pipelines that read the cube vertex buffer; the others
+// build their vertices from gl_VertexIndex and buffers alone.
+VkPipelineVertexInputStateCreateInfo vertexInputState(bool cubeVertices) {
+    VkPipelineVertexInputStateCreateInfo vertexInput{
+        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    if (cubeVertices) {
+        vertexInput.vertexBindingDescriptionCount = 1;
+        vertexInput.pVertexBindingDescriptions = &CUBE_VERTEX_BINDING;
+        vertexInput.vertexAttributeDescriptionCount =
+            static_cast<uint32_t>(CUBE_VERTEX_ATTRIBUTES.size());
+        vertexInput.pVertexAttributeDescriptions = CUBE_VERTEX_ATTRIBUTES.data();
+    }
+    return vertexInput;
+}
+
+VkPipelineRasterizationStateCreateInfo rasterizationState() {
+    VkPipelineRasterizationStateCreateInfo rasterizer{
+        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_NONE; // blocks only emit camera-facing faces
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    return rasterizer;
+}
+
+VkPipelineDepthStencilStateCreateInfo depthStencilState(bool depthTest, bool depthWrite) {
+    VkPipelineDepthStencilStateCreateInfo depthStencil{
+        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    depthStencil.depthTestEnable = depthTest;
+    depthStencil.depthWriteEnable = depthWrite;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    return depthStencil;
+}
+
+VkPipelineColorBlendAttachmentState colorBlendAttachment(bool alphaBlend) {
+    VkPipelineColorBlendAttachmentState blendAttachment{};
+    blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                     VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    if (alphaBlend) {
+        // Standard "over" blending: color = src * srcAlpha + dst * (1 - srcAlpha).
+        blendAttachment.blendEnable = VK_TRUE;
+        blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+        blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        blendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    }
+    return blendAttachment;
+}
 
 } // namespace
 
@@ -52,7 +141,8 @@ void Renderer::initPipelines(const std::filesystem::path& shaderDir, const GpuBu
                              const GpuBuffer& indirectDraw, const GpuBuffer& origins) {
     shaderDir_ = shaderDir;
     indirectDraw_ = &indirectDraw;
-    createGeometry();
+    createCubeVertices();
+    createBlockIndices();
     createFrameBuffers();
     createLayouts();
     // Blocks and outlines are solid geometry: depth-tested and depth-writing.
@@ -105,19 +195,21 @@ void Renderer::destroy() {
     gpu_ = nullptr;
 }
 
-void Renderer::createGeometry() {
-    // A unit cube as 12 triangles with per-face normals, for box outlines.
+// A unit cube as 12 triangles with per-face normals, for box outlines.
+void Renderer::createCubeVertices() {
     std::vector<CubeVertex> vertices;
     const glm::vec3 faceNormals[6] = {glm::vec3(1, 0, 0), glm::vec3(-1, 0, 0),
                                       glm::vec3(0, 1, 0), glm::vec3(0, -1, 0),
                                       glm::vec3(0, 0, 1), glm::vec3(0, 0, -1)};
     for (const glm::vec3& normal : faceNormals) {
-        glm::vec3 u = std::abs(normal.y) > 0.5f ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
-        glm::vec3 w = glm::cross(normal, u);
+        // Two axes in the face's plane; any perpendicular pair will do.
+        glm::vec3 tangent = std::abs(normal.y) > 0.5f ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+        glm::vec3 bitangent = glm::cross(normal, tangent);
         glm::vec3 center = normal * 0.5f;
-        const glm::vec3 corners[4] = {center - 0.5f * u - 0.5f * w, center + 0.5f * u - 0.5f * w,
-                                      center + 0.5f * u + 0.5f * w, center - 0.5f * u + 0.5f * w};
-        for (int corner : {0, 1, 2, 0, 2, 3}) {
+        const glm::vec3 corners[CORNERS_PER_QUAD] = {
+            center - 0.5f * tangent - 0.5f * bitangent, center + 0.5f * tangent - 0.5f * bitangent,
+            center + 0.5f * tangent + 0.5f * bitangent, center - 0.5f * tangent + 0.5f * bitangent};
+        for (int corner : QUAD_TRIANGLE_CORNERS) {
             vertices.push_back({corners[corner], normal});
         }
     }
@@ -126,14 +218,18 @@ void Renderer::createGeometry() {
     allocator_->create(cubeVertices_, vertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                        {memory::DEVICE_HOST, memory::HOST});
     std::memcpy(cubeVertices_.mapped, vertices.data(), vertexBytes);
+}
 
-    // Blocks: each of the three camera-facing quads is two triangles, corners
-    // 0-1-2 and 0-2-3 (life3d_blocks.vert generates the corner positions).
+// The index pattern of one block, shared by every block instance: each of the
+// three camera-facing quads is two triangles. life3d_blocks.vert generates the
+// corner positions from the vertex index (face * 4 + corner).
+void Renderer::createBlockIndices() {
     std::array<uint16_t, BLOCK_INDEX_COUNT> indices{};
-    const int quadCorners[6] = {0, 1, 2, 0, 2, 3};
-    for (uint16_t face = 0; face < 3; ++face) {
-        for (int i = 0; i < 6; ++i) {
-            indices[face * 6 + i] = static_cast<uint16_t>(face * 4 + quadCorners[i]);
+    const size_t indicesPerQuad = QUAD_TRIANGLE_CORNERS.size();
+    for (uint16_t face = 0; face < BLOCK_FACES; ++face) {
+        for (size_t i = 0; i < indicesPerQuad; ++i) {
+            indices[face * indicesPerQuad + i] =
+                static_cast<uint16_t>(face * CORNERS_PER_QUAD + QUAD_TRIANGLE_CORNERS[i]);
         }
     }
     allocator_->create(blockIndices_, sizeof(indices), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
@@ -141,6 +237,8 @@ void Renderer::createGeometry() {
     std::memcpy(blockIndices_.mapped, indices.data(), sizeof(indices));
 }
 
+// The per-frame-slot buffers the CPU writes every frame. They stay mapped
+// (host-visible, preferably device-local) so writing them is a memcpy.
 void Renderer::createFrameBuffers() {
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         allocator_->create(uniformBuffers_[i], sizeof(FrameUniforms),
@@ -150,6 +248,9 @@ void Renderer::createFrameBuffers() {
     }
 }
 
+// The descriptor set layout (which buffers the shaders see at which binding)
+// and the pipeline layout (that set plus the push constant), shared by all of
+// the renderer's pipelines.
 void Renderer::createLayouts() {
     std::array<VkDescriptorSetLayoutBinding, FrameBindingCount> bindings{};
     bindings[FrameUniformsBinding] = {FrameUniformsBinding, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
@@ -168,7 +269,7 @@ void Renderer::createLayouts() {
         throw std::runtime_error("Could not create descriptor set layout.");
     }
 
-    // One push constant: the screen shaders' mode.
+    // One push constant: the screen shaders' mode (`Draw` in life3d_frame.glsl).
     VkPushConstantRange pushRange{DRAW_STAGES, 0, sizeof(uint32_t)};
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     pipelineLayoutInfo.setLayoutCount = 1;
@@ -189,79 +290,31 @@ VkPipelineRenderingCreateInfo Renderer::renderingInfo() const {
     return info;
 }
 
+// A graphics pipeline bakes the shaders and all fixed-function state into one
+// object, so switching between draws is a single bind.
 VkPipeline Renderer::createPipeline(const PipelineSpec& spec) {
     VkDevice device = gpu_->device;
     VkShaderModule vertexModule = loadShaderModule(device, shaderDir_ / spec.vertexShader);
     VkShaderModule fragmentModule = loadShaderModule(device, shaderDir_ / spec.fragmentShader);
-    std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
-    stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                 nullptr,
-                 0,
-                 VK_SHADER_STAGE_VERTEX_BIT,
-                 vertexModule,
-                 "main",
-                 nullptr};
-    stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                 nullptr,
-                 0,
-                 VK_SHADER_STAGE_FRAGMENT_BIT,
-                 fragmentModule,
-                 "main",
-                 nullptr};
+    std::array<VkPipelineShaderStageCreateInfo, 2> stages{
+        shaderStage(VK_SHADER_STAGE_VERTEX_BIT, vertexModule),
+        shaderStage(VK_SHADER_STAGE_FRAGMENT_BIT, fragmentModule)};
 
-    VkVertexInputBindingDescription binding{0, sizeof(CubeVertex), VK_VERTEX_INPUT_RATE_VERTEX};
-    std::array<VkVertexInputAttributeDescription, 2> attributes{{
-        {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(CubeVertex, position)},
-        {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(CubeVertex, normal)},
-    }};
-    VkPipelineVertexInputStateCreateInfo vertexInput{
-        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    if (spec.cubeVertices) {
-        vertexInput.vertexBindingDescriptionCount = 1;
-        vertexInput.pVertexBindingDescriptions = &binding;
-        vertexInput.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributes.size());
-        vertexInput.pVertexAttributeDescriptions = attributes.data();
-    }
-
+    VkPipelineVertexInputStateCreateInfo vertexInput = vertexInputState(spec.cubeVertices);
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{
         VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
     VkPipelineViewportStateCreateInfo viewportState{
         VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
     viewportState.viewportCount = 1;
     viewportState.scissorCount = 1;
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{
-        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_NONE; // blocks only emit camera-facing faces
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-
+    VkPipelineRasterizationStateCreateInfo rasterizer = rasterizationState();
     VkPipelineMultisampleStateCreateInfo multisampling{
         VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    VkPipelineDepthStencilStateCreateInfo depthStencil{
-        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    depthStencil.depthTestEnable = spec.depthTest;
-    depthStencil.depthWriteEnable = spec.depthWrite;
-    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    VkPipelineColorBlendAttachmentState blendAttachment{};
-    blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                     VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    if (spec.alphaBlend) {
-        // Standard "over" blending: color = src * srcAlpha + dst * (1 - srcAlpha).
-        blendAttachment.blendEnable = VK_TRUE;
-        blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-        blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-        blendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-        blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-        blendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
-    }
+    VkPipelineDepthStencilStateCreateInfo depthStencil =
+        depthStencilState(spec.depthTest, spec.depthWrite);
+    VkPipelineColorBlendAttachmentState blendAttachment = colorBlendAttachment(spec.alphaBlend);
     VkPipelineColorBlendStateCreateInfo colorBlending{
         VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     colorBlending.attachmentCount = 1;
@@ -275,6 +328,8 @@ VkPipeline Renderer::createPipeline(const PipelineSpec& spec) {
     dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
     dynamicState.pDynamicStates = dynamicStates.data();
 
+    // Dynamic rendering: instead of a render pass, the pipeline names the
+    // attachment formats it draws into, chained in through pNext.
     VkPipelineRenderingCreateInfo rendering = renderingInfo();
     VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
                                               &rendering};
@@ -292,16 +347,19 @@ VkPipeline Renderer::createPipeline(const PipelineSpec& spec) {
     VkPipeline pipeline = VK_NULL_HANDLE;
     VkResult result =
         vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline);
+    // The pipeline keeps its own compiled copy of the shaders.
     vkDestroyShaderModule(device, vertexModule, nullptr);
     vkDestroyShaderModule(device, fragmentModule, nullptr);
     if (result != VK_SUCCESS) throw std::runtime_error("Could not create graphics pipeline.");
     return pipeline;
 }
 
+// One descriptor set per frame slot, since each slot has its own uniform and
+// box buffers.
 void Renderer::createDescriptorSets() {
     std::array<VkDescriptorPoolSize, 2> poolSizes{{
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES_IN_FLIGHT},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_FRAMES_IN_FLIGHT * 3},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_FRAMES_IN_FLIGHT * STORAGE_BINDINGS_PER_SET},
     }};
     VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
@@ -362,6 +420,8 @@ void Renderer::createSyncObjects() {
 // ------------------------------------------------------------------ frames
 
 void Renderer::waitForPreviousFrame() const {
+    // The slot before currentFrame_, wrapping around (adding the slot count
+    // first keeps the unsigned subtraction from going below zero).
     size_t previous = (currentFrame_ + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT;
     gpu_->waitForFence(inFlight_[previous], "a frame");
 }
@@ -375,7 +435,10 @@ void Renderer::requestScreenshot(const std::string& path) {
 }
 
 bool Renderer::beginFrame() {
+    // The slot's previous frame must be done before its buffers are reused.
     gpu_->waitForFence(inFlight_[currentFrame_], "a frame");
+    // Acquiring can return an image index while the presentation engine is
+    // still reading that image; imageAvailable_ is signaled once it is done.
     VkResult result =
         vkAcquireNextImageKHR(gpu_->device, swapchain_.handle(), ACQUIRE_TIMEOUT_NS,
                               imageAvailable_[currentFrame_], VK_NULL_HANDLE, &imageIndex_);
@@ -388,6 +451,8 @@ bool Renderer::beginFrame() {
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         throw std::runtime_error("Could not acquire swap chain image.");
     }
+    // Reset only once a frame will surely be submitted, or the next wait on
+    // this fence would never return.
     vkResetFences(gpu_->device, 1, &inFlight_[currentFrame_]);
     return true;
 }
@@ -398,6 +463,7 @@ void Renderer::endFrame(const FrameUniforms& uniforms, const std::vector<Box>& b
     const uint32_t boxCount = static_cast<uint32_t>(std::min<size_t>(boxes.size(), MAX_BOXES));
     std::memcpy(boxBuffers_[currentFrame_].mapped, boxes.data(), boxCount * sizeof(Box));
 
+    // Take the pending request, so a screenshot is served exactly once.
     std::string screenshot;
     screenshot.swap(pendingScreenshot_);
     if (!screenshot.empty()) prepareCaptureBuffer();
@@ -405,8 +471,25 @@ void Renderer::endFrame(const FrameUniforms& uniforms, const std::vector<Box>& b
     VkCommandBuffer cmd = commandBuffers_[currentFrame_];
     vkResetCommandBuffer(cmd, 0);
     recordCommands(cmd, boxCount, drawImGui, !screenshot.empty());
+    submit(cmd);
+    VkResult result = present();
 
-    // Draw once the image is available; signal the image's semaphore for presenting.
+    if (!screenshot.empty()) saveCapture(screenshot, currentFrame_);
+
+    currentFrame_ = (currentFrame_ + 1) % MAX_FRAMES_IN_FLIGHT;
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || resized_) {
+        swapchain_.recreate();
+        resized_ = false;
+    } else if (result != VK_SUCCESS) {
+        throw std::runtime_error("Could not present swap chain image.");
+    }
+}
+
+// Submits the frame's commands. They wait for the image to be available (only
+// from the color output stage on, so vertex work can start earlier), signal
+// the image's renderFinished semaphore for present(), and the slot's fence
+// for the CPU.
+void Renderer::submit(VkCommandBuffer cmd) {
     VkSemaphoreSubmitInfo waitInfo{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
     waitInfo.semaphore = imageAvailable_[currentFrame_];
     waitInfo.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -425,7 +508,10 @@ void Renderer::endFrame(const FrameUniforms& uniforms, const std::vector<Box>& b
     if (vkQueueSubmit2(gpu_->queue, 1, &submitInfo, inFlight_[currentFrame_]) != VK_SUCCESS) {
         throw std::runtime_error("Could not submit draw command buffer.");
     }
+}
 
+// Queues the image for display once its renderFinished semaphore is signaled.
+VkResult Renderer::present() {
     VkSemaphore renderFinished = swapchain_.renderFinished(imageIndex_);
     VkSwapchainKHR swapchain = swapchain_.handle();
     VkPresentInfoKHR presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
@@ -434,17 +520,7 @@ void Renderer::endFrame(const FrameUniforms& uniforms, const std::vector<Box>& b
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = &swapchain;
     presentInfo.pImageIndices = &imageIndex_;
-    VkResult result = vkQueuePresentKHR(gpu_->queue, &presentInfo);
-
-    if (!screenshot.empty()) saveCapture(screenshot, currentFrame_);
-
-    currentFrame_ = (currentFrame_ + 1) % MAX_FRAMES_IN_FLIGHT;
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || resized_) {
-        swapchain_.recreate();
-        resized_ = false;
-    } else if (result != VK_SUCCESS) {
-        throw std::runtime_error("Could not present swap chain image.");
-    }
+    return vkQueuePresentKHR(gpu_->queue, &presentInfo);
 }
 
 void Renderer::recordCommands(VkCommandBuffer cmd, uint32_t boxCount, bool drawImGui,
@@ -454,11 +530,29 @@ void Renderer::recordCommands(VkCommandBuffer cmd, uint32_t boxCount, bool drawI
     if (vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS) {
         throw std::runtime_error("Could not begin recording command buffer.");
     }
+    beginRendering(cmd);
+    recordDraws(cmd, boxCount, drawImGui);
+    vkCmdEndRendering(cmd);
+    finishImage(cmd, capture);
+    if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
+        throw std::runtime_error("Could not record command buffer.");
+    }
+}
+
+// Prepares the swapchain image and the depth buffer as attachments and starts
+// rendering into them.
+//
+// Images have a layout (how their memory is arranged), and a barrier changes
+// it. Both barriers come from UNDEFINED, which lets the driver discard the old
+// contents: the sky covers every pixel, and depth is cleared.
+//   - Color: the source stage is COLOR_ATTACHMENT_OUTPUT, the stage submit()
+//     makes wait for imageAvailable_, so the layout change happens only after
+//     the presentation engine has released the image.
+//   - Depth: one depth buffer serves both frames in flight, so the previous
+//     frame's depth tests and writes must finish before this frame clears it.
+void Renderer::beginRendering(VkCommandBuffer cmd) {
     const VkImage image = swapchain_.image(imageIndex_);
     const VkExtent2D extent = swapchain_.extent();
-
-    // The sky covers every pixel, so the image's old contents can be discarded
-    // (layout UNDEFINED); the depth buffer is cleared.
     imageBarrier(
         cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -471,6 +565,10 @@ void Renderer::recordCommands(VkCommandBuffer cmd, uint32_t boxCount, bool drawI
                  VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
                      VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
 
+    // Load and store ops say what happens to an attachment at the start and
+    // end of rendering: color starts undefined (the sky covers it) and keeps
+    // what is drawn for presenting; depth is cleared to the far plane (1) and
+    // thrown away afterwards.
     VkRenderingAttachmentInfo colorAttachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     colorAttachment.imageView = swapchain_.imageView(imageIndex_);
     colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -489,7 +587,11 @@ void Renderer::recordCommands(VkCommandBuffer cmd, uint32_t boxCount, bool drawI
     rendering.pColorAttachments = &colorAttachment;
     rendering.pDepthAttachment = &depthAttachment;
     vkCmdBeginRendering(cmd, &rendering);
+}
 
+// The frame's draws, back to front in the order listed in Renderer.h.
+void Renderer::recordDraws(VkCommandBuffer cmd, uint32_t boxCount, bool drawImGui) {
+    const VkExtent2D extent = swapchain_.extent();
     VkViewport viewport{
         0.0f, 0.0f, static_cast<float>(extent.width), static_cast<float>(extent.height),
         0.0f, 1.0f};
@@ -502,19 +604,19 @@ void Renderer::recordCommands(VkCommandBuffer cmd, uint32_t boxCount, bool drawI
         uint32_t value = static_cast<uint32_t>(mode);
         vkCmdPushConstants(cmd, pipelineLayout_, DRAW_STAGES, 0, sizeof(value), &value);
     };
-    constexpr uint32_t FULLSCREEN_TRIANGLE = 3; // vertices
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline_);
     setScreenMode(ScreenMode::Sky);
-    vkCmdDraw(cmd, FULLSCREEN_TRIANGLE, 1, 0, 0);
+    vkCmdDraw(cmd, FULLSCREEN_TRIANGLE_VERTICES, 1, 0, 0);
 
+    // The block count lives on the GPU: the build pass wrote it into the
+    // indirect command, so the CPU never needs to read it back.
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, blockPipeline_);
     vkCmdBindIndexBuffer(cmd, blockIndices_.buffer, 0, VK_INDEX_TYPE_UINT16);
     vkCmdDrawIndexedIndirect(cmd, indirectDraw_->buffer, 0, 1,
                              sizeof(VkDrawIndexedIndirectCommand));
 
     if (boxCount > 0) {
-        constexpr uint32_t EDGES_PER_BOX = 12; // each edge is one instance of the cube, stretched
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, boxPipeline_);
         VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd, 0, 1, &cubeVertices_.buffer, &offset);
@@ -523,19 +625,26 @@ void Renderer::recordCommands(VkCommandBuffer cmd, uint32_t boxCount, bool drawI
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, gridPipeline_);
     setScreenMode(ScreenMode::Grid);
-    vkCmdDraw(cmd, FULLSCREEN_TRIANGLE, 1, 0, 0);
+    vkCmdDraw(cmd, FULLSCREEN_TRIANGLE_VERTICES, 1, 0, 0);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, hudPipeline_);
     setScreenMode(ScreenMode::Hud);
-    vkCmdDraw(cmd, FULLSCREEN_TRIANGLE, 1, 0, 0);
+    vkCmdDraw(cmd, FULLSCREEN_TRIANGLE_VERTICES, 1, 0, 0);
     if (drawImGui) {
         ImDrawData* drawData = ImGui::GetDrawData();
         if (drawData && drawData->CmdLists.Size > 0) ImGui_ImplVulkan_RenderDrawData(drawData, cmd);
     }
-    vkCmdEndRendering(cmd);
+}
 
+// Moves the finished image to the layout the presentation engine reads,
+// copying it into the capture buffer first when a screenshot was requested.
+// The barriers into PRESENT_SRC need no destination stage: present() waits on
+// renderFinished, which is signaled after all commands and makes their writes
+// visible.
+void Renderer::finishImage(VkCommandBuffer cmd, bool capture) {
+    const VkImage image = swapchain_.image(imageIndex_);
     if (capture) {
-        // Copy the finished image into the capture buffer, then present it.
+        const VkExtent2D extent = swapchain_.extent();
         imageBarrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT,
                      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                      VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -546,6 +655,7 @@ void Renderer::recordCommands(VkCommandBuffer cmd, uint32_t boxCount, bool drawI
         region.imageExtent = {extent.width, extent.height, 1};
         vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                captureBuffer_.buffer, 1, &region);
+        // The CPU reads the buffer after the fence (saveCapture).
         memoryBarrier(cmd, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                       VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT);
         imageBarrier(cmd, image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -557,10 +667,6 @@ void Renderer::recordCommands(VkCommandBuffer cmd, uint32_t boxCount, bool drawI
                      VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                      VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_NONE, 0);
     }
-
-    if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
-        throw std::runtime_error("Could not record command buffer.");
-    }
 }
 
 // ------------------------------------------------------------- screenshots
@@ -568,22 +674,29 @@ void Renderer::recordCommands(VkCommandBuffer cmd, uint32_t boxCount, bool drawI
 void Renderer::prepareCaptureBuffer() {
     const VkExtent2D extent = swapchain_.extent();
     allocator_->destroy(captureBuffer_);
-    allocator_->create(captureBuffer_, static_cast<VkDeviceSize>(extent.width) * extent.height * 4,
+    allocator_->create(captureBuffer_,
+                       static_cast<VkDeviceSize>(extent.width) * extent.height *
+                           CAPTURE_BYTES_PER_PIXEL,
                        VK_BUFFER_USAGE_TRANSFER_DST_BIT, {memory::HOST_CACHED, memory::HOST});
 }
 
+// Waits for the frame in slot `frame`, then writes its captured image as a PNG.
 void Renderer::saveCapture(const std::string& path, size_t frame) {
     gpu_->waitForFence(inFlight_[frame], "the screenshot frame");
     const VkExtent2D extent = swapchain_.extent();
     const size_t pixelCount = static_cast<size_t>(extent.width) * extent.height;
     const uint8_t* pixels = captureBuffer_.as<const uint8_t>();
     const VkFormat format = swapchain_.colorFormat();
+    // BGRA images store blue first: swap red and blue while dropping alpha.
     const bool bgr = format == VK_FORMAT_B8G8R8A8_SRGB || format == VK_FORMAT_B8G8R8A8_UNORM;
-    std::vector<uint8_t> rgb(pixelCount * 3);
+    const size_t redOffset = bgr ? 2 : 0;
+    const size_t blueOffset = bgr ? 0 : 2;
+    std::vector<uint8_t> rgb(pixelCount * PNG_BYTES_PER_PIXEL);
     for (size_t i = 0; i < pixelCount; ++i) {
-        rgb[i * 3 + 0] = pixels[i * 4 + (bgr ? 2 : 0)];
-        rgb[i * 3 + 1] = pixels[i * 4 + 1];
-        rgb[i * 3 + 2] = pixels[i * 4 + (bgr ? 0 : 2)];
+        const uint8_t* pixel = pixels + i * CAPTURE_BYTES_PER_PIXEL;
+        rgb[i * PNG_BYTES_PER_PIXEL + 0] = pixel[redOffset];
+        rgb[i * PNG_BYTES_PER_PIXEL + 1] = pixel[1];
+        rgb[i * PNG_BYTES_PER_PIXEL + 2] = pixel[blueOffset];
     }
     allocator_->destroy(captureBuffer_); // a full-screen buffer is too big to keep around
     if (writePng(path, extent.width, extent.height, rgb)) {

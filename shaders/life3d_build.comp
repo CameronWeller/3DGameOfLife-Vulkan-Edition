@@ -53,12 +53,12 @@ layout(std430, binding = 9) readonly buffer Origins { ivec4 cell[]; } origins; /
 // culled only against stable neighbors, so a neighbor that is growing in or
 // shrinking away never exposes a hole. West/east are shifted as in
 // life3d_step.comp.
-shared uint occupiedWest[TILE];
-shared uint occupiedRow[TILE];
-shared uint occupiedEast[TILE];
-shared uint stableWest[TILE];
-shared uint stableRow[TILE];
-shared uint stableEast[TILE];
+shared uint occupiedWest[TILE_ROWS];
+shared uint occupiedRow[TILE_ROWS];
+shared uint occupiedEast[TILE_ROWS];
+shared uint stableWest[TILE_ROWS];
+shared uint stableRow[TILE_ROWS];
+shared uint stableEast[TILE_ROWS];
 
 // Occupied cells of `row` in neighbor chunk k, now or in the previous generation.
 uint occupied(uint k, uint row, bool previousGeneration) {
@@ -72,9 +72,12 @@ uint occupied(uint k, uint row, bool previousGeneration) {
 // False when all eight corners of the chunk lie outside the same side of the
 // view, so none of it can be seen. (A chunk can still be invisible when this
 // returns true; the test only has to be cheap and never wrong the other way.)
+// In clip space a point is in view when -w <= x <= w, -w <= y <= w and
+// 0 <= z <= w (Vulkan's depth range).
 bool chunkInView(vec3 lowCorner) {
     uint outside[6] = uint[6](0u, 0u, 0u, 0u, 0u, 0u); // corners beyond each clip plane
     for (uint i = 0u; i < 8u; i++) {
+        // Bits 0, 1 and 2 of i choose the low or high side along x, y and z.
         vec3 corner = lowCorner + vec3(i & 1u, (i >> 1) & 1u, (i >> 2) & 1u) * float(CHUNK);
         vec4 clip = params.cullViewProjection * vec4(corner, 1.0);
         outside[0] += uint(clip.x < -clip.w);
@@ -96,8 +99,8 @@ bool chunkInView(vec3 lowCorner) {
 uint reachMask(uint live, uint y, uint z) {
     if (live == 0u) return 0u;
     uint margin = params.margin;
-    uint lowCells = (1u << margin) - 1u;           // x < margin
-    uint highCells = ~(0xFFFFFFFFu >> margin);     // x >= CHUNK - margin
+    uint lowCells = (1u << margin) - 1u;       // the low `margin` bits: x < margin
+    uint highCells = ~(0xFFFFFFFFu >> margin); // the high `margin` bits: x >= CHUNK - margin
     // For each axis: near the low face, anywhere (the same chunk), near the high face.
     bool nearX[3] = bool[3]((live & lowCells) != 0u, true, (live & highCells) != 0u);
     bool nearY[3] = bool[3](y < margin, true, y >= CHUNK - margin);
@@ -113,28 +116,14 @@ uint reachMask(uint live, uint y, uint z) {
     return mask & ~(1u << SELF); // the chunk itself always exists
 }
 
-void main() {
-    if (gl_WorkGroupID.y >= params.count) return; // uniform across the workgroup
-    uint slot = activeList.slots[params.firstIndex + gl_WorkGroupID.y];
-
-    // Whole chunks out of view skip the drawing work; a pass that only draws
-    // (after a camera move) skips them entirely. Uniform across the workgroup.
-    ivec3 origin = origins.cell[slot].xyz;
-    vec3 camera = vec3(params.cameraX, params.cameraY, params.cameraZ);
-    vec3 nearest = clamp(camera, vec3(origin), vec3(origin + int(CHUNK)));
-    bool wantDraw = (params.flags & BUILD_DRAW) != 0u && distance(nearest, camera) <= params.cullDistance &&
-                    chunkInView(vec3(origin));
-    bool wantStats = (params.flags & BUILD_STATS) != 0u;
-    if (!wantDraw && !wantStats) return;
-    loadNeighborhood(slot);
-
-    // 1. Copy the tile's occupied and stable rows into shared memory (drawing only).
-    bool animate = (params.flags & BUILD_ANIMATE) != 0u;
-    int z0 = int(gl_WorkGroupID.x * SLAB_DEPTH);
-    for (uint entry = gl_LocalInvocationIndex; wantDraw && entry < TILE; entry += WORKGROUP_SIZE) {
+// Step 1 of main: copies the tile's occupied and stable rows into shared
+// memory, shifted west and east as in life3d_step.comp. Without `animate`
+// there is no previous generation to compare with, so stable = occupied.
+void loadTile(int firstZ, bool animate, bool wantDraw) {
+    for (uint entry = gl_LocalInvocationIndex; wantDraw && entry < TILE_ROWS; entry += WORKGROUP_SIZE) {
         int tileY;
         int tileZ;
-        tilePosition(entry, z0, tileY, tileZ);
+        tilePosition(entry, firstZ, tileY, tileZ);
         uint k;
         uint row = rowAndNeighbor(tileY, tileZ, 0, k);
         uint center = occupied(k, row, false);
@@ -152,87 +141,128 @@ void main() {
         stableWest[entry] = (center << 1) | westEdge;
         stableEast[entry] = (center >> 1) | eastEdge;
     }
+}
+
+// Step 2 of main: adds this row's live cells to the chunk's population and its
+// reach to the chunk's reach mask. The subgroup (the invocations the GPU runs
+// together, typically 32 or 64) combines its values first, so only one
+// invocation per subgroup touches the counters in memory.
+void addChunkStats(uint slot, uint life, uint emits, uint y, uint z) {
+    uint population = subgroupAdd(uint(bitCount(life)));
+    uint reach = subgroupOr(reachMask(life | emits, y, z));
+    if (subgroupElect()) {
+        if (population != 0u) atomicAdd(stats.values[slot].x, population);
+        if (reach != 0u) atomicOr(stats.values[slot].y, reach);
+    }
+}
+
+// The kind of the block at `bit` of a row: Ember and Stone come from the block
+// planes; any other block drawn is Life (alive, or just died).
+uint blockKind(uint bit, uint emits, uint blocked) {
+    return (emits & bit) != 0u ? KIND_EMBER : ((blocked & bit) != 0u ? KIND_STONE : KIND_LIFE);
+}
+
+void main() {
+    if (gl_WorkGroupID.y >= params.count) return; // uniform across the workgroup
+    uint slot = activeList.slots[params.firstIndex + gl_WorkGroupID.y];
+
+    // Whole chunks out of view skip the drawing work; a pass that only draws
+    // (after a camera move) skips them entirely. Uniform across the workgroup.
+    ivec3 origin = origins.cell[slot].xyz;
+    vec3 camera = vec3(params.cameraX, params.cameraY, params.cameraZ);
+    vec3 nearest = clamp(camera, vec3(origin), vec3(origin + int(CHUNK)));
+    bool wantDraw = (params.flags & BUILD_DRAW) != 0u && distance(nearest, camera) <= params.cullDistance &&
+                    chunkInView(vec3(origin));
+    bool wantStats = (params.flags & BUILD_STATS) != 0u;
+    if (!wantDraw && !wantStats) return;
+    loadNeighborhood(slot);
+
+    // 1. Copy the tile into shared memory (drawing only). Every invocation
+    //    reaches the barrier, even when there is nothing to copy.
+    bool animate = (params.flags & BUILD_ANIMATE) != 0u;
+    int firstZ = int(gl_WorkGroupID.x * SLAB_DEPTH);
+    loadTile(firstZ, animate, wantDraw);
     barrier();
 
     uint y = gl_LocalInvocationID.x;
-    uint z = uint(z0) + gl_LocalInvocationID.y;
+    uint z = uint(firstZ) + gl_LocalInvocationID.y;
     uint row = z * CHUNK + y;
     uint index = slot * ROWS + row;
     uint life = current.rows[index];
     uint blocked = blockRow(SELF, row, 0u);
     uint emits = blockRow(SELF, row, 1u);
 
-    // 2. Population and reach, combined across the subgroup so only one
-    //    invocation per subgroup touches the counters.
-    if (wantStats) {
-        uint population = subgroupAdd(uint(bitCount(life)));
-        uint reach = subgroupOr(reachMask(life | emits, y, z));
-        if (subgroupElect()) {
-            if (population != 0u) atomicAdd(stats.values[slot].x, population);
-            if (reach != 0u) atomicOr(stats.values[slot].y, reach);
-        }
-    }
+    // 2. Population and reach.
+    if (wantStats) addChunkStats(slot, life, emits, y, z);
     if (!wantDraw) return;
 
     // 3. Visible blocks: occupied cells with a face not covered by a stable
-    //    neighbor, plus (when animating) cells that just died.
-    uint self = (gl_LocalInvocationID.y + 1u) * TILE_Y + (y + 1u); // this row's tile entry
-    uint covered = stableWest[self] & stableEast[self] & stableRow[self - 1u] & stableRow[self + 1u] &
-                   stableRow[self - TILE_Y] & stableRow[self + TILE_Y];
-    uint draw = occupiedRow[self] & ~covered;
+    //    neighbor, plus (when animating) cells that just died. In the tile,
+    //    entry +-1 is the row at y +-1 and entry +-TILE_Y the row at z +-1; the
+    //    x neighbors are the west and east copies of the row itself.
+    uint selfEntry = (gl_LocalInvocationID.y + 1u) * TILE_Y + (y + 1u); // this row's tile entry
+    uint covered = stableWest[selfEntry] & stableEast[selfEntry] & stableRow[selfEntry - 1u] &
+                   stableRow[selfEntry + 1u] & stableRow[selfEntry - TILE_Y] & stableRow[selfEntry + TILE_Y];
+    uint toDraw = occupiedRow[selfEntry] & ~covered;
     uint previousLife = 0u;
     if (animate) {
         previousLife = previous.rows[index];
-        draw |= previousLife & ~life & ~blocked; // died last generation: shrink away
+        toDraw |= previousLife & ~life & ~blocked; // died last generation: shrink away
     }
 
     // 4. Reserve room in the instance list: one atomic per subgroup, then each
-    //    invocation writes at its own offset within the subgroup's range.
-    uint blockCount = uint(bitCount(draw));
+    //    invocation writes at its own offset within the subgroup's range. The
+    //    exclusive add is a prefix sum (each invocation gets the total of the
+    //    invocations before it), so the ranges line up without gaps.
+    uint blockCount = uint(bitCount(toDraw));
     uint offsetInSubgroup = subgroupExclusiveAdd(blockCount);
     uint subgroupTotal = subgroupAdd(blockCount);
     uint subgroupBase = 0u;
     if (subgroupElect() && subgroupTotal != 0u) {
         subgroupBase = atomicAdd(indirect.instanceCount, subgroupTotal);
     }
-    uint next = subgroupBroadcastFirst(subgroupBase) + offsetInSubgroup;
-    if (draw == 0u) return;
+    uint nextInstance = subgroupBroadcastFirst(subgroupBase) + offsetInSubgroup;
+    if (toDraw == 0u) return;
 
-    // 5. The 27 rows around this row. Corners and edges use occupied rows (for
-    //    ambient occlusion); the six face neighbors use stable rows, matching
-    //    the face culling above.
-    uint nb[27];
+    // 5. The 27 rows around this row, in the order of the instance's neighbor
+    //    bits. Corners and edges use occupied rows (for ambient occlusion); the
+    //    six face neighbors use stable rows, matching the face culling above.
+    //    (For dz or dy = 0, the unsigned dz - 1u and dy - 1u wrap around to
+    //    0xFFFFFFFF, and the addition wraps back: the sum still steps back one.)
+    uint neighborRows[27];
     for (uint dz = 0u; dz < 3u; dz++) {
         for (uint dy = 0u; dy < 3u; dy++) {
-            uint entry = self + (dz - 1u) * TILE_Y + (dy - 1u);
+            uint entry = selfEntry + (dz - 1u) * TILE_Y + (dy - 1u);
             uint k = dz * 9u + dy * 3u;
-            nb[k] = occupiedWest[entry];
-            nb[k + 1u] = occupiedRow[entry];
-            nb[k + 2u] = occupiedEast[entry];
+            neighborRows[k] = occupiedWest[entry];
+            neighborRows[k + 1u] = occupiedRow[entry];
+            neighborRows[k + 2u] = occupiedEast[entry];
         }
     }
-    nb[4] = stableRow[self - TILE_Y]; // -z
-    nb[10] = stableRow[self - 1u];    // -y
-    nb[12] = stableWest[self];        // -x
-    nb[SELF] = 0u;
-    nb[14] = stableEast[self];        // +x
-    nb[16] = stableRow[self + 1u];    // +y
-    nb[22] = stableRow[self + TILE_Y]; // +z
+    neighborRows[4] = stableRow[selfEntry - TILE_Y];  // -z
+    neighborRows[10] = stableRow[selfEntry - 1u];     // -y
+    neighborRows[12] = stableWest[selfEntry];         // -x
+    neighborRows[SELF] = 0u;
+    neighborRows[14] = stableEast[selfEntry];         // +x
+    neighborRows[16] = stableRow[selfEntry + 1u];     // +y
+    neighborRows[22] = stableRow[selfEntry + TILE_Y]; // +z
 
     // 6. One instance per visible block, lowest x first.
-    while (draw != 0u) {
-        uint x = uint(findLSB(draw));
-        draw &= draw - 1u; // clear that bit
-        if (next >= params.maxInstances) break; // the list is full: farther blocks are not drawn
+    while (toDraw != 0u) {
+        uint x = uint(findLSB(toDraw));
+        toDraw &= toDraw - 1u; // clear that bit
+        if (nextInstance >= params.maxInstances) break; // the list is full: farther blocks are not drawn
+        // Bit x of each of the 27 rows becomes bit k of this block's
+        // neighborhood: a transpose from rows of cells to one cell's neighbors.
         uint neighborBits = 0u;
         for (uint k = 0u; k < 27u; k++) {
-            neighborBits |= ((nb[k] >> x) & 1u) << k;
+            neighborBits |= ((neighborRows[k] >> x) & 1u) << k;
         }
         uint bit = 1u << x;
-        uint kind = (emits & bit) != 0u ? KIND_EMBER : ((blocked & bit) != 0u ? KIND_STONE : KIND_LIFE);
+        uint kind = blockKind(bit, emits, blocked);
         bool born = animate && (life & bit) != 0u && (previousLife & bit) == 0u;
         bool dying = (life & bit) == 0u && (blocked & bit) == 0u;
-        instances.cells[next] = packInstance(neighborBits, kind, born, dying, slot, x, y, z);
-        next++;
+        instances.cells[nextInstance] = packInstance(neighborBits, kind, born, dying, slot, x, y, z);
+        nextInstance++;
     }
 }

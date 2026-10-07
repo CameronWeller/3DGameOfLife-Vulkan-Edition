@@ -3,7 +3,9 @@
 
 // Box outlines: the targeted block, the placement preview, chunk borders and
 // tutorial marks. Each of a box's 12 edges is one instance of a unit cube,
-// stretched into a thin bar: instance = box * 12 + edge.
+// stretched into a thin bar: instance = box * EDGES_PER_BOX + edge. Unlike
+// Vulkan lines (one pixel wide without the optional wideLines feature), bars
+// have a thickness in the world and are depth-tested like blocks.
 
 #include "life3d_frame.glsl"
 
@@ -21,9 +23,12 @@ layout(location = 3) out vec3 fragWorld;
 layout(location = 4) out float fragShade;
 layout(location = 5) out float fragLit;
 
+const int EDGES_PER_BOX = 12; // must match EDGES_PER_BOX in src/render/Renderer.cpp
+
 // Color ids; must match BoxColor in src/render/Renderer.h. 3-6 are the tutorial
 // marks (neighbor, born, dies, survives), as in Tutorial::markColor.
-const vec3 BOX_COLORS[9] = vec3[9](vec3(0.02),              // 0 targeted block
+const int BOX_COLOR_COUNT = 9;
+const vec3 BOX_COLORS[BOX_COLOR_COUNT] = vec3[BOX_COLOR_COUNT](vec3(0.02),              // 0 targeted block
                                    vec3(1.0, 0.8, 0.15),    // 1 chunk border
                                    vec3(0.95),              // 2 placing Life
                                    vec3(1.0, 0.62, 0.05),   // 3 mark: neighbor
@@ -34,15 +39,16 @@ const vec3 BOX_COLORS[9] = vec3[9](vec3(0.02),              // 0 targeted block
                                    vec3(1.0, 0.36, 0.06));  // 8 placing Ember
 
 void main() {
-    int box = gl_InstanceIndex / 12;
-    int edge = gl_InstanceIndex % 12;
+    int box = gl_InstanceIndex / EDGES_PER_BOX;
+    int edge = gl_InstanceIndex % EDGES_PER_BOX;
     vec4 low = boxes.data[box * 2];
     vec4 high = boxes.data[box * 2 + 1];
     float thickness = low.w;
 
     // Edges 0-3 run along x, 4-7 along y, 8-11 along z. The two low bits of
     // the edge number pick which of the four parallel edges: low or high side
-    // on each of the other two axes.
+    // on each of the other two axes. The bar is centered on the edge and runs
+    // `thickness` past each end, so the bars meet cleanly at the corners.
     int axis = edge / 4;
     vec2 side = vec2((edge & 1) != 0 ? 1.0 : 0.0, (edge & 2) != 0 ? 1.0 : 0.0);
     vec3 center;
@@ -58,7 +64,7 @@ void main() {
         size.z = high.z - low.z + thickness;
     }
 
-    int colorId = clamp(int(high.w + 0.5), 0, 8);
+    int colorId = clamp(int(high.w + 0.5), 0, BOX_COLOR_COUNT - 1); // the id travels as a float: round it
     fragColor = BOX_COLORS[colorId];
     fragNormal = inNormal;
     fragLocal = inPosition;
