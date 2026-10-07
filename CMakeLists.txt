@@ -16,8 +16,8 @@ if(POLICY CMP0135)
     cmake_policy(SET CMP0135 NEW) # extracted files get the extraction time
 endif()
 
-set(GOL_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
-file(STRINGS ${GOL_ROOT}/VERSION GOL3D_DEFAULT_VERSION LIMIT_COUNT 1)
+set(GOL3D_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
+file(STRINGS ${GOL3D_ROOT}/VERSION GOL3D_DEFAULT_VERSION LIMIT_COUNT 1)
 string(STRIP "${GOL3D_DEFAULT_VERSION}" GOL3D_DEFAULT_VERSION)
 set(GOL3D_VERSION ${GOL3D_DEFAULT_VERSION} CACHE STRING "Version stamped into packages (x.y.z)")
 project(gol3d VERSION ${GOL3D_VERSION} LANGUAGES C CXX
@@ -135,18 +135,18 @@ endif()
 # stamps, saves, settings, the command line, the tick governor's arithmetic and
 # the updater. The game and all CPU tests link it.
 add_library(gol3d_core STATIC
-    ${GOL_ROOT}/src/game/CommandLine.cpp
-    ${GOL_ROOT}/src/game/Player.cpp
-    ${GOL_ROOT}/src/game/Settings.cpp
-    ${GOL_ROOT}/src/game/Stamps.cpp
-    ${GOL_ROOT}/src/game/TickGovernor.cpp
-    ${GOL_ROOT}/src/platform/Paths.cpp
-    ${GOL_ROOT}/src/tutorial/TutorialLessons.cpp
-    ${GOL_ROOT}/src/update/Sha256.cpp
-    ${GOL_ROOT}/src/update/Updater.cpp
-    ${GOL_ROOT}/src/util/Png.cpp
-    ${GOL_ROOT}/src/world/SaveFile.cpp)
-target_include_directories(gol3d_core PUBLIC ${GOL_ROOT}/src ${GOL_ROOT}/shaders)
+    ${GOL3D_ROOT}/src/game/CommandLine.cpp
+    ${GOL3D_ROOT}/src/game/Player.cpp
+    ${GOL3D_ROOT}/src/game/Settings.cpp
+    ${GOL3D_ROOT}/src/game/Stamps.cpp
+    ${GOL3D_ROOT}/src/game/TickGovernor.cpp
+    ${GOL3D_ROOT}/src/platform/Paths.cpp
+    ${GOL3D_ROOT}/src/tutorial/TutorialLessons.cpp
+    ${GOL3D_ROOT}/src/update/Sha256.cpp
+    ${GOL3D_ROOT}/src/update/Updater.cpp
+    ${GOL3D_ROOT}/src/util/Png.cpp
+    ${GOL3D_ROOT}/src/world/SaveFile.cpp)
+target_include_directories(gol3d_core PUBLIC ${GOL3D_ROOT}/src ${GOL3D_ROOT}/shaders)
 target_link_libraries(gol3d_core PUBLIC glm::glm)
 # Vulkan's clip-space depth is 0..1; every file must agree on GLM's convention.
 target_compile_definitions(gol3d_core PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE)
@@ -157,30 +157,30 @@ if(WIN32)
 endif()
 
 set(GOL3D_SOURCES
-    ${GOL_ROOT}/src/main.cpp
-    ${GOL_ROOT}/src/game/Game.cpp
-    ${GOL_ROOT}/src/game/GameChecks.cpp
-    ${GOL_ROOT}/src/game/GameHud.cpp
-    ${GOL_ROOT}/src/game/GameInput.cpp
-    ${GOL_ROOT}/src/game/GameMenus.cpp
-    ${GOL_ROOT}/src/game/GameSimulation.cpp
-    ${GOL_ROOT}/src/gpu/GpuBuffer.cpp
-    ${GOL_ROOT}/src/gpu/GpuContext.cpp
-    ${GOL_ROOT}/src/gpu/ImmediateCommands.cpp
-    ${GOL_ROOT}/src/gpu/ShaderModule.cpp
-    ${GOL_ROOT}/src/gpu/Swapchain.cpp
-    ${GOL_ROOT}/src/gpu/VulkanLoader.cpp
-    ${GOL_ROOT}/src/render/Renderer.cpp
-    ${GOL_ROOT}/src/tutorial/Tutorial.cpp
-    ${GOL_ROOT}/src/ui/Theme.cpp
-    ${GOL_ROOT}/src/ui/Widgets.cpp
-    ${GOL_ROOT}/src/world/ChunkWorld.cpp
-    ${GOL_ROOT}/src/world/SimulationPasses.cpp)
+    ${GOL3D_ROOT}/src/main.cpp
+    ${GOL3D_ROOT}/src/game/Game.cpp
+    ${GOL3D_ROOT}/src/game/GameChecks.cpp
+    ${GOL3D_ROOT}/src/game/GameHud.cpp
+    ${GOL3D_ROOT}/src/game/GameInput.cpp
+    ${GOL3D_ROOT}/src/game/GameMenus.cpp
+    ${GOL3D_ROOT}/src/game/GameSimulation.cpp
+    ${GOL3D_ROOT}/src/gpu/GpuBuffer.cpp
+    ${GOL3D_ROOT}/src/gpu/GpuContext.cpp
+    ${GOL3D_ROOT}/src/gpu/ImmediateCommands.cpp
+    ${GOL3D_ROOT}/src/gpu/ShaderModule.cpp
+    ${GOL3D_ROOT}/src/gpu/Swapchain.cpp
+    ${GOL3D_ROOT}/src/gpu/VulkanLoader.cpp
+    ${GOL3D_ROOT}/src/render/Renderer.cpp
+    ${GOL3D_ROOT}/src/tutorial/Tutorial.cpp
+    ${GOL3D_ROOT}/src/ui/Theme.cpp
+    ${GOL3D_ROOT}/src/ui/Widgets.cpp
+    ${GOL3D_ROOT}/src/world/ChunkWorld.cpp
+    ${GOL3D_ROOT}/src/world/SimulationPasses.cpp)
 if(WIN32)
-    list(APPEND GOL3D_SOURCES ${GOL_ROOT}/packaging/windows/gol3d.rc)
+    list(APPEND GOL3D_SOURCES ${GOL3D_ROOT}/packaging/windows/gol3d.rc)
 elseif(APPLE)
-    set(GOL3D_ICNS ${GOL_ROOT}/packaging/icons/gol3d.icns)
-    set(GOL3D_FONT_LICENSE ${GOL_ROOT}/packaging/licenses/Karla-OFL.txt)
+    set(GOL3D_ICNS ${GOL3D_ROOT}/packaging/icons/gol3d.icns)
+    set(GOL3D_FONT_LICENSE ${GOL3D_ROOT}/packaging/licenses/Karla-OFL.txt)
     set_source_files_properties(${GOL3D_ICNS} ${GOL3D_FONT_LICENSE} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     list(APPEND GOL3D_SOURCES ${GOL3D_ICNS} ${GOL3D_FONT_LICENSE})
 endif()
@@ -224,52 +224,52 @@ if(APPLE)
 endif()
 
 # Shaders: compiled with glslc, or copied from GOL3D_SHADER_DIR (SPIR-V is portable).
-set(GOL_SHADERS life3d_step.comp life3d_build.comp life3d_blocks.vert life3d_boxes.vert life3d_world.frag
+set(GOL3D_SHADERS life3d_step.comp life3d_build.comp life3d_blocks.vert life3d_boxes.vert life3d_world.frag
     life3d_screen.vert life3d_screen.frag)
-set(GOL_SHADER_INCLUDES life3d_frame.glsl life3d_storage.glsl life3d_bits.glsl life3d_instances.glsl)
-list(TRANSFORM GOL_SHADER_INCLUDES PREPEND ${GOL_ROOT}/shaders/)
-set(GOL_SPV_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders)
-set(GOL_SPV)
+set(GOL3D_SHADER_INCLUDES life3d_frame.glsl life3d_storage.glsl life3d_bits.glsl life3d_instances.glsl)
+list(TRANSFORM GOL3D_SHADER_INCLUDES PREPEND ${GOL3D_ROOT}/shaders/)
+set(GOL3D_SPV_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders)
+set(GOL3D_SPV)
 if(GOL3D_SHADER_DIR)
-    foreach(shader ${GOL_SHADERS})
-        set(spv ${GOL_SPV_DIR}/${shader}.spv)
+    foreach(shader ${GOL3D_SHADERS})
+        set(spv ${GOL3D_SPV_DIR}/${shader}.spv)
         add_custom_command(OUTPUT ${spv}
-            COMMAND ${CMAKE_COMMAND} -E make_directory ${GOL_SPV_DIR}
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${GOL3D_SPV_DIR}
             COMMAND ${CMAKE_COMMAND} -E copy ${GOL3D_SHADER_DIR}/${shader}.spv ${spv}
             DEPENDS ${GOL3D_SHADER_DIR}/${shader}.spv
             COMMENT "Using prebuilt ${shader}.spv")
-        list(APPEND GOL_SPV ${spv})
+        list(APPEND GOL3D_SPV ${spv})
     endforeach()
 else()
     # glslc (shaderc, Vulkan SDK) or glslangValidator (glslang) both work.
     find_program(GLSLC_EXECUTABLE glslc HINTS ENV VULKAN_SDK PATH_SUFFIXES bin)
     if(GLSLC_EXECUTABLE)
-        set(GOL_GLSL_COMMAND ${GLSLC_EXECUTABLE} --target-env=vulkan1.3 -O -o)
+        set(GOL3D_GLSL_COMMAND ${GLSLC_EXECUTABLE} --target-env=vulkan1.3 -O -o)
     else()
         find_program(GLSLANG_EXECUTABLE glslangValidator HINTS ENV VULKAN_SDK PATH_SUFFIXES bin)
         if(NOT GLSLANG_EXECUTABLE)
             message(FATAL_ERROR "Need glslc or glslangValidator to compile shaders (or set GOL3D_SHADER_DIR).")
         endif()
-        set(GOL_GLSL_COMMAND ${GLSLANG_EXECUTABLE} -V --target-env vulkan1.3 -o)
+        set(GOL3D_GLSL_COMMAND ${GLSLANG_EXECUTABLE} -V --target-env vulkan1.3 -o)
     endif()
-    foreach(shader ${GOL_SHADERS})
-        set(spv ${GOL_SPV_DIR}/${shader}.spv)
+    foreach(shader ${GOL3D_SHADERS})
+        set(spv ${GOL3D_SPV_DIR}/${shader}.spv)
         add_custom_command(OUTPUT ${spv}
-            COMMAND ${CMAKE_COMMAND} -E make_directory ${GOL_SPV_DIR}
-            COMMAND ${GOL_GLSL_COMMAND} ${spv} ${GOL_ROOT}/shaders/${shader}
-            DEPENDS ${GOL_ROOT}/shaders/${shader} ${GOL_SHADER_INCLUDES}
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${GOL3D_SPV_DIR}
+            COMMAND ${GOL3D_GLSL_COMMAND} ${spv} ${GOL3D_ROOT}/shaders/${shader}
+            DEPENDS ${GOL3D_ROOT}/shaders/${shader} ${GOL3D_SHADER_INCLUDES}
             COMMENT "Compiling ${shader}")
-        list(APPEND GOL_SPV ${spv})
+        list(APPEND GOL3D_SPV ${spv})
     endforeach()
 endif()
-add_custom_target(gol3d_shaders DEPENDS ${GOL_SPV})
+add_custom_target(gol3d_shaders DEPENDS ${GOL3D_SPV})
 add_dependencies(gol3d gol3d_shaders)
 
 # Put shaders (and MoltenVK on macOS) where the executable looks for them, so the
 # build tree runs directly.
 if(APPLE)
     add_custom_command(TARGET gol3d POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory ${GOL_SPV_DIR} $<TARGET_BUNDLE_CONTENT_DIR:gol3d>/Resources/shaders)
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${GOL3D_SPV_DIR} $<TARGET_BUNDLE_CONTENT_DIR:gol3d>/Resources/shaders)
     if(GOL3D_MOLTENVK_DYLIB)
         add_custom_command(TARGET gol3d POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_BUNDLE_CONTENT_DIR:gol3d>/Frameworks
@@ -277,7 +277,7 @@ if(APPLE)
     endif()
 elseif(CMAKE_CONFIGURATION_TYPES)
     add_custom_command(TARGET gol3d POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory ${GOL_SPV_DIR} $<TARGET_FILE_DIR:gol3d>/shaders)
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${GOL3D_SPV_DIR} $<TARGET_FILE_DIR:gol3d>/shaders)
 endif()
 
 # --------------------------------------------------------------------- install
@@ -289,18 +289,18 @@ if(APPLE)
     install(CODE [[execute_process(COMMAND codesign --force --deep --sign - "${CMAKE_INSTALL_PREFIX}/3D Life.app")]])
 elseif(WIN32)
     install(TARGETS gol3d RUNTIME DESTINATION .)
-    install(FILES ${GOL_SPV} DESTINATION shaders)
-    install(FILES ${GOL_ROOT}/docs/PROTOTYPE.md DESTINATION . RENAME README.md)
-    install(FILES ${GOL_ROOT}/LICENSE DESTINATION . RENAME LICENSE.txt)
-    install(FILES ${GOL_ROOT}/packaging/licenses/Karla-OFL.txt DESTINATION .)
+    install(FILES ${GOL3D_SPV} DESTINATION shaders)
+    install(FILES ${GOL3D_ROOT}/docs/PROTOTYPE.md DESTINATION . RENAME README.md)
+    install(FILES ${GOL3D_ROOT}/LICENSE DESTINATION . RENAME LICENSE.txt)
+    install(FILES ${GOL3D_ROOT}/packaging/licenses/Karla-OFL.txt DESTINATION .)
 else()
     install(TARGETS gol3d RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-    install(FILES ${GOL_SPV} DESTINATION ${CMAKE_INSTALL_DATADIR}/gol3d/shaders)
-    install(FILES ${GOL_ROOT}/packaging/linux/gol3d.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
-    install(FILES ${GOL_ROOT}/packaging/icons/gol3d.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps)
-    install(FILES ${GOL_ROOT}/docs/PROTOTYPE.md DESTINATION ${CMAKE_INSTALL_DOCDIR} RENAME README.md)
-    install(FILES ${GOL_ROOT}/LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR})
-    install(FILES ${GOL_ROOT}/packaging/licenses/Karla-OFL.txt DESTINATION ${CMAKE_INSTALL_DOCDIR})
+    install(FILES ${GOL3D_SPV} DESTINATION ${CMAKE_INSTALL_DATADIR}/gol3d/shaders)
+    install(FILES ${GOL3D_ROOT}/packaging/linux/gol3d.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+    install(FILES ${GOL3D_ROOT}/packaging/icons/gol3d.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps)
+    install(FILES ${GOL3D_ROOT}/docs/PROTOTYPE.md DESTINATION ${CMAKE_INSTALL_DOCDIR} RENAME README.md)
+    install(FILES ${GOL3D_ROOT}/LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR})
+    install(FILES ${GOL3D_ROOT}/packaging/licenses/Karla-OFL.txt DESTINATION ${CMAKE_INSTALL_DOCDIR})
 endif()
 
 # ----------------------------------------------------------------------- CPack
@@ -312,7 +312,7 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
 set(CPACK_PACKAGE_FILE_NAME "gol3d-${PROJECT_VERSION}-${GOL3D_PACKAGE_PLATFORM}")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "3D Life")
 set(CPACK_PACKAGE_EXECUTABLES gol3d "3D Life")
-set(CPACK_RESOURCE_FILE_LICENSE ${GOL_ROOT}/LICENSE)
+set(CPACK_RESOURCE_FILE_LICENSE ${GOL3D_ROOT}/LICENSE)
 set(CPACK_STRIP_FILES ON)
 
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
@@ -330,8 +330,8 @@ set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
 
 set(CPACK_NSIS_PACKAGE_NAME "3D Life")
 set(CPACK_NSIS_DISPLAY_NAME "3D Life")
-set(CPACK_NSIS_MUI_ICON ${GOL_ROOT}/packaging/icons/gol3d.ico)
-set(CPACK_NSIS_MUI_UNIICON ${GOL_ROOT}/packaging/icons/gol3d.ico)
+set(CPACK_NSIS_MUI_ICON ${GOL3D_ROOT}/packaging/icons/gol3d.ico)
+set(CPACK_NSIS_MUI_UNIICON ${GOL3D_ROOT}/packaging/icons/gol3d.ico)
 set(CPACK_NSIS_INSTALLED_ICON_NAME gol3d.exe)
 set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
 # Installing over an existing copy just replaces files, so the in-game updater can
@@ -350,23 +350,23 @@ include(CPack)
 # executable that prints what failed and exits non-zero.
 enable_testing()
 function(gol3d_add_test name)
-    add_executable(${name}_test ${GOL_ROOT}/tests/${ARGN})
+    add_executable(${name}_test ${GOL3D_ROOT}/tests/${ARGN})
     target_link_libraries(${name}_test PRIVATE gol3d_core)
     target_compile_options(${name}_test PRIVATE ${GOL3D_WARNINGS})
     add_test(NAME ${name} COMMAND ${name}_test)
 endfunction()
-gol3d_add_test(life_rules LifeRulesTest.cpp)  # the rule list and the CPU reference
-gol3d_add_test(bit_life BitLifeTest.cpp)      # the GPU's bit-sliced arithmetic, run on the CPU
-gol3d_add_test(patterns PatternsTest.cpp)     # still lifes, oscillators, gliders and tutorial scenes
-gol3d_add_test(player PlayerTest.cpp)         # walking, flying, collision and aiming
-gol3d_add_test(stamps StampsTest.cpp)         # stamp shapes, rotation and tilt
-gol3d_add_test(save_file SaveFileTest.cpp)    # the .life3d format
-gol3d_add_test(settings SettingsTest.cpp)     # options.txt and the command line
-gol3d_add_test(tick_governor TickGovernorTest.cpp)
-gol3d_add_test(updater UpdaterTest.cpp)       # release JSON, versions, SHA-256, PNG checksums
+gol3d_add_test(life_rules LifeRulesTest.cpp)       # the rule list and the CPU reference
+gol3d_add_test(bit_life BitLifeTest.cpp)           # the GPU's bit-sliced arithmetic, run on the CPU
+gol3d_add_test(patterns PatternsTest.cpp)          # still lifes, oscillators, gliders and tutorial scenes
+gol3d_add_test(player PlayerTest.cpp)              # walking, flying, collision and aiming
+gol3d_add_test(stamps StampsTest.cpp)              # stamp shapes, rotation and tilt
+gol3d_add_test(save_file SaveFileTest.cpp)         # the .life3d format
+gol3d_add_test(settings SettingsTest.cpp)          # options.txt and the command line
+gol3d_add_test(tick_governor TickGovernorTest.cpp) # how many generations each frame runs
+gol3d_add_test(updater UpdaterTest.cpp)            # release JSON, versions, SHA-256, PNG checksums
 
 # The soup search that found the gliders in src/life/Patterns.h; built only on request.
-add_executable(find_patterns EXCLUDE_FROM_ALL ${GOL_ROOT}/tools/FindPatterns.cpp)
+add_executable(find_patterns EXCLUDE_FROM_ALL ${GOL3D_ROOT}/tools/FindPatterns.cpp)
 find_package(Threads REQUIRED)
 target_link_libraries(find_patterns PRIVATE gol3d_core Threads::Threads)
 
