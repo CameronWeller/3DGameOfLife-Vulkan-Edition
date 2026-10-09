@@ -36,6 +36,7 @@ layout(push_constant) uniform Params {
 const uint BUILD_ANIMATE = 1u; // flag births, draw the last deaths
 const uint BUILD_DRAW = 2u;    // write the block list
 const uint BUILD_STATS = 4u;   // count population and reach
+const uint BUILD_LAYERS = 8u;  // the rule's neighbors are in the cell's x-y layer: life never moves along z
 
 layout(std430, binding = 0) readonly buffer Current { uint rows[]; } current;
 layout(std430, binding = 1) readonly buffer Previous { uint rows[]; } previous; // the generation before
@@ -106,7 +107,10 @@ uint reachMask(uint live, uint y, uint z) {
     // For each axis: near the low face, anywhere (the same chunk), near the high face.
     bool nearX[3] = bool[3]((live & lowCells) != 0u, true, (live & highCells) != 0u);
     bool nearY[3] = bool[3](y < margin, true, y >= CHUNK - margin);
-    bool nearZ[3] = bool[3](z < margin, true, z >= CHUNK - margin);
+    // Under a rule whose neighbors all lie in the cell's own x-y layer, life
+    // never leaves its layer, so it never reaches the chunks in front or behind.
+    bool alongZ = (params.flags & BUILD_LAYERS) == 0u;
+    bool nearZ[3] = bool[3](alongZ && z < margin, true, alongZ && z >= CHUNK - margin);
     uint mask = 0u;
     for (uint dz = 0u; dz < 3u; dz++) {
         for (uint dy = 0u; dy < 3u; dy++) {
@@ -145,16 +149,30 @@ void loadTile(int firstZ, bool animate, bool wantDraw) {
     }
 }
 
+// The workgroup's population and reach, gathered in shared memory so that each
+// workgroup touches the chunk's counters in memory once (see addChunkStats).
+shared uint slabPopulation;
+shared uint slabReach;
+
 // Step 2 of main: adds this row's live cells to the chunk's population and its
 // reach to the chunk's reach mask. The subgroup (the invocations the GPU runs
-// together, typically 32 or 64) combines its values first, so only one
-// invocation per subgroup touches the counters in memory.
+// together, typically 16 or 32) combines its values first, then the
+// workgroup's subgroups combine theirs in shared memory, and one invocation
+// adds the total to the chunk's counters: a few global atomics per chunk
+// instead of one per subgroup, which in worlds of tens of thousands of chunks
+// was most of the pass. Call from uniform control flow (it has a barrier) after
+// the barrier that follows the zeroing in main.
 void addChunkStats(uint slot, uint life, uint emits, uint y, uint z) {
     uint population = subgroupAdd(uint(bitCount(life)));
     uint reach = subgroupOr(reachMask(life | emits, y, z));
     if (subgroupElect()) {
-        if (population != 0u) atomicAdd(stats.values[slot].x, population);
-        if (reach != 0u) atomicOr(stats.values[slot].y, reach);
+        if (population != 0u) atomicAdd(slabPopulation, population);
+        if (reach != 0u) atomicOr(slabReach, reach);
+    }
+    barrier();
+    if (gl_LocalInvocationIndex == 0u) {
+        if (slabPopulation != 0u) atomicAdd(stats.values[slot].x, slabPopulation);
+        if (slabReach != 0u) atomicOr(stats.values[slot].y, slabReach);
     }
 }
 
@@ -179,10 +197,15 @@ void main() {
     if (!wantDraw && !wantStats) return;
     loadNeighborhood(slot);
 
-    // 1. Copy the tile into shared memory (drawing only). Every invocation
-    //    reaches the barrier, even when there is nothing to copy.
+    // 1. Copy the tile into shared memory (drawing only) and zero the stats
+    //    totals. Every invocation reaches the barrier, even when there is
+    //    nothing to copy.
     bool animate = (params.flags & BUILD_ANIMATE) != 0u;
     int firstZ = int(gl_WorkGroupID.x * SLAB_DEPTH);
+    if (gl_LocalInvocationIndex == 0u) {
+        slabPopulation = 0u;
+        slabReach = 0u;
+    }
     loadTile(firstZ, animate, wantDraw);
     barrier();
 
@@ -194,7 +217,7 @@ void main() {
     uint blocked = blockRow(SELF, row, 0u);
     uint emits = blockRow(SELF, row, 1u);
 
-    // 2. Population and reach.
+    // 2. Population and reach. wantStats is uniform across the workgroup.
     if (wantStats) addChunkStats(slot, life, emits, y, z);
     if (!wantDraw) return;
 

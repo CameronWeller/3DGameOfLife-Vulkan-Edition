@@ -131,6 +131,21 @@ runs Conway's game, and Bays' 5766 glider turns out to be Conway's glider, two b
 Life 4555 has no such copy (its birth count, 5, is odd, and an empty cell in a two-layer slab always has an even
 count), so its glider is a different 10-cell shape. The in-game tutorial shows both.
 
+#### Or play the original: Conway 2D
+
+The **Conway 2D** rule is Conway's game exactly, with no conditions. A cell counts only the 8 cells around it in its
+own x-y layer (the 3×3 square at its z), so every layer is an independent 2D board standing upright, and every 2D
+pattern behaves as it does on paper: gliders, spaceships, Gosper's glider gun, and the glider-gun machinery that makes
+Life Turing complete. Build on a wall that faces along z, and the Glider and soup stamps place 2D patterns upright in
+the layer you aim at. The tests check a 60-generation random soup cell for cell against a plain 2D implementation,
+and Gosper's gun firing a glider every 30 generations without leaking out of its layer.
+
+Exactly 8 neighbors is the only way to keep it exact. **Conway Crossed** shows why: it counts a second, crossing
+board as well, the 3×3 squares in a cell's x-y *and* y-z layers (14 neighbors), so a glider works on a wall facing
+either way, at first. But a cell just in front of a pattern sees any three of its cells in a vertical line and is
+born. Still lifes like the block and the beehive hold, the blinker dies in three generations, and gliders,
+spaceships and soups grow without limit into 3D structures.
+
 The rules treat every direction alike, so a turned glider travels a turned path. Pick the **Glider** stamp
 (<kbd>9</kbd>): on the ground it lies flat and slides diagonally across the floor, and <kbd>Q</kbd>/<kbd>E</kbd>
 choose which way. Tilt it with <kbd>Z</kbd> or <kbd>C</kbd> and it stands up, moving sideways while it climbs
@@ -155,6 +170,8 @@ Same seed, same number of generations, four different rules:
 | Slow Crystal (S4-6/B5) | 516 | 642 | 979 | 2,046 | 6,226 | creeps outward |
 | Coral (S5-8/B6-7,9,12) | 149 | 521 | 1,323 | 5,986 | 35,491 | branches out |
 | Architecture (S4-6/B3) | 48 | 999 | 4,834 | 30,737 | 224,884 | explodes |
+| Conway 2D (S2-3/B3, 8 neighbors in a layer) | 1,433 | 1,081 | 919 | 628 | 479 | Conway's game: ash, blinkers and gliders |
+| Conway Crossed (S2-3/B3, 14 neighbors in two layers) | 345 | 1,824 | 4,322 | 13,819 | 60,800 | thickens into 3D and grows |
 
 Reproduce any cell of this table with `gol3d --rule N --seed 7 --steps G --frames 1`; the exit line prints the
 live-cell count.
@@ -224,9 +241,11 @@ seconds to 8,192 generations per second, and one more step up is **max**: as fas
 as buttons.
 
 When a world gets too big for the speed you asked for, the game slows the **simulation** down instead of the
-frame rate: each frame gets a fixed time budget (Settings > Time per frame), the game measures what a generation
-costs and runs only as many as fit. The status panel then shows the speed you set and the speed actually reached,
-so the world stays smooth to fly through however big it grows. A small graph under it tracks the population.
+frame rate: each frame gives the simulation what drawing leaves of your display's refresh, up to a budget you set
+(Settings > Time per frame). The game measures what a generation costs and runs only as many as fit; once a single
+generation is too big for one frame, it is spread over several. The status panel then shows the speed you set and
+the speed actually reached, so the world stays smooth to fly through however big it grows. A small graph under it
+tracks the population.
 
 ### Tutorial
 
@@ -379,7 +398,7 @@ On Windows the last line is `build\gol3d.exe`.
 #### Useful command-line options
 
 ```bash
-./build/gol3d --rule 2          # start with Life 4555 (rules are numbered 1-8)
+./build/gol3d --rule 2          # start with Life 4555 (rules are numbered 1-10; 9 is Conway 2D, 10 Conway Crossed)
 ./build/gol3d --empty --fly     # an empty world, already flying
 ./build/gol3d --run --seed 42   # a different soup, simulation already running
 ./build/gol3d --speed 64 --run  # start running at 64 generations per second
@@ -429,10 +448,14 @@ flowchart LR
   26 neighbors, so [`shaders/life3d_blocks.vert`](shaders/life3d_blocks.vert) draws only the three faces that can
   face the camera, drops covered ones, and shades corners by the blocks around them (Minecraft-style smooth
   lighting).
-- **The governor.** GPU timestamps measure what a generation and a block list cost. Each frame spends at most its
-  simulation budget, so when a world outgrows the requested speed the tick rate drops and the frame rate doesn't.
+- **The governor.** GPU timestamps measure what a generation, a block list, drawing a frame and the chunk
+  bookkeeping cost. Each frame gives the simulation what drawing leaves of the display's refresh (at most the
+  "time per frame" setting), so when a world outgrows the requested speed the tick rate drops and the frame rate
+  doesn't. A generation too big for one frame is stepped a slice of chunks per frame, alongside the drawing.
 - **Rules.** A rule is two 27-bit masks: bit *n* of the survive mask is set if a live cell with *n* neighbors
-  survives, and likewise for birth. See [`src/life/LifeRules.h`](src/life/LifeRules.h).
+  survives, and likewise for birth. Neighbors are the 3×3×3 cube around a cell, for Conway 2D the 3×3 square in
+  its own x-y layer, and for Conway Crossed the squares in its x-y and y-z layers. See
+  [`src/life/LifeRules.h`](src/life/LifeRules.h).
 - **Materials.** The GPU keeps two extra bit planes for chunks with static blocks: "blocked" (no life can exist
   there) and "emits" (counts as a live neighbor). Stone is blocked; Ember is blocked and emits. New kinds of block
   are new combinations or new planes ([`src/life/CellTypes.h`](src/life/CellTypes.h)).
@@ -474,8 +497,12 @@ it needed about 16 seconds for the first row. Cells now take one bit (32 times l
 429-million-cell world fits in about 1 GB of GPU memory, all buffers included.
 
 Drawing is capped at 4.2 million visible blocks, nearest first. While you play, the governor keeps frames smooth
-by lowering the tick rate. Running the same explosion at 64 generations per second, the game kept that speed at
-about 58 frames per second until the world passed 35 million live cells around the player.
+by lowering the tick rate. Running the same explosion at 64 generations per second (1280×720, 60 Hz), the game kept
+that speed until about 13 million live cells, then slowed the simulation instead of the frames: about 26
+generations per second at 60 to 90 million cells and 13 at 160 million, until the default chunk limit paused it at
+180 million. From 50 to 180 million cells the median frame stayed at 16.7 ms, with 99% of frames under about 21 ms.
+Past roughly 60 million cells drawing alone takes most of each frame, so each generation is stepped in slices over
+several frames.
 
 ![Architecture after 300 generations: 11.5 million cells, seen from about 650 blocks away, with the F3 overlay](docs/media/massive-world.png)
 

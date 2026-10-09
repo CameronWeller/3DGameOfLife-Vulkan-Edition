@@ -33,6 +33,7 @@
 #include <array>
 #include <bit>
 #include <functional>
+#include <future>
 #include <optional>
 #include <string>
 #include <vector>
@@ -134,7 +135,15 @@ public:
 
     // Which cell buffer holds the current generation (0 or 1).
     uint32_t currentBuffer() const { return currentBuffer_; }
-    void setCurrentBuffer(uint32_t index) { currentBuffer_ = index; }
+    void setCurrentBuffer(uint32_t index) {
+        if (index != currentBuffer_) ++version_;
+        currentBuffer_ = index;
+    }
+
+    // Changes whenever the cells, the set of chunks or the order of the active
+    // list change. A generation stepped in slices over several frames is only
+    // valid while this stays the same.
+    uint64_t version() const { return version_; }
 
     // ---- Sizes and buffers
 
@@ -163,6 +172,8 @@ private:
     void releasePool(ChunkPool& pool);
     void resizeTables(uint32_t capacity);
     bool growPool();
+    void prefetchNextPool();
+    ChunkPool takePrefetchedPool();
     bool growBlockPool();
 
     // Neighbor k of a chunk, from the CPU copy of the neighbor table.
@@ -171,6 +182,9 @@ private:
     }
     // Writes a neighbor-table entry to the CPU copy and through to the GPU.
     void setNeighbor(uint32_t slot, int k, uint32_t neighbor);
+    // Whether an existing neighbor's live cells (or Embers) can reach this chunk
+    // within MAX_BATCH generations, by the stats of the last build pass.
+    bool reachedByNeighbor(uint32_t slot) const;
 
     // The CHUNK_ROWS rows of one chunk in cell buffer `buffer` (0 or 1), and the
     // two block planes of a block-pool slot, all in mapped GPU memory. The
@@ -195,9 +209,11 @@ private:
     ImmediateCommands* commands_ = nullptr;
 
     ChunkPool pool_;
+    std::future<ChunkPool> nextPool_; // being allocated ahead of growPool(); see prefetchNextPool()
     uint32_t chunkLimit_ = DEFAULT_CHUNK_LIMIT;
     uint32_t currentBuffer_ = 0;
     bool limitReached_ = false;
+    uint64_t version_ = 0;
 
     // Static blocks: BLOCK_ROWS words per block slot, only for chunks with blocks.
     GpuBuffer blockPool_;
@@ -215,10 +231,12 @@ private:
     std::vector<uint32_t> activeIndex_; // position of each slot in activeSlots_
     std::vector<uint32_t> blockSlotOf_; // block-pool slot of each slot, or NO_CHUNK
     std::vector<uint32_t> blockCount_;  // static blocks in each chunk
-    // The value of maintenanceCount_ when a live neighbor last reached the
-    // chunk. Comparing against the counter avoids clearing a flag per slot on
-    // every maintenance.
-    std::vector<uint32_t> lastWanted_;
+    // Bit k set: the chunk has no neighbor k yet. Only chunks at the edge of the
+    // world have any, so maintain() skips the rest with one AND.
+    std::vector<uint32_t> missingNeighbors_;
+    // The value of maintenanceCount_ when the chunk was created. Chunks created
+    // during a maintenance have no stats from the build before it.
+    std::vector<uint32_t> createdAt_;
     uint32_t maintenanceCount_ = 0;
     std::vector<uint32_t> freeSlots_;
     std::vector<uint32_t> quarantine_;  // freed slots the last block list may still draw

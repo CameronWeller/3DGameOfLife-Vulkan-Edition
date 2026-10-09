@@ -338,7 +338,9 @@ void Game::printExitSummary() const {
 // --------------------------------------------------------------- the world
 
 void Game::resetWorld() {
+    cancelSlicing();
     world_.reset();
+    generationsSinceStats_ = 0;
     pausedAtLimit_ = false;
     editOpen_ = false;
     populationHistory_.clear();
@@ -351,15 +353,21 @@ void Game::newWorld(bool seeded) {
     population_ = 0;
     resetSimulationClock();
     const int size = rule().seedSize;
+    const int depth = rule().seedDepth > 0 ? rule().seedDepth : size;
     // The seed soup rests on the ground (y = 0), like a structure in a superflat world.
-    if (seeded) seedSoup(glm::ivec3(-size / 2, 0, -size / 2), glm::ivec3(size), rule().seedDensity);
+    if (seeded) {
+        seedSoup(glm::ivec3(-size / 2, 0, -depth / 2), glm::ivec3(size, size, depth),
+                 rule().seedDensity);
+    }
     rebuild(Rebuild::Reset);
 
     // Spawn on the ground at a distance, looking at a point 40% of the way up
-    // the soup. (0.6, 0.8) is a unit direction, so `distance` is the distance
-    // from the soup's vertical axis.
+    // the soup: from an angle, or face on when it is a single layer. Both
+    // directions are unit length, so `distance` is the distance from the
+    // soup's vertical axis.
     float distance = std::max(20.0f, 1.6f * static_cast<float>(size));
-    player_.eye = glm::vec3(0.6f * distance, Player::EYE_HEIGHT, 0.8f * distance);
+    const glm::vec2 fromSeed = depth < size ? glm::vec2(0.0f, 1.0f) : glm::vec2(0.6f, 0.8f);
+    player_.eye = glm::vec3(fromSeed.x * distance, Player::EYE_HEIGHT, fromSeed.y * distance);
     const glm::vec3 lookTarget(0.0f, 0.4f * static_cast<float>(size), 0.0f);
     glm::vec3 toSeed = glm::normalize(lookTarget - player_.eye);
     player_.yaw = glm::degrees(std::atan2(toSeed.z, toSeed.x));
@@ -384,9 +392,11 @@ void Game::seedSoup(const glm::ivec3& minCorner, const glm::ivec3& size, float d
 // buffer, so the next block list sees placed cells as births (they grow in) and
 // removed ones as deaths (they shrink away).
 void Game::beginEdit() {
+    settleSlicing(); // edits go into the newest generation
     refreshPending_ = true;
     if (editOpen_ || !animationsEnabled()) return;
     editOpen_ = true;
+    passes_.finishAsync(); // a slice still running writes the buffer the copy goes into
     world_.copyCurrentToPrevious();
 }
 

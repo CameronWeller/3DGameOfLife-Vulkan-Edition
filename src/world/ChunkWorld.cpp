@@ -74,6 +74,8 @@ void ChunkWorld::init(const GpuContext& gpu, BufferAllocator& allocator,
 
 void ChunkWorld::destroy() {
     if (!allocator_) return;
+    ChunkPool prefetched = takePrefetchedPool();
+    releasePool(prefetched);
     releasePool(pool_);
     allocator_->destroy(blockPool_);
     allocator_ = nullptr;
@@ -81,6 +83,7 @@ void ChunkWorld::destroy() {
 
 void ChunkWorld::reset() {
     vkDeviceWaitIdle(gpu_->device);
+    ++version_;
     chunkMap_.clear();
     freeSlots_.clear();
     quarantine_.clear();
@@ -146,7 +149,8 @@ void ChunkWorld::resizeTables(uint32_t capacity) {
     activeIndex_.resize(capacity, 0);
     blockSlotOf_.resize(capacity, NO_CHUNK);
     blockCount_.resize(capacity, 0);
-    lastWanted_.resize(capacity, 0);
+    missingNeighbors_.resize(capacity, 0);
+    createdAt_.resize(capacity, 0);
 }
 
 // Doubles the chunk pool (up to the limit), keeping every chunk in its slot.
@@ -158,14 +162,17 @@ bool ChunkWorld::growPool() {
     const uint32_t capacity = std::min(oldCapacity * 2, chunkLimit_);
     // Frames in flight still read the old buffers, which are destroyed below.
     vkDeviceWaitIdle(gpu_->device);
-    ChunkPool bigger;
-    if (!allocatePool(bigger, capacity)) {
-        if (onWarning) {
-            onWarning("Out of GPU memory: the world can't grow past " +
-                      std::to_string(pool_.capacity) + " chunks");
+    ChunkPool bigger = takePrefetchedPool();
+    if (bigger.capacity != capacity) {
+        releasePool(bigger);
+        if (!allocatePool(bigger, capacity)) {
+            if (onWarning) {
+                onWarning("Out of GPU memory: the world can't grow past " +
+                          std::to_string(pool_.capacity) + " chunks");
+            }
+            chunkLimit_ = pool_.capacity;
+            return false;
         }
-        chunkLimit_ = pool_.capacity;
-        return false;
     }
 
     VkCommandBuffer cmd = commands_->begin();
@@ -189,6 +196,32 @@ bool ChunkWorld::growPool() {
     addFreeSlots(freeSlots_, oldCapacity, capacity);
     if (onBuffersReplaced) onBuffersReplaced();
     return true;
+}
+
+// Allocating a pool of tens of thousands of chunks (hundreds of MB, which the
+// driver clears) can take from a few to a couple of hundred milliseconds. Once
+// the pool is PREFETCH_FRACTION full, a worker thread allocates the next one,
+// so growPool() usually finds it ready.
+void ChunkWorld::prefetchNextPool() {
+    constexpr double PREFETCH_FRACTION = 0.75;
+    const size_t slotsInUse = activeSlots_.size() + quarantine_.size();
+    const bool filling = slotsInUse >= PREFETCH_FRACTION * pool_.capacity;
+    if (!filling || nextPool_.valid() || pool_.capacity >= chunkLimit_) return;
+    const uint32_t capacity = std::min(pool_.capacity * 2, chunkLimit_);
+    // allocatePool() only creates buffers through the allocator, which is safe
+    // to use from two threads.
+    nextPool_ = std::async(std::launch::async, [this, capacity] {
+        ChunkPool pool;
+        if (!allocatePool(pool, capacity)) pool.capacity = 0;
+        return pool;
+    });
+}
+
+// The pool prefetchNextPool() allocated (waiting for it if needed), or an empty
+// pool when there is none.
+ChunkPool ChunkWorld::takePrefetchedPool() {
+    if (!nextPool_.valid()) return {};
+    return nextPool_.get();
 }
 
 // Doubles the block pool, like growPool(). On failure the caller's block is not
@@ -221,6 +254,12 @@ void ChunkWorld::setNeighbor(uint32_t slot, int k, uint32_t neighbor) {
     size_t entry = static_cast<size_t>(slot) * NEIGHBORHOOD_SIZE + k;
     neighborSlots_[entry] = neighbor;
     pool_.neighbors.as<uint32_t>()[entry] = neighbor;
+    const uint32_t bit = 1u << k;
+    if (neighbor == NO_CHUNK) {
+        missingNeighbors_[slot] |= bit;
+    } else {
+        missingNeighbors_[slot] &= ~bit;
+    }
 }
 
 uint32_t ChunkWorld::ensureChunk(const glm::ivec3& chunk) {
@@ -234,6 +273,7 @@ uint32_t ChunkWorld::ensureChunk(const glm::ivec3& chunk) {
 
     slot = freeSlots_.back();
     freeSlots_.pop_back();
+    ++version_;
     // Both generations: the build pass compares them to find births and deaths.
     for (uint32_t buffer = 0; buffer < 2; ++buffer) {
         std::memset(chunkRows(buffer, slot), 0, CHUNK_BYTES);
@@ -243,6 +283,7 @@ uint32_t ChunkWorld::ensureChunk(const glm::ivec3& chunk) {
     slotChunk_[slot] = chunk;
     blockSlotOf_[slot] = NO_CHUNK;
     blockCount_[slot] = 0;
+    createdAt_[slot] = maintenanceCount_;
     chunkMap_.insert(chunk.x, chunk.y, chunk.z, slot);
 
     // Link it with the neighbors that exist, in both directions.
@@ -266,6 +307,7 @@ uint32_t ChunkWorld::ensureChunk(const glm::ivec3& chunk) {
 // Unlinks and deactivates a chunk. Its own neighbor entries, origin and cells
 // are left as they are: ensureChunk() rewrites them when the slot is reused.
 void ChunkWorld::freeChunk(uint32_t slot) {
+    ++version_;
     // Unlink it from its neighbors.
     for (int k = 0; k < NEIGHBORHOOD_SIZE; ++k) {
         uint32_t neighbor = neighborSlot(slot, k);
@@ -315,29 +357,41 @@ uint64_t ChunkWorld::maintain() {
     ++maintenanceCount_;
     uint64_t population = 0;
 
-    // Mark every chunk that life can reach, creating the missing ones. Iterate a
-    // copy: ensureChunk() appends to the active list, and the chunks it creates
-    // have no stats from the last build to read.
+    // Create the missing chunks that life can reach. Iterate a copy:
+    // ensureChunk() appends to the active list, and the chunks it creates have
+    // no stats from the last build to read. Inside the world every neighbor
+    // exists, so only chunks at its edge get past the AND.
     const std::vector<uint32_t> processed = activeSlots_;
     for (uint32_t slot : processed) {
-        ChunkStats stats = readbackStats(slot);
+        const ChunkStats stats = readbackStats(slot);
         population += stats.population;
         // Visit each set bit k, lowest first (`mask &= mask - 1` clears it).
-        for (uint32_t reachMask = stats.reachMask; reachMask != 0; reachMask &= reachMask - 1) {
-            int k = std::countr_zero(reachMask);
-            uint32_t neighbor = neighborSlot(slot, k);
-            if (neighbor == NO_CHUNK) neighbor = ensureChunk(slotChunk_[slot] + neighborOffset(k));
-            if (neighbor != NO_CHUNK) lastWanted_[neighbor] = maintenanceCount_;
+        for (uint32_t missing = stats.reachMask & missingNeighbors_[slot]; missing != 0;
+             missing &= missing - 1) {
+            const int k = std::countr_zero(missing);
+            ensureChunk(slotChunk_[slot] + neighborOffset(k));
         }
     }
 
     // Free chunks with no life, no blocks, and no life nearby. (Reach masks never
     // include the chunk itself, so its own life counts only through population.)
     for (uint32_t slot : processed) {
-        bool empty = readbackStats(slot).population == 0 && blockCount_[slot] == 0;
-        if (empty && lastWanted_[slot] != maintenanceCount_) freeChunk(slot);
+        const bool empty = readbackStats(slot).population == 0 && blockCount_[slot] == 0;
+        if (empty && !reachedByNeighbor(slot)) freeChunk(slot);
     }
+    prefetchNextPool();
     return population;
+}
+
+bool ChunkWorld::reachedByNeighbor(uint32_t slot) const {
+    for (int k = 0; k < NEIGHBORHOOD_SIZE; ++k) {
+        const uint32_t neighbor = neighborSlot(slot, k);
+        if (k == SELF_NEIGHBOR || neighbor == NO_CHUNK) continue;
+        if (createdAt_[neighbor] == maintenanceCount_) continue; // new and empty: no stats yet
+        // This chunk is neighbor oppositeNeighbor(k) of that neighbor.
+        if (readbackStats(neighbor).reachMask & (1u << oppositeNeighbor(k))) return true;
+    }
+    return false;
 }
 
 void ChunkWorld::sortByDistance(const glm::vec3& eye) {
@@ -351,6 +405,7 @@ void ChunkWorld::sortByDistance(const glm::vec3& eye) {
         order.emplace_back(glm::dot(offset, offset), slot);
     }
     std::sort(order.begin(), order.end()); // ties go to the lower slot, so the order is repeatable
+    ++version_;
     uint32_t* gpuList = pool_.activeList.as<uint32_t>();
     for (size_t i = 0; i < order.size(); ++i) {
         uint32_t slot = order[i].second;
@@ -388,6 +443,7 @@ void ChunkWorld::setLife(const glm::ivec3& cell, bool alive) {
     if (alive && blocked) return;
     uint32_t& word = chunkRows(currentBuffer_, slot)[row];
     word = alive ? (word | bit) : (word & ~bit);
+    ++version_;
 }
 
 bool ChunkWorld::placeBlock(const glm::ivec3& cell, CellKind kind) {
@@ -400,6 +456,7 @@ bool ChunkWorld::placeBlock(const glm::ivec3& cell, CellKind kind) {
     blockedRows(blockSlot)[row] |= bit;
     if (cellType(kind).countsAsNeighbor) emitsRows(blockSlot)[row] |= bit;
     ++blockCount_[slot];
+    ++version_;
     return true;
 }
 
@@ -410,11 +467,13 @@ void ChunkWorld::removeBlock(const glm::ivec3& cell) {
     const uint32_t bit = bitOf(cell);
     blockedRows(blockSlot)[row] &= ~bit;
     emitsRows(blockSlot)[row] &= ~bit;
+    ++version_;
     // The last block gone: hand the block slot back.
     if (--blockCount_[slot] == 0) releaseBlockSlot(slot);
 }
 
 void ChunkWorld::copyCurrentToPrevious() {
+    ++version_;                       // overwrites the other buffer, where a sliced generation goes
     if (activeSlots_.empty()) return; // new chunks start empty in both buffers
     // Only the active chunks' rows: one copy region per chunk.
     std::vector<VkBufferCopy> regions;

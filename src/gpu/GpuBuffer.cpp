@@ -87,7 +87,10 @@ void BufferAllocator::destroy(GpuBuffer& buffer) {
     // clamped so the total can never wrap below zero.
     VkMemoryRequirements requirements;
     vkGetBufferMemoryRequirements(device_, buffer.buffer, &requirements);
-    bytesAllocated_ -= std::min<VkDeviceSize>(bytesAllocated_, requirements.size);
+    VkDeviceSize total = bytesAllocated_.load();
+    while (!bytesAllocated_.compare_exchange_weak(
+        total, total - std::min<VkDeviceSize>(total, requirements.size))) {
+    }
     vkDestroyBuffer(device_, buffer.buffer, nullptr);
     vkFreeMemory(device_, buffer.memory, nullptr); // also unmaps it
     buffer = GpuBuffer{};

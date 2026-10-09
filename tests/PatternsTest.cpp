@@ -3,6 +3,7 @@
 // glider shift the tutorial claims is verified with stepLifeReference.
 #include <algorithm>
 #include <iostream>
+#include <random>
 #include <set>
 #include <string>
 #include <tuple>
@@ -65,16 +66,21 @@ Bounds boundsOf(const CellSet& cells) {
 // pattern. The box has room for the pattern to grow one cell per generation on
 // every side, as fast as any pattern can, so the dead outside never changes the
 // result: this is unbounded space.
+//
+// Under a 2D rule life never leaves its x-y layer, so one layer of margin in
+// front and behind is enough there: any cell that leaked out would show up in it.
 std::vector<CellSet> evolve(const CellSet& start, const LifeRule& rule, int generations) {
     std::vector<CellSet> history{start};
     if (start.empty()) return history;
     const Bounds bounds = boundsOf(start);
     const int margin = generations + 2;
+    const int marginZ = rule.neighborhood == Neighborhood::Layer ? 1 : margin;
     int origin[3];
     int size[3];
     for (int axis = 0; axis < 3; ++axis) {
-        origin[axis] = bounds.low[axis] - margin;
-        size[axis] = bounds.width(axis) + 2 * margin;
+        const int axisMargin = axis == 2 ? marginZ : margin;
+        origin[axis] = bounds.low[axis] - axisMargin;
+        size[axis] = bounds.width(axis) + 2 * axisMargin;
     }
     auto index = [&](int x, int y, int z) {
         return (static_cast<size_t>(z) * size[1] + y) * size[0] + x;
@@ -369,6 +375,93 @@ void checkLessons() {
     checkBeyondLifeLesson(list[7]);
 }
 
+// Conway 2D is Conway's game in every x-y layer.
+void checkConway2D() {
+    const LifeRule& conway2D = ruleNamed("Conway 2D");
+    constexpr int PERIOD = 4;
+
+    std::vector<CellSet> glider = evolve(toSet(conwayGlider()), conway2D, 5 * PERIOD);
+    Repeat repeat = findRepeat(glider);
+    expect(repeat.period == PERIOD && repeat.dx == 1 && repeat.dy == -1 && repeat.dz == 0,
+           "Conway 2D glider: period 4, one cell right and down per period");
+    expect(glider[5 * PERIOD] == shifted(glider[0], 5, -5, 0), "and it keeps gliding");
+
+    repeat = findRepeat(evolve(toSet(conwayLightweightSpaceship()), conway2D, 2 * PERIOD));
+    expect(repeat.period == PERIOD && repeat.dx == -2 && repeat.dy == 0 && repeat.dz == 0,
+           "lightweight spaceship: period 4, two cells left per period");
+
+    // The gun fires a 5-cell glider every 30 generations and returns to its
+    // own shape, so the population grows by exactly 5 per period.
+    constexpr int GUN_PERIOD = 30;
+    constexpr size_t GLIDER_CELLS = 5;
+    const CellSet gun = toSet(gosperGliderGun());
+    std::vector<CellSet> gunHistory = evolve(gun, conway2D, 3 * GUN_PERIOD);
+    expect(gunHistory[2 * GUN_PERIOD].size() == gunHistory[GUN_PERIOD].size() + GLIDER_CELLS &&
+               gunHistory[3 * GUN_PERIOD].size() ==
+                   gunHistory[2 * GUN_PERIOD].size() + GLIDER_CELLS,
+           "Gosper's gun adds one glider every 30 generations");
+    bool stayedInLayer = true;
+    for (const CellSet& phase : gunHistory) {
+        for (auto [x, y, z] : phase) {
+            stayedInLayer = stayedInLayer && z == 0;
+        }
+    }
+    expect(stayedInLayer, "nothing leaves the gun's layer");
+
+    // Any 2D pattern follows Conway's 2D game exactly: a random soup.
+    std::mt19937 rng(2026);
+    std::uniform_real_distribution<float> chance(0.0f, 1.0f);
+    constexpr int SOUP_SIZE = 20;
+    constexpr float SOUP_DENSITY = 0.35f;
+    constexpr int SOUP_GENERATIONS = 60;
+    CellSet soup;
+    std::set<std::pair<int, int>> conway;
+    for (int y = 0; y < SOUP_SIZE; ++y) {
+        for (int x = 0; x < SOUP_SIZE; ++x) {
+            if (chance(rng) >= SOUP_DENSITY) continue;
+            soup.insert({x, y, 0});
+            conway.insert({x, y});
+        }
+    }
+    std::vector<CellSet> soupHistory = evolve(soup, conway2D, SOUP_GENERATIONS);
+    bool matches = true;
+    for (int generation = 1; generation <= SOUP_GENERATIONS; ++generation) {
+        conway = conwayStep(conway);
+        CellSet expected;
+        for (auto [x, y] : conway) {
+            expected.insert({x, y, 0});
+        }
+        matches = matches && soupHistory[generation] == expected;
+    }
+    expect(matches, "a random 2D soup follows Conway's 2D game for 60 generations");
+
+    // Layers do not see each other: gliders stacked in neighboring layers each
+    // glide as if alone.
+    CellSet stacked = toSet(conwayGlider());
+    const CellSet nextLayer = shifted(stacked, 0, 0, 1);
+    stacked.insert(nextLayer.begin(), nextLayer.end());
+    expect(evolve(stacked, conway2D, 2 * PERIOD)[2 * PERIOD] == shifted(stacked, 2, -2, 0),
+           "gliders in neighboring layers ignore each other");
+}
+
+// Conway Crossed: still lifes without three cells in a vertical line hold;
+// a glider spills into the crossing y-z layers and keeps growing.
+void checkConwayCrossed() {
+    const LifeRule& crossed = ruleNamed("Conway Crossed");
+    for (const auto& [name, pattern] :
+         {std::pair{"block", layerPattern({"OO", "OO"})},
+          std::pair{"beehive", layerPattern({".OO.", "O..O", ".OO."})}}) {
+        expect(evolve(toSet(pattern), crossed, 4)[4] == toSet(pattern),
+               std::string("Conway Crossed ") + name + " is a still life");
+    }
+    expect(evolve(toSet(layerPattern({"OOO"})), crossed, 3)[3].empty(),
+           "Conway Crossed blinker dies: its upright phase spills into the y-z layer");
+    const std::vector<CellSet> glider = evolve(toSet(conwayGlider()), crossed, 16);
+    const Bounds grown = boundsOf(glider[16]);
+    expect(glider[16].size() > 5 * glider[0].size() && grown.width(2) > 1,
+           "Conway Crossed glider grows out of its layer");
+}
+
 } // namespace
 
 int main() {
@@ -395,6 +488,8 @@ int main() {
     expect(findRepeat(evolve(toSet(conwayGliderFlat()), ruleNamed("Conway B3/S23"), 8)).period == 0,
            "Conway's glider does not glide under B3/S23 in 3D");
 
+    checkConway2D();
+    checkConwayCrossed();
     checkLessons();
 
     return testing::finish("patterns and tutorial scenes");

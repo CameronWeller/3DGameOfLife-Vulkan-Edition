@@ -95,10 +95,110 @@ void addGlider(std::vector<glm::ivec3>& cells, const StampPlacement& placement,
     }
 }
 
+// A random 2D soup, `size` cells square, each cell kept with probability
+// `density` (all of them when `solid`), in the order addBox visits a box.
+Pattern layerSoup(int size, float density, bool solid, std::mt19937& rng) {
+    std::uniform_real_distribution<float> chance(0.0f, 1.0f);
+    Pattern soup;
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            if (solid || chance(rng) < density) soup.push_back({x, y, 0});
+        }
+    }
+    return soup;
+}
+
+// The upright plane a 2D pattern goes in under a 2D rule: its x runs along
+// `across` (world x or z), its y along world y.
+glm::ivec3 uprightAcross(const StampPlacement& placement, const LifeRule& rule) {
+    const glm::ivec3 alongX(1, 0, 0);
+    const glm::ivec3 alongZ(0, 0, 1);
+    // Conway 2D counts only x-y layers, so its patterns always go there.
+    if (rule.neighborhood == Neighborhood::Layer) return alongX;
+    // Conway Crossed also has y-z layers: lie flat on a wall, and on a floor or
+    // ceiling stand across the view.
+    if (placement.normal.x != 0) return alongZ;
+    if (placement.normal.z != 0) return alongX;
+    const glm::vec3& view = placement.viewDirection;
+    return std::abs(view.x) > std::abs(view.z) ? alongZ : alongX;
+}
+
+// A 2D pattern (cells at z = 0) for a rule whose neighbors lie in upright 2D
+// layers: it stands in the layer through the anchor that runs along `across`
+// and y, whatever surface it is placed on, and Q/E turn it within that layer
+// (Z/C do nothing). Against a wall parallel to the layer it lies flat on the
+// wall, centered on the anchor; on a floor, a ceiling or a wall across the
+// layer it grows away from the surface.
+std::vector<glm::ivec3> layerStampCells(const StampPlacement& placement, const Pattern& pattern,
+                                        const glm::ivec3& across) {
+    if (pattern.empty()) return {};
+    // Center the pattern on (0, 0), then turn it.
+    glm::ivec2 low(pattern[0].x, pattern[0].y);
+    glm::ivec2 high = low;
+    for (const PatternCell& cell : pattern) {
+        low = glm::min(low, glm::ivec2(cell.x, cell.y));
+        high = glm::max(high, glm::ivec2(cell.x, cell.y));
+    }
+    const glm::ivec2 center = (low + high) / 2;
+    std::vector<glm::ivec2> offsets;
+    for (const PatternCell& cell : pattern) {
+        glm::ivec2 offset = glm::ivec2(cell.x, cell.y) - center;
+        for (int turn = 0; turn < placement.rotation; ++turn) {
+            offset = glm::ivec2(-offset.y, offset.x); // a quarter turn around z
+        }
+        offsets.push_back(offset);
+    }
+
+    // Move it off the surface when the surface's normal lies in the layer.
+    glm::ivec2 offsetLow = offsets[0];
+    glm::ivec2 offsetHigh = offsets[0];
+    for (const glm::ivec2& offset : offsets) {
+        offsetLow = glm::min(offsetLow, offset);
+        offsetHigh = glm::max(offsetHigh, offset);
+    }
+    const int normalAcross = placement.normal.x * across.x + placement.normal.z * across.z;
+    const glm::ivec2 normal(normalAcross, placement.normal.y);
+    glm::ivec2 shift(0);
+    for (int axis = 0; axis < 2; ++axis) {
+        if (normal[axis] > 0) shift[axis] = -offsetLow[axis];
+        if (normal[axis] < 0) shift[axis] = -offsetHigh[axis];
+    }
+
+    std::vector<glm::ivec3> cells;
+    for (const glm::ivec2& offset : offsets) {
+        const glm::ivec2 moved = offset + shift;
+        cells.push_back(placement.anchor + across * moved.x + glm::ivec3(0, moved.y, 0));
+    }
+    return cells;
+}
+
 } // namespace
 
 std::vector<glm::ivec3> stampCells(const StampPlacement& placement, const LifeRule& rule,
                                    std::mt19937& rng) {
+    // Under a 2D rule, the glider and the soups are 2D patterns.
+    if (rule.neighborhood != Neighborhood::Cube) {
+        const float soupDensity = std::max(rule.seedDensity, MIN_SOUP_DENSITY);
+        const glm::ivec3 across = uprightAcross(placement, rule);
+        switch (placement.stamp) {
+            case Stamp::Glider:
+                return layerStampCells(placement, conwayGlider(), across);
+            case Stamp::SmallSoup:
+                return layerStampCells(
+                    placement, layerSoup(SMALL_SOUP_SIZE, soupDensity, placement.solid, rng),
+                    across);
+            case Stamp::BigSoup:
+                return layerStampCells(
+                    placement, layerSoup(BIG_SOUP_SIZE, soupDensity, placement.solid, rng), across);
+            case Stamp::RuleSeed:
+                return layerStampCells(
+                    placement, layerSoup(rule.seedSize, rule.seedDensity, placement.solid, rng),
+                    across);
+            default:
+                break; // the other stamps are the same under every rule
+        }
+    }
+
     const glm::ivec3& anchor = placement.anchor;
     const glm::ivec3& normal = placement.normal;
     const SurfaceAxes axes = surfaceAxes(normal);

@@ -127,18 +127,32 @@ Sum5 addSum5Sum2(Sum5 x, Sum2 y) {
 // offset (dx, dy, dz) with k = (dz + 1) * 9 + (dy + 1) * 3 + (dx + 1): bit i of
 // neighborRows[k] is the cell at (i + dx, y + dy, z + dz). So for every lane,
 // the 27 entries hold that cell's 3 x 3 x 3 neighborhood.
-Sum5 countNeighbors(uint neighborRows[27]) {
+//
+// The rows of the layers in front of and behind the cell (dz = -1 and dz = 1,
+// entries 0-8 and 18-26) are ANDed with two masks, so a rule can leave them
+// out: `frontBackMiddle` for the three with dx = 0 (entries 1, 4, 7, 19, 22,
+// 25, the cell's own y-z layer) and `frontBackSides` for the rest. All ones in
+// both counts the whole 3 x 3 x 3 cube (26 neighbors); zero in both only the
+// cell's own x-y layer (8); sides zero and middle all ones the x-y and y-z
+// layers together (14). See Neighborhood in src/life/LifeRules.h.
+Sum5 countNeighbors(uint neighborRows[27], uint frontBackSides, uint frontBackMiddle) {
     // Nine groups of three rows (0..3 each), except that neighborRows[13] is
     // the row itself and is not counted, so its group has only two.
-    Sum2 g0 = addBits3(neighborRows[0], neighborRows[1], neighborRows[2]);
-    Sum2 g1 = addBits3(neighborRows[3], neighborRows[4], neighborRows[5]);
-    Sum2 g2 = addBits3(neighborRows[6], neighborRows[7], neighborRows[8]);
+    Sum2 g0 = addBits3(neighborRows[0] & frontBackSides, neighborRows[1] & frontBackMiddle,
+                       neighborRows[2] & frontBackSides);
+    Sum2 g1 = addBits3(neighborRows[3] & frontBackSides, neighborRows[4] & frontBackMiddle,
+                       neighborRows[5] & frontBackSides);
+    Sum2 g2 = addBits3(neighborRows[6] & frontBackSides, neighborRows[7] & frontBackMiddle,
+                       neighborRows[8] & frontBackSides);
     Sum2 g3 = addBits3(neighborRows[9], neighborRows[10], neighborRows[11]);
     Sum2 g4 = addBits2(neighborRows[12], neighborRows[14]);
     Sum2 g5 = addBits3(neighborRows[15], neighborRows[16], neighborRows[17]);
-    Sum2 g6 = addBits3(neighborRows[18], neighborRows[19], neighborRows[20]);
-    Sum2 g7 = addBits3(neighborRows[21], neighborRows[22], neighborRows[23]);
-    Sum2 g8 = addBits3(neighborRows[24], neighborRows[25], neighborRows[26]);
+    Sum2 g6 = addBits3(neighborRows[18] & frontBackSides, neighborRows[19] & frontBackMiddle,
+                       neighborRows[20] & frontBackSides);
+    Sum2 g7 = addBits3(neighborRows[21] & frontBackSides, neighborRows[22] & frontBackMiddle,
+                       neighborRows[23] & frontBackSides);
+    Sum2 g8 = addBits3(neighborRows[24] & frontBackSides, neighborRows[25] & frontBackMiddle,
+                       neighborRows[26] & frontBackSides);
     // Then add the group sums pairwise, like a tournament bracket, each round
     // one digit wider: pairs are 0..6, fours 0..12, the eight groups 0..24,
     // and the short group g4 (0..2) brings the total to at most 26.
@@ -194,9 +208,11 @@ uint applyRule(Sum5 count, uint alive, uint surviveMask, uint birthMask) {
 }
 
 // The next generation of a row. neighborRows holds the rows that count as live
-// neighbors (live cells and Ember blocks; see countNeighbors for the order),
-// alive the row's own live cells and blocked the row's static blocks, which
-// never hold life.
-uint nextRow(uint neighborRows[27], uint alive, uint blocked, uint surviveMask, uint birthMask) {
-    return applyRule(countNeighbors(neighborRows), alive, surviveMask, birthMask) & ~blocked;
+// neighbors (live cells and Ember blocks; see countNeighbors for the order and
+// the two masks), alive the row's own live cells and blocked the row's static
+// blocks, which never hold life.
+uint nextRow(uint neighborRows[27], uint alive, uint blocked, uint surviveMask, uint birthMask,
+             uint frontBackSides, uint frontBackMiddle) {
+    Sum5 count = countNeighbors(neighborRows, frontBackSides, frontBackMiddle);
+    return applyRule(count, alive, surviveMask, birthMask) & ~blocked;
 }

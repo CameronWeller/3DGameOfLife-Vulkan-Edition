@@ -93,6 +93,10 @@ public:
     // Waits until the GPU has finished the previous frame, so the governor does
     // not count its drawing as simulation time.
     void waitForPreviousFrame() const;
+    // GPU time of a frame's drawing, smoothed over recent frames; 0 until
+    // measured or when the GPU cannot time commands. The tick governor leaves
+    // this much of each frame to drawing.
+    double gpuFrameMs() const { return gpuFrameMs_; }
     // The window was resized; rebuild the swapchain at the next opportunity.
     void onResize() { resized_ = true; }
     // Saves the next frame as a PNG.
@@ -126,6 +130,8 @@ private:
     void createDescriptorSets();
     void createCommandBuffers();
     void createSyncObjects();
+    void createTimestampQueries();
+    void readFrameTime(size_t slot);
 
     // One frame: endFrame() records (recordCommands, in three steps), submits
     // and presents.
@@ -172,6 +178,13 @@ private:
     std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> imageAvailable_{};
     std::array<VkFence, MAX_FRAMES_IN_FLIGHT> inFlight_{};
     size_t currentFrame_ = 0; // the frame slot in use, 0..MAX_FRAMES_IN_FLIGHT - 1
+
+    // Two timestamps per frame slot, at the start and the end of its commands.
+    VkQueryPool frameTimestamps_ = VK_NULL_HANDLE;
+    std::array<bool, MAX_FRAMES_IN_FLIGHT> timestampsWritten_{};
+    double msPerTimestampTick_ = 0.0;
+    uint64_t timestampMask_ = ~0ull; // the bits a timestamp counter actually has
+    double gpuFrameMs_ = 0.0;
     uint32_t imageIndex_ = 0; // the image acquired by beginFrame()
 
     // Screenshots: the path requested for the next frame, and a host-visible

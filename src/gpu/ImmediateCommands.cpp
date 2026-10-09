@@ -33,8 +33,8 @@ void ImmediateCommands::destroy() {
 }
 
 VkCommandBuffer ImmediateCommands::begin() {
-    // Safe to reset: the previous submitAndWait() waited until the GPU was done
-    // with this buffer.
+    // Safe to reset once the GPU is done with the buffer.
+    wait();
     vkResetCommandBuffer(commandBuffer_, 0);
     VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT; // re-recorded before each use
@@ -42,20 +42,32 @@ VkCommandBuffer ImmediateCommands::begin() {
     return commandBuffer_;
 }
 
-void ImmediateCommands::submitAndWait(const char* what) {
+void ImmediateCommands::submit(const char* what) {
     vkEndCommandBuffer(commandBuffer_);
     VkCommandBufferSubmitInfo commandInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
     commandInfo.commandBuffer = commandBuffer_;
     VkSubmitInfo2 submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
     submitInfo.commandBufferInfoCount = 1;
     submitInfo.pCommandBufferInfos = &commandInfo;
-    // The last submission left the fence signaled; lower it so that the wait
-    // below sees this submission finish.
+    // The last submission left the fence signaled; lower it so that a wait
+    // sees this submission finish.
     vkResetFences(gpu_->device, 1, &fence_);
     if (vkQueueSubmit2(gpu_->queue, 1, &submitInfo, fence_) != VK_SUCCESS) {
         throw std::runtime_error("Could not submit compute work.");
     }
+    pending_ = what;
+}
+
+void ImmediateCommands::wait() {
+    if (!pending_) return;
+    const char* what = pending_;
+    pending_ = nullptr;
     gpu_->waitForFence(fence_, what);
+}
+
+void ImmediateCommands::submitAndWait(const char* what) {
+    submit(what);
+    wait();
 }
 
 } // namespace gol3d

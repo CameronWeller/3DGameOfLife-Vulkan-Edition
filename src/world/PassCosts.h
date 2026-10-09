@@ -1,8 +1,9 @@
 #pragma once
 
-// What the GPU passes cost, as the tick governor sees it. Measured with GPU
-// timestamps after each batch (see SimulationPasses::run) and smoothed, so one
-// slow frame does not swing the plan.
+// What a batch costs, as the tick governor sees it. The GPU passes are measured
+// with GPU timestamps after each batch (see SimulationPasses::run), the chunk
+// bookkeeping on the CPU clock; all are smoothed, so one slow frame does not
+// swing the plan.
 
 namespace gol3d {
 
@@ -11,10 +12,15 @@ struct PassCosts {
     // A build pass that writes the block list without gathering stats: the one
     // the governor reserves time for at the end of each frame.
     double drawMs = 0.0;
-    // A build pass that gathers chunk stats (with or without the block list):
-    // the one that ends every batch of steps.
+    // Gathering chunk stats: a build pass that only does that, or what it adds
+    // to one that also writes the block list.
     double statsMs = 0.0;
-    double overheadMs = 0.0; // CPU side of a submission: recording, waiting, bookkeeping
+    double overheadMs = 0.0; // CPU side of a submission: recording and waiting
+    // The CPU's chunk bookkeeping after a stats pass (ChunkWorld::maintain).
+    double maintainMs = 0.0;
+
+    // A stats pass and the bookkeeping that follows it.
+    double statsAndMaintainMs() const { return statsMs + maintainMs; }
 };
 
 // Exponential moving average: each new sample moves the estimate 20% of the way.

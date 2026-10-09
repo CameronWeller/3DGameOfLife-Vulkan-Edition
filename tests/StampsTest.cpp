@@ -129,11 +129,50 @@ void checkTable() {
 
 } // namespace
 
+// Under Conway 2D the glider and soups stand in one x-y layer.
+void checkLayerStamps() {
+    FloorPlacement conway2D;
+    conway2D.rule = &ruleNamed("Conway 2D");
+    for (Stamp stamp : {Stamp::Glider, Stamp::SmallSoup, Stamp::BigSoup, Stamp::RuleSeed}) {
+        for (int rotation = 0; rotation < 4; ++rotation) {
+            conway2D.rotation = rotation;
+            const std::vector<glm::ivec3> cells = onFloor(stamp, conway2D);
+            const CellBounds bounds = boundsOf(cells);
+            expect(!cells.empty() && bounds.min.z == 0 && bounds.max.z == 0,
+                   std::string(stampInfo(stamp).name) + " stands in the anchor's x-y layer");
+            expect(bounds.min.y == 0,
+                   std::string(stampInfo(stamp).name) + " stands on the floor, not in it");
+        }
+    }
+    conway2D.rotation = 0;
+    expect(asSet(onFloor(Stamp::Glider, conway2D)) ==
+               std::set<std::tuple<int, int, int>>{
+                   {0, 2, 0}, {1, 1, 0}, {-1, 0, 0}, {0, 0, 0}, {1, 0, 0}},
+           "Conway's glider, centered on the anchor and resting on the floor");
+}
+
+// Under Conway Crossed a glider lies flat on the wall it is placed on.
+void checkCrossedStamps() {
+    std::mt19937 rng(1);
+    StampPlacement placement;
+    placement.stamp = Stamp::Glider;
+    placement.normal = glm::ivec3(1, 0, 0); // a wall facing +x
+    const CellBounds onXWall = boundsOf(stampCells(placement, ruleNamed("Conway Crossed"), rng));
+    expect(onXWall.min.x == 0 && onXWall.max.x == 0 && onXWall.max.z - onXWall.min.z == 2,
+           "Conway Crossed glider lies in the y-z layer of a wall facing x");
+    placement.normal = glm::ivec3(0, 0, -1); // a wall facing -z
+    const CellBounds onZWall = boundsOf(stampCells(placement, ruleNamed("Conway Crossed"), rng));
+    expect(onZWall.min.z == 0 && onZWall.max.z == 0 && onZWall.max.x - onZWall.min.x == 2,
+           "and in the x-y layer of a wall facing z");
+}
+
 int main() {
     checkShapes();
     checkSoups();
     checkWall();
     checkRotationAndTilt();
     checkTable();
+    checkLayerStamps();
+    checkCrossedStamps();
     return testing::finish("stamps");
 }
