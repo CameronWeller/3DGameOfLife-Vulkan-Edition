@@ -118,5 +118,48 @@ int main() {
            "no wraparound at the box edge");
     expect(edge.at(2, 0, 0) == 1, "births still happen inside the box next to the edge");
 
+    // Conway 2D counts only the cell's own x-y layer: a blinker turns within its
+    // layer, and nothing is born in the layers beside it.
+    const LifeRule conway2D = ruleNamed("Conway 2D"); // a copy: GCC flags a reference here
+    expect(explainRule(conway2D).find("8 neighbors") != std::string::npos,
+           "Conway 2D explains its 8 neighbors");
+    Grid blinker(5);
+    for (int x = 1; x < 4; ++x) {
+        blinker.at(x, 2, 2) = 1;
+    }
+    blinker.step(conway2D);
+    expect(blinker.population() == 3 && blinker.at(2, 1, 2) == 1 && blinker.at(2, 3, 2) == 1 &&
+               blinker.at(2, 2, 2) == 1,
+           "a Conway 2D blinker turns upright within its layer");
+
+    // Conway Crossed counts the x-y and y-z layers through a cell: 14 cells.
+    const LifeRule crossed = ruleNamed("Conway Crossed");
+    expect(explainRule(crossed).find("14 neighbors") != std::string::npos,
+           "Conway Crossed explains its 14 neighbors");
+    int counted = 0;
+    for (int dz = -1; dz <= 1; ++dz) {
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dx = -1; dx <= 1; ++dx) {
+                const bool self = dx == 0 && dy == 0 && dz == 0;
+                if (!self && countsAsNeighbor(crossed, dx, dz)) ++counted;
+            }
+        }
+    }
+    expect(counted == CROSSED_NEIGHBOR_COUNT, "the crossed neighborhood has 14 cells");
+    // Three live cells in front of an empty cell along its y-z layer give birth;
+    // the same three off to the side (dx and dz both nonzero) do not.
+    Grid inPlane(5);
+    for (int y = 1; y < 4; ++y) {
+        inPlane.at(2, y, 1) = 1;
+    }
+    inPlane.step(crossed);
+    expect(inPlane.at(2, 2, 2) == 1, "a vertical line of 3 gives birth across the y-z layer");
+    Grid offPlane(5);
+    for (int y = 1; y < 4; ++y) {
+        offPlane.at(1, y, 1) = 1;
+    }
+    offPlane.step(crossed);
+    expect(offPlane.at(2, 2, 2) == 0, "cells off both layers are not neighbors");
+
     return testing::finish("life rules");
 }

@@ -34,8 +34,10 @@ struct StepConstants {
     uint32_t count;      // entries in this dispatch
     uint32_t surviveMask;
     uint32_t birthMask;
+    uint32_t frontBackSides; // countNeighbors() in life3d_bits.glsl
+    uint32_t frontBackMiddle;
 };
-static_assert(sizeof(StepConstants) == 16, "four uints, as in life3d_step.comp");
+static_assert(sizeof(StepConstants) == 24, "six uints, as in life3d_step.comp");
 
 // Push constants of life3d_build.comp. Must match `Params` there, field for
 // field (std430 packs these 4-byte scalars after the mat4 with no padding).
@@ -57,6 +59,7 @@ static_assert(sizeof(BuildConstants) == 100, "a mat4 and nine scalars, as in lif
 constexpr uint32_t BUILD_ANIMATE = 1; // flag births, draw the last deaths
 constexpr uint32_t BUILD_DRAW = 2;    // write the block list
 constexpr uint32_t BUILD_STATS = 4;   // count population and reach
+constexpr uint32_t BUILD_LAYERS = 8;  // the rule's neighbors are in the cell's x-y layer
 
 // Both passes use one descriptor set layout: these bindings, all storage
 // buffers. The numbers must match the `binding = N` declarations in
@@ -93,7 +96,23 @@ constexpr double MIN_PASS_MS = 1e-4;
 constexpr double NANOSECONDS_PER_MILLISECOND = 1e6;
 
 // Timestamp query slots.
-enum Timestamp : uint32_t { BeforeSteps, AfterSteps, AfterBuild, TimestampCount };
+enum Timestamp : uint32_t {
+    BeforeSteps,
+    AfterSteps,
+    AfterBuild,
+    BatchTimestampCount,
+    // Then the same three for each slot of the ring of unwaited submissions.
+    TimestampCount = BatchTimestampCount * (1 + ASYNC_IN_FLIGHT),
+};
+uint32_t asyncQuery(uint32_t slot, Timestamp timestamp) {
+    return BatchTimestampCount * (1 + slot) + timestamp;
+}
+
+// The step pass's push constants for `rule`; dispatchOverChunks() fills in the range.
+StepConstants stepConstants(const LifeRule& rule) {
+    const FrontBackMasks masks = frontBackMasks(rule);
+    return {0, 0, rule.surviveMask, rule.birthMask, masks.sides, masks.middle};
+}
 
 } // namespace
 
@@ -105,6 +124,9 @@ void SimulationPasses::init(const GpuContext& gpu, BufferAllocator& allocator,
     gpu_ = &gpu;
     allocator_ = &allocator;
     commands_ = &commands;
+    for (ImmediateCommands& asyncCommands : asyncCommands_) {
+        asyncCommands.init(gpu);
+    }
     allocator.create(instanceBuffer_,
                      static_cast<VkDeviceSize>(MAX_BLOCK_INSTANCES) * sizeof(glm::uvec2),
                      usage::STORAGE, {memory::DEVICE, memory::HOST});
@@ -121,6 +143,9 @@ void SimulationPasses::init(const GpuContext& gpu, BufferAllocator& allocator,
 void SimulationPasses::destroy() {
     if (!gpu_) return;
     VkDevice device = gpu_->device;
+    for (ImmediateCommands& asyncCommands : asyncCommands_) {
+        asyncCommands.destroy();
+    }
     if (timestamps_) vkDestroyQueryPool(device, timestamps_, nullptr);
     vkDestroyPipeline(device, stepPipeline_, nullptr);
     vkDestroyPipeline(device, buildPipeline_, nullptr);
@@ -250,28 +275,27 @@ void SimulationPasses::createTimestampQueries() {
 
 // --------------------------------------------------------------- a batch
 
-// Runs the bound pipeline over the first `chunkCount` entries of the active
-// list: SLABS_PER_CHUNK workgroups per chunk, at most MAX_DISPATCH_CHUNKS
-// chunks per dispatch. `constants` gets each dispatch's range filled in.
+// Runs the bound pipeline over `count` entries of the active list from `first`
+// on: SLABS_PER_CHUNK workgroups per chunk, at most MAX_DISPATCH_CHUNKS chunks
+// per dispatch. `constants` gets each dispatch's range filled in.
 template <typename PushConstants>
-void SimulationPasses::dispatchOverChunks(VkCommandBuffer cmd, uint32_t chunkCount,
+void SimulationPasses::dispatchOverChunks(VkCommandBuffer cmd, uint32_t first, uint32_t count,
                                           PushConstants constants) {
-    for (uint32_t first = 0; first < chunkCount; first += MAX_DISPATCH_CHUNKS) {
-        constants.firstIndex = first;
-        constants.count = std::min(MAX_DISPATCH_CHUNKS, chunkCount - first);
+    const uint32_t end = first + count;
+    for (uint32_t start = first; start < end; start += MAX_DISPATCH_CHUNKS) {
+        constants.firstIndex = start;
+        constants.count = std::min(MAX_DISPATCH_CHUNKS, end - start);
         vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
                            &constants);
         vkCmdDispatch(cmd, SLABS_PER_CHUNK, constants.count, 1);
     }
 }
 
-void SimulationPasses::run(const BatchRequest& request, ChunkWorld& world) {
-    const auto wallStart = std::chrono::steady_clock::now();
-    VkCommandBuffer cmd = commands_->begin();
-    if (timestamps_) {
-        vkCmdResetQueryPool(cmd, timestamps_, 0, TimestampCount);
-        vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, timestamps_, BeforeSteps);
-    }
+// Orders a submission after everything before it on the queue, then takes the
+// timestamp `startQuery` (after resetting it and the `queryCount - 1` that
+// follow it).
+void SimulationPasses::startSubmission(VkCommandBuffer cmd, uint32_t startQuery,
+                                       uint32_t queryCount) {
     // Write-after-read: frames submitted earlier may still be drawing the block
     // list (indirect command and vertex shader reads). This batch's shaders,
     // clears and copies overwrite it, so they wait for those draws. The source
@@ -287,15 +311,116 @@ void SimulationPasses::run(const BatchRequest& request, ChunkWorld& world) {
                       VK_PIPELINE_STAGE_2_COPY_BIT,
                   VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT |
                       VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    if (!timestamps_) return;
+    vkCmdResetQueryPool(cmd, timestamps_, startQuery, queryCount);
+    // The start is taken once earlier work (such as a frame still drawing
+    // ahead of a slice) is done, so it is not counted.
+    writeTimestampAfterWork(cmd, startQuery);
+}
 
+// Takes a timestamp once the work recorded so far has finished. A timestamp is
+// not ordered after the dispatches before it: Mesa's Intel driver writes it as
+// soon as they start, which made the build pass look free and let the governor
+// overrun its budget in large worlds. The barrier makes it wait.
+void SimulationPasses::writeTimestampAfterWork(VkCommandBuffer cmd, uint32_t query) {
+    if (!timestamps_) return;
+    memoryBarrier(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE,
+                  VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
+    vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, timestamps_, query);
+}
+
+void SimulationPasses::submitAsync(const AsyncRequest& request, const ChunkWorld& world) {
+    // The ring slot used ASYNC_IN_FLIGHT submissions ago: done by now, as
+    // frames were drawn since.
+    const uint32_t slot = nextAsync_;
+    nextAsync_ = (nextAsync_ + 1) % ASYNC_IN_FLIGHT;
+    finishAsync(slot);
+
+    ImmediateCommands& commands = asyncCommands_[slot];
+    VkCommandBuffer cmd = commands.begin();
+    startSubmission(cmd, asyncQuery(slot, BeforeSteps), BatchTimestampCount);
+    const uint32_t current = world.currentBuffer();
+    if (request.sliceCount > 0) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, stepPipeline_);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout_, 0, 1,
+                                &descriptorSets_[current], 0, nullptr);
+        dispatchOverChunks(cmd, request.sliceFirst, request.sliceCount,
+                           stepConstants(*request.rule));
+    }
+    writeTimestampAfterWork(cmd, asyncQuery(slot, AfterSteps));
+    const BatchRequest& build = request.build;
+    const bool built = build.writeBlockList || build.collectStats;
+    if (built) {
+        // The build reads what the slices wrote once they are all done.
+        memoryBarrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+        const uint32_t source = request.buildNextGeneration ? 1 - current : current;
+        recordBuild(cmd, build, world, source);
+    }
+    writeTimestampAfterWork(cmd, asyncQuery(slot, AfterBuild));
+    if (built) recordReadback(cmd, build, world);
+    commands.submit("the simulation, alongside the frame");
+    const double share = request.sliceCount > 0
+                             ? static_cast<double>(request.sliceCount) / world.activeChunkCount()
+                             : 0.0;
+    asyncSlots_[slot] = {.pending = true,
+                         .share = share,
+                         .writeBlockList = build.writeBlockList,
+                         .collectStats = build.collectStats};
+}
+
+void SimulationPasses::finishAsync() {
+    for (uint32_t slot = 0; slot < ASYNC_IN_FLIGHT; ++slot) {
+        finishAsync(slot);
+    }
+}
+
+// Waits for the submission in ring slot `slot`, if any, and records its costs.
+// Slices are too small to measure a step one by one (fixed costs would
+// dominate), so their GPU times add up until they cover half the world or more.
+void SimulationPasses::finishAsync(uint32_t slot) {
+    AsyncSlot& done = asyncSlots_[slot];
+    if (!done.pending) return;
+    done.pending = false;
+    const auto waitStart = std::chrono::steady_clock::now();
+    asyncCommands_[slot].wait();
+    totalGpuMs_ += millisecondsSince(waitStart);
+
+    std::array<uint64_t, BatchTimestampCount> ticks{};
+    const bool haveTimestamps =
+        timestamps_ &&
+        vkGetQueryPoolResults(gpu_->device, timestamps_, asyncQuery(slot, BeforeSteps),
+                              BatchTimestampCount, sizeof(ticks), ticks.data(), sizeof(uint64_t),
+                              VK_QUERY_RESULT_64_BIT) == VK_SUCCESS;
+    // It ran alongside a frame, so without timestamps there is no time to go by.
+    if (!haveTimestamps) return;
+    auto elapsedMs = [&](Timestamp from, Timestamp to) {
+        uint64_t elapsedTicks = (ticks[to] - ticks[from]) & timestampMask_;
+        return std::max(MIN_PASS_MS, static_cast<double>(elapsedTicks) * msPerTimestampTick_);
+    };
+    if (done.writeBlockList || done.collectStats) {
+        recordBuildCost(done.writeBlockList, done.collectStats, elapsedMs(AfterSteps, AfterBuild));
+    }
+    if (done.share <= 0.0) return;
+    slicedMs_ += elapsedMs(BeforeSteps, AfterSteps);
+    slicedShare_ += done.share;
+    constexpr double SHARE_TO_MEASURE = 0.5;
+    if (slicedShare_ >= SHARE_TO_MEASURE) {
+        smoothCost(costs_.stepMs, std::max(MIN_PASS_MS, slicedMs_ / slicedShare_));
+        slicedMs_ = 0.0;
+        slicedShare_ = 0.0;
+    }
+}
+
+void SimulationPasses::run(const BatchRequest& request, ChunkWorld& world) {
+    finishAsync(); // work still running is not this batch's time
+    const auto wallStart = std::chrono::steady_clock::now();
+    VkCommandBuffer cmd = commands_->begin();
+    startSubmission(cmd, BeforeSteps, BatchTimestampCount);
     const uint32_t newest = recordSteps(cmd, request, world);
-    if (timestamps_) {
-        vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, timestamps_, AfterSteps);
-    }
+    writeTimestampAfterWork(cmd, AfterSteps);
     recordBuild(cmd, request, world, newest);
-    if (timestamps_) {
-        vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, timestamps_, AfterBuild);
-    }
+    writeTimestampAfterWork(cmd, AfterBuild);
     recordReadback(cmd, request, world);
 
     const auto submitStart = std::chrono::steady_clock::now();
@@ -303,8 +428,7 @@ void SimulationPasses::run(const BatchRequest& request, ChunkWorld& world) {
     totalGpuMs_ += millisecondsSince(submitStart);
 
     world.setCurrentBuffer(newest);
-    updateCosts(request.steps, request.writeBlockList && !request.collectStats,
-                millisecondsSince(wallStart));
+    updateCosts(request, millisecondsSince(wallStart));
 }
 
 // Records the steps; each reads one cell buffer and writes the other. Returns
@@ -318,11 +442,11 @@ uint32_t SimulationPasses::recordSteps(VkCommandBuffer cmd, const BatchRequest& 
     if (chunkCount == 0) return (current + request.steps) & 1u;
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, stepPipeline_);
-    const StepConstants constants{0, 0, request.rule->surviveMask, request.rule->birthMask};
+    const StepConstants constants = stepConstants(*request.rule);
     for (uint32_t step = 0; step < request.steps; ++step) {
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout_, 0, 1,
                                 &descriptorSets_[current], 0, nullptr);
-        dispatchOverChunks(cmd, chunkCount, constants);
+        dispatchOverChunks(cmd, 0, chunkCount, constants);
         // The next step reads the rows this one wrote (read-after-write) and
         // overwrites the rows this one read (write-after-read).
         memoryBarrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
@@ -354,7 +478,8 @@ void SimulationPasses::recordBuild(VkCommandBuffer cmd, const BatchRequest& requ
                   VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
 
     const uint32_t chunkCount = world.activeChunkCount();
-    if (chunkCount == 0) return;
+    const bool anyWork = request.writeBlockList || request.collectStats;
+    if (chunkCount == 0 || !anyWork) return;
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, buildPipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout_, 0, 1,
                             &descriptorSets_[newest], 0, nullptr);
@@ -363,15 +488,16 @@ void SimulationPasses::recordBuild(VkCommandBuffer cmd, const BatchRequest& requ
     // Flag neighbors for life within MAX_BATCH cells, so the next batch of up to
     // MAX_BATCH generations cannot outrun the chunks maintain() creates.
     constants.margin = MAX_BATCH;
+    const bool layered = request.rule->neighborhood == Neighborhood::Layer;
     constants.flags = (request.animate ? BUILD_ANIMATE : 0) |
                       (request.writeBlockList ? BUILD_DRAW : 0) |
-                      (request.collectStats ? BUILD_STATS : 0);
+                      (request.collectStats ? BUILD_STATS : 0) | (layered ? BUILD_LAYERS : 0);
     constants.maxInstances = MAX_BLOCK_INSTANCES;
     constants.cullDistance = request.cullDistance;
     constants.cameraX = request.eye.x;
     constants.cameraY = request.eye.y;
     constants.cameraZ = request.eye.z;
-    dispatchOverChunks(cmd, chunkCount, constants);
+    dispatchOverChunks(cmd, 0, chunkCount, constants);
 }
 
 // Hands the results to the indirect draw and the vertex shader, and copies the
@@ -402,21 +528,37 @@ uint64_t SimulationPasses::visibleBlocks() const {
     return readbackBuffer_.as<VkDrawIndexedIndirectCommand>()->instanceCount;
 }
 
-// Folds the batch that just finished into the cost estimates. `drawOnlyBuild`
-// says which build estimate this batch measures (see PassCosts).
-void SimulationPasses::updateCosts(uint32_t steps, bool drawOnlyBuild, double wallMs) {
-    std::array<uint64_t, TimestampCount> ticks{};
+// A build that also writes the block list is charged to the stats beyond what
+// a block list alone costs.
+void SimulationPasses::recordBuildCost(bool writeBlockList, bool collectStats, double buildMs) {
+    if (!collectStats) {
+        smoothCost(costs_.drawMs, buildMs);
+    } else if (writeBlockList) {
+        smoothCost(costs_.statsMs, std::max(MIN_PASS_MS, buildMs - costs_.drawMs));
+    } else {
+        smoothCost(costs_.statsMs, buildMs);
+    }
+}
+
+// Folds the batch that just finished into the cost estimates (see PassCosts
+// for which build each estimate stands for).
+void SimulationPasses::updateCosts(const BatchRequest& request, double wallMs) {
+    std::array<uint64_t, BatchTimestampCount> ticks{};
     bool haveTimestamps =
         timestamps_ &&
-        vkGetQueryPoolResults(gpu_->device, timestamps_, 0, TimestampCount, sizeof(ticks),
+        vkGetQueryPoolResults(gpu_->device, timestamps_, 0, BatchTimestampCount, sizeof(ticks),
                               ticks.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS;
-    double& buildCost = drawOnlyBuild ? costs_.drawMs : costs_.statsMs;
+    const uint32_t steps = request.steps;
+    const bool built = request.writeBlockList || request.collectStats;
+    auto recordBuildCost = [&](double buildMs) {
+        this->recordBuildCost(request.writeBlockList, request.collectStats, buildMs);
+    };
     if (!haveTimestamps) {
         // Charge the whole wall time to the steps (or to the build alone).
         if (steps > 0) {
             smoothCost(costs_.stepMs, std::max(MIN_PASS_MS, wallMs / steps));
-        } else {
-            smoothCost(buildCost, wallMs);
+        } else if (built) {
+            recordBuildCost(wallMs);
         }
         return;
     }
@@ -430,7 +572,7 @@ void SimulationPasses::updateCosts(uint32_t steps, bool drawOnlyBuild, double wa
     double stepMs = elapsedMs(BeforeSteps, AfterSteps);
     double buildMs = elapsedMs(AfterSteps, AfterBuild);
     if (steps > 0) smoothCost(costs_.stepMs, stepMs / steps);
-    smoothCost(buildCost, buildMs);
+    if (built) recordBuildCost(buildMs);
     smoothCost(costs_.overheadMs, std::max(0.0, wallMs - stepMs - buildMs));
 }
 

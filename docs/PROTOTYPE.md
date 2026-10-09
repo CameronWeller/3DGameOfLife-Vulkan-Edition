@@ -157,8 +157,12 @@ Lesson content lives in `src/tutorial/TutorialLessons.cpp`, the panel in
 ## Rules
 
 Every rule is a two-state rule over the 26 cells of the 3x3x3 cube around a cell,
-written as survive/birth neighbor counts. The Stamps & Rules screen (Tab) and the
-New World screen spell each rule out in words.
+written as survive/birth neighbor counts, except two 2D rules. Conway 2D counts
+only the 8 cells around a cell in its own x-y layer: every layer is an
+independent copy of Conway's original 2D game. Conway Crossed counts the 14 cells
+around it in its x-y and y-z layers, so the two boards through every cell leak
+into each other and most patterns grow into 3D. The Stamps & Rules screen (Tab) and the New World
+screen spell each rule out in words.
 
 Conway's Life is B3/S23 over 8 neighbors, but those numbers do not carry over to
 3D. Applied literally, B3/S23 grows without limit because 3 of 26 neighbors are

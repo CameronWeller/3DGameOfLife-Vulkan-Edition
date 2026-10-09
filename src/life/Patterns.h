@@ -98,4 +98,57 @@ inline Pattern life4555Glider() {
             {0, 2, 2}, {0, 0, 1}, {0, 3, 1}, {0, 0, 0}, {0, 3, 0}};
 }
 
+// ---- Conway 2D: patterns standing in the x-y plane at z = 0, y up.
+
+// A 2D pattern drawn as text, 'O' for a live cell: the first row is the top
+// (the highest y), columns are x from 0. Every row but the last ends up at
+// y > 0, so the pattern stands on y = 0.
+inline Pattern layerPattern(std::initializer_list<const char*> rows) {
+    Pattern out;
+    int y = static_cast<int>(rows.size()) - 1;
+    for (const char* row : rows) {
+        for (int x = 0; row[x] != '\0'; ++x) {
+            if (row[x] == 'O') out.push_back({x, y, 0});
+        }
+        --y;
+    }
+    return out;
+}
+
+// Conway's glider. Period 4; moves one cell right (+x) and one down (-y) per period.
+inline Pattern conwayGlider() {
+    return layerPattern({
+        ".O.",
+        "..O",
+        "OOO",
+    });
+}
+
+// The lightweight spaceship. Period 4; moves two cells left (-x) per period.
+inline Pattern conwayLightweightSpaceship() {
+    return layerPattern({
+        ".O..O",
+        "O....",
+        "O...O",
+        "OOOO.",
+    });
+}
+
+// Gosper's glider gun (1970), the first pattern known to grow forever and the
+// glider source in the constructions that make Life Turing complete. Period
+// 30: every 30 generations it fires one more glider down and to the right.
+inline Pattern gosperGliderGun() {
+    return layerPattern({
+        "........................O...........",
+        "......................O.O...........",
+        "............OO......OO............OO",
+        "...........O...O....OO............OO",
+        "OO........O.....O...OO..............",
+        "OO........O...O.OO....O.O...........",
+        "..........O.....O.......O...........",
+        "...........O...O....................",
+        "............OO......................",
+    });
+}
+
 } // namespace gol3d

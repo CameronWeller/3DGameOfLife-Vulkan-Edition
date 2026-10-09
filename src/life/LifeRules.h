@@ -3,11 +3,12 @@
 // The life-like rules the game offers, their notation, and a plain CPU
 // reference simulation used to check the GPU.
 //
-// A rule is two sets of neighbor counts over the 26-cell 3D Moore neighborhood
-// (the 3x3x3 cube around a cell): a live cell *survives* if its count of live
-// neighbors is in the survive set, and an empty cell is *born* if its count is in
-// the birth set. Each set is stored as a bit mask: bit n set means "n neighbors".
-// The same masks are pushed to shaders/life3d_step.comp.
+// A rule is two sets of neighbor counts: a live cell *survives* if its count of
+// live neighbors is in the survive set, and an empty cell is *born* if its count
+// is in the birth set. Each set is stored as a bit mask: bit n set means "n
+// neighbors". The same masks are pushed to shaders/life3d_step.comp. Most rules
+// count the 26-cell 3D Moore neighborhood (the 3x3x3 cube around a cell); 2D
+// rules count only the 8 cells around it in its own x-y layer (Neighborhood).
 
 #include <array>
 #include <cstdint>
@@ -20,17 +21,71 @@
 
 namespace gol3d {
 
-// Cells in the 3x3x3 cube around a cell, the cell itself excluded.
+// Cells in the 3x3x3 cube around a cell, the cell itself excluded: the most
+// neighbors any rule counts.
 constexpr int NEIGHBOR_COUNT = 26;
+// Cells in the 3x3 square around a cell in its own x-y layer.
+constexpr int LAYER_NEIGHBOR_COUNT = 8;
+// Cells in the 3x3 squares around a cell in its x-y and y-z layers, which
+// share the 2 cells above and below it.
+constexpr int CROSSED_NEIGHBOR_COUNT = 14;
+
+// Which cells around a cell a rule counts.
+enum class Neighborhood : uint8_t {
+    Cube,    // the 26 cells of the 3x3x3 cube around it
+    Layer,   // the 8 cells of the 3x3 square around it in its own x-y layer (z
+             // fixed): every layer is an independent 2D board
+    Crossed, // the 14 cells of the 3x3 squares around it in its x-y layer and
+             // its y-z layer (x fixed): two upright 2D boards through every cell
+};
 
 struct LifeRule {
     const char* name;
     uint32_t surviveMask; // bit n: a live cell with n live neighbors stays alive
     uint32_t birthMask;   // bit n: an empty cell with n live neighbors comes alive
     float seedDensity;    // fill ratio of the random soup a new world starts from
-    int seedSize;         // edge length in cells of that soup
+    int seedSize;         // edge length in cells of that soup (x and y)
     const char* description;
+    int seedDepth = 0; // its depth along z; 0 for a cube (seedSize)
+    Neighborhood neighborhood = Neighborhood::Cube;
 };
+
+// How many neighbors a cell has under the rule: 26, 14 or 8.
+constexpr int neighborCount(const LifeRule& rule) {
+    switch (rule.neighborhood) {
+        case Neighborhood::Layer:
+            return LAYER_NEIGHBOR_COUNT;
+        case Neighborhood::Crossed:
+            return CROSSED_NEIGHBOR_COUNT;
+        case Neighborhood::Cube:
+            break;
+    }
+    return NEIGHBOR_COUNT;
+}
+
+// Whether neighbor (dx, dy, dz) of a cell, each offset -1..1, counts under the rule.
+constexpr bool countsAsNeighbor(const LifeRule& rule, int dx, int dz) {
+    switch (rule.neighborhood) {
+        case Neighborhood::Layer:
+            return dz == 0;
+        case Neighborhood::Crossed:
+            return dz == 0 || dx == 0;
+        case Neighborhood::Cube:
+            break;
+    }
+    return true;
+}
+
+// The two masks countNeighbors() in shaders/life3d_bits.glsl takes: all ones
+// where the rows in front of and behind a cell count, off its y-z layer
+// (sides) and on it (middle).
+struct FrontBackMasks {
+    uint32_t sides;
+    uint32_t middle;
+};
+constexpr FrontBackMasks frontBackMasks(const LifeRule& rule) {
+    return {countsAsNeighbor(rule, 1, 1) ? ~0u : 0u, countsAsNeighbor(rule, 0, 1) ? ~0u : 0u};
+}
 
 // Mask with a bit for each listed neighbor count: neighborMask({6}) = 1 << 6.
 constexpr uint32_t neighborMask(std::initializer_list<int> counts) {
@@ -90,7 +145,7 @@ inline const auto& lifeRules() {
             .description = "Conway's exact numbers: born with 3 neighbors, survives with 2 or 3. "
                            "In 3D a cell has 26 neighbors instead of 8, so 3 live neighbors are "
                            "easy to find and patterns grow without limit. Included to show why 3D "
-                           "needs different numbers.",
+                           "needs different numbers; Conway 2D is the original game.",
         },
         {
             .name = "Clouds",
@@ -140,6 +195,38 @@ inline const auto& lifeRules() {
             .seedSize = 8,
             .description = "Born with just 3 neighbors, survives with 4 to 6. Almost any pattern "
                            "explodes into constantly changing structures. Not Life-like.",
+        },
+        // Last, so the rule numbers in save files and --rule stay as they were.
+        {
+            .name = "Conway 2D",
+            .surviveMask = neighborRange(2, 3),
+            .birthMask = neighborMask({3}),
+            .seedDensity = 0.35f,
+            .seedSize = 64,
+            .description = "Conway's original Game of Life, exactly, in every x-y layer: a cell "
+                           "counts only the 8 cells around it in its own layer, so each layer is "
+                           "an independent 2D board standing upright. Gliders, spaceships, guns "
+                           "and every other 2D pattern behave as in the original, including the "
+                           "machinery that makes it Turing complete. Build on walls that face "
+                           "along z.",
+            .seedDepth = 1,
+            .neighborhood = Neighborhood::Layer,
+        },
+        {
+            .name = "Conway Crossed",
+            .surviveMask = neighborRange(2, 3),
+            .birthMask = neighborMask({3}),
+            .seedDensity = 0.35f,
+            .seedSize = 32,
+            .description =
+                "Conway's numbers over two upright 2D boards through every cell: a cell "
+                "counts the 14 cells of the 3x3 squares around it in its x-y layer and "
+                "its y-z layer. Still lifes such as the block and the beehive hold, but "
+                "three cells in a vertical line give birth in the crossing board, so the "
+                "blinker dies and gliders, spaceships and soups grow without limit into "
+                "3D structures. Not Life-like.",
+            .seedDepth = 1,
+            .neighborhood = Neighborhood::Crossed,
         },
     });
     return RULES;
@@ -260,15 +347,21 @@ inline std::string explainRuleCounts(const LifeRule& rule) {
 
 // explainRuleCounts plus a reminder of what a neighbor is.
 inline std::string explainRule(const LifeRule& rule) {
-    return explainRuleCounts(rule) + " Every cell has " + std::to_string(NEIGHBOR_COUNT) +
-           " neighbors (the 3x3x3 cube around it).";
+    std::string around = " (the 3x3x3 cube around it).";
+    if (rule.neighborhood == Neighborhood::Layer) {
+        around = " (the 3x3 square around it in its own x-y layer).";
+    } else if (rule.neighborhood == Neighborhood::Crossed) {
+        around = " (the 3x3 squares around it in its x-y and y-z layers).";
+    }
+    return explainRuleCounts(rule) + " Every cell has " + std::to_string(neighborCount(rule)) +
+           " neighbors" + around;
 }
 
 // CPU reference for one generation inside a width x height x depth box whose
 // outside is permanently dead. Cells are stored x fastest, then y, then z. A
 // pattern that stays clear of the box edges evolves exactly as it would in
 // unbounded space. This is deliberately the most obvious implementation (count
-// all 26 neighbors of every cell) so it can serve as the ground truth for the
+// all the neighbors of every cell) so it can serve as the ground truth for the
 // GPU shader and the bit-sliced engine; the game never runs it.
 //
 // `blocks` (optional, same layout) holds static blocks by CellKind value
@@ -301,7 +394,8 @@ inline void stepLifeReference(const std::vector<uint32_t>& current, std::vector<
                     for (int dy = -1; dy <= 1; ++dy) {
                         for (int dx = -1; dx <= 1; ++dx) {
                             bool isSelf = dx == 0 && dy == 0 && dz == 0;
-                            if (!isSelf) neighbors += countsAsLive(x + dx, y + dy, z + dz);
+                            bool counts = !isSelf && countsAsNeighbor(rule, dx, dz);
+                            if (counts) neighbors += countsAsLive(x + dx, y + dy, z + dz);
                         }
                     }
                 }

@@ -162,13 +162,15 @@ private:
         BitChunk out;
         out.blocked = chunk.blocked;
         out.emits = chunk.emits;
+        const FrontBackMasks masks = frontBackMasks(rule);
         for (int z = 0; z < CHUNK; ++z) {
             for (int y = 0; y < CHUNK; ++y) {
                 uint neighborRows[NEIGHBORHOOD_SIZE];
                 gatherNeighborRows(key, y, z, neighborRows);
                 int row = rowIndex(y, z);
-                out.life[row] = nextRow(neighborRows, chunk.life[row], chunk.blocked[row],
-                                        rule.surviveMask, rule.birthMask);
+                out.life[row] =
+                    nextRow(neighborRows, chunk.life[row], chunk.blocked[row], rule.surviveMask,
+                            rule.birthMask, masks.sides, masks.middle);
             }
         }
         return out;

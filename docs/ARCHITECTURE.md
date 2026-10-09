@@ -123,16 +123,22 @@ holding two more bit planes: *blocked* (no life may exist here) and *emits*
 
 1. `ensureChunk` takes a free slot, zeroes it, and links it to the neighbors that
    exist, in both directions.
-2. After every batch, the build pass reports per chunk its population and a
-   27-bit *reach mask*: which neighbor directions have live cells within 8 cells
-   of the shared face.
-3. `maintain()` creates every neighbor in a reach mask, then frees chunks that
-   are empty, hold no blocks, and that no live cell can reach.
+2. At least every 8 generations (usually after every batch), the build pass
+   reports per chunk its population and a 27-bit *reach mask*: which neighbor
+   directions have live cells within 8 cells of the shared face. Under Conway 2D
+   life never leaves its x-y layer, so chunks in front and behind are never
+   reached.
+3. `maintain()` creates every missing neighbor in a reach mask (only chunks at
+   the edge of the world have any, so most chunks cost one AND), then frees
+   chunks that are empty, hold no blocks, and that no live cell can reach.
 4. A freed slot is not reused until the next maintenance, because the block
    list on screen may still be drawing its last cells shrinking away.
 
 When the pool runs out of slots it doubles, copying every chunk to the same slot
-of the new buffers, until the chunk limit (`--chunks`). The block pool, which
+of the new buffers, until the chunk limit (`--chunks`). Allocating a pool of
+tens of thousands of chunks can take up to a couple of hundred milliseconds, so
+a worker thread allocates the next pool once the current one is three quarters
+full. The block pool, which
 only chunks holding Stone or Ember use, doubles the same way on its own.
 
 ## Simulating on the GPU
@@ -190,12 +196,34 @@ The governor ([`Game::updateSimulation`](../src/game/GameSimulation.cpp), with
 the arithmetic in [`TickGovernor.h`](../src/game/TickGovernor.h)):
 
 1. adds `speed x frame time` to a debt of generations owed;
-2. measures, with GPU timestamps, what one generation and one block-list build
-   cost (smoothed over recent batches);
-3. runs batches sized to what still fits in the frame's budget (default 8 ms);
-4. if it could not pay the debt, forgives it, so the simulation slows down
+2. measures, with GPU timestamps, what one generation, a block-list build, a
+   stats pass and drawing a frame cost, and on the CPU clock what the chunk
+   bookkeeping costs (all smoothed over recent batches);
+3. gives the simulation what drawing leaves of the display's refresh, at most
+   the "time per frame" setting (default 8 ms);
+4. runs batches sized to what still fits. The stats pass and bookkeeping are
+   needed only once per 8 generations: in small worlds they run with every
+   batch, in big ones they wait, so their cost lands on one frame in eight. The
+   frame's last batch writes the block list in the same pass;
+5. if it could not pay the debt, forgives it, so the simulation slows down
    instead of the frame rate, and the HUD shows "slowed to keep up" with the
    rate actually reached.
+
+In a world where one generation does not fit in a frame (past roughly 60
+million cells on an Arc Pro B60 at 60 Hz, where drawing alone takes most of
+the frame), the generation is **sliced**: each frame steps as many chunks of the
+active list as fit, from the current cell buffer into the other one, submitted
+without waiting so it runs alongside the frame's drawing. The slice that
+finishes the generation also builds its block list, and the next frame flips the
+buffers. Stats are collected the same way when due. Edits, loads and chunk
+changes start a sliced generation over (`ChunkWorld::version`), and anything
+that reads the world through the CPU first takes in what the last frame's
+slices produced (`Game::settleSlicing`).
+
+GPU timestamps are taken after an explicit barrier: some drivers (Mesa's Intel
+driver among them) write a timestamp as soon as the work before it starts,
+which once made the build pass look free and let large worlds overrun the
+budget.
 
 ## Drawing
 

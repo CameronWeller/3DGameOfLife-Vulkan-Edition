@@ -9,6 +9,7 @@
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
@@ -170,12 +171,14 @@ void Renderer::initPipelines(const std::filesystem::path& shaderDir, const GpuBu
     writeDescriptors(instances, origins);
     createCommandBuffers();
     createSyncObjects();
+    createTimestampQueries();
 }
 
 void Renderer::destroy() {
     if (!gpu_) return;
     VkDevice device = gpu_->device;
     allocator_->destroy(captureBuffer_);
+    if (frameTimestamps_) vkDestroyQueryPool(device, frameTimestamps_, nullptr);
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         vkDestroySemaphore(device, imageAvailable_[i], nullptr);
         vkDestroyFence(device, inFlight_[i], nullptr);
@@ -417,6 +420,43 @@ void Renderer::createSyncObjects() {
     }
 }
 
+void Renderer::createTimestampQueries() {
+    uint32_t familyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(gpu_->physicalDevice, &familyCount, nullptr);
+    std::vector<VkQueueFamilyProperties> families(familyCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(gpu_->physicalDevice, &familyCount, families.data());
+    const uint32_t validBits = families[gpu_->queueFamily].timestampValidBits;
+    const float nsPerTick = gpu_->properties.limits.timestampPeriod;
+    if (validBits == 0 || nsPerTick <= 0.0f) return; // no timing: gpuFrameMs() stays 0
+
+    VkQueryPoolCreateInfo queryInfo{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+    queryInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+    queryInfo.queryCount = 2 * MAX_FRAMES_IN_FLIGHT;
+    if (vkCreateQueryPool(gpu_->device, &queryInfo, nullptr, &frameTimestamps_) != VK_SUCCESS) {
+        frameTimestamps_ = VK_NULL_HANDLE;
+        return;
+    }
+    constexpr double NANOSECONDS_PER_MILLISECOND = 1e6;
+    msPerTimestampTick_ = nsPerTick / NANOSECONDS_PER_MILLISECOND;
+    timestampMask_ = validBits >= 64 ? ~0ull : (1ull << validBits) - 1;
+}
+
+// Folds the GPU time of the frame last drawn from `slot` into gpuFrameMs_.
+// Call once the slot's fence has signaled.
+void Renderer::readFrameTime(size_t slot) {
+    if (!frameTimestamps_ || !timestampsWritten_[slot]) return;
+    std::array<uint64_t, 2> ticks{};
+    const uint32_t first = static_cast<uint32_t>(2 * slot);
+    if (vkGetQueryPoolResults(gpu_->device, frameTimestamps_, first, 2, sizeof(ticks), ticks.data(),
+                              sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) != VK_SUCCESS) {
+        return;
+    }
+    // Masked unsigned subtraction survives a counter that wrapped in between.
+    const uint64_t elapsedTicks = (ticks[1] - ticks[0]) & timestampMask_;
+    const double ms = static_cast<double>(elapsedTicks) * msPerTimestampTick_;
+    gpuFrameMs_ = gpuFrameMs_ > 0.0 ? 0.9 * gpuFrameMs_ + 0.1 * ms : ms;
+}
+
 // ------------------------------------------------------------------ frames
 
 void Renderer::waitForPreviousFrame() const {
@@ -437,6 +477,7 @@ void Renderer::requestScreenshot(const std::string& path) {
 bool Renderer::beginFrame() {
     // The slot's previous frame must be done before its buffers are reused.
     gpu_->waitForFence(inFlight_[currentFrame_], "a frame");
+    readFrameTime(currentFrame_);
     // Acquiring can return an image index while the presentation engine is
     // still reading that image; imageAvailable_ is signaled once it is done.
     VkResult result =
@@ -530,10 +571,26 @@ void Renderer::recordCommands(VkCommandBuffer cmd, uint32_t boxCount, bool drawI
     if (vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS) {
         throw std::runtime_error("Could not begin recording command buffer.");
     }
+    const uint32_t firstQuery = static_cast<uint32_t>(2 * currentFrame_);
+    if (frameTimestamps_) {
+        vkCmdResetQueryPool(cmd, frameTimestamps_, firstQuery, 2);
+        vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, frameTimestamps_,
+                             firstQuery);
+    }
     beginRendering(cmd);
     recordDraws(cmd, boxCount, drawImGui);
     vkCmdEndRendering(cmd);
     finishImage(cmd, capture);
+    if (frameTimestamps_) {
+        // Some drivers write a timestamp without waiting for the work before
+        // it (see SimulationPasses::writeTimestampAfterWork); the barrier
+        // makes this one mark the end of the frame's drawing.
+        memoryBarrier(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE,
+                      VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
+        vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, frameTimestamps_,
+                             firstQuery + 1);
+        timestampsWritten_[currentFrame_] = true;
+    }
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
         throw std::runtime_error("Could not record command buffer.");
     }

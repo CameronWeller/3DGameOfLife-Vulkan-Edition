@@ -2,6 +2,9 @@
 // frame budget, the measured rate, and the "slowed to keep up" indicator.
 
 #include "game/TickGovernor.h"
+
+#include <cmath>
+
 #include "TestSupport.h"
 
 using namespace gol3d;
@@ -25,40 +28,90 @@ void checkSpeed() {
     expect(SimulationSpeed::formatRate(1234.4) == "1234", "measured rates round to whole numbers");
 }
 
+// A frame with `left` generations owed, `done` run, `elapsedMs` spent of an
+// 8 ms budget, and `untilStats` generations before stats are due.
+FrameBudget frameAt(uint64_t left, uint64_t done, double elapsedMs, uint32_t untilStats = 8) {
+    constexpr double BUDGET_MS = 8.0; // the default Settings::simBudget
+    FrameBudget frame;
+    frame.generationsLeft = left;
+    frame.generationsDone = done;
+    frame.untilStats = untilStats;
+    frame.elapsedMs = elapsedMs;
+    frame.budgetMs = BUDGET_MS;
+    return frame;
+}
+
 void checkPlanning() {
-    constexpr uint32_t BATCH_LIMIT = 8; // most generations in one batch
-    constexpr double BUDGET_MS = 8.0;   // the default Settings::simBudget
-    constexpr double NO_RESERVE_MS = 0.0;
-    constexpr double RESERVE_MS = 1.0;  // set aside for the frame's block-list build
     constexpr uint64_t FIRST_BATCH = 0; // generations already done this frame
     constexpr uint64_t LATER_BATCH = 5;
 
     const PassCosts unmeasured;
-    expect(planBatch(100, FIRST_BATCH, 0.0, BUDGET_MS, NO_RESERVE_MS, unmeasured, BATCH_LIMIT) ==
-               BATCH_LIMIT,
-           "without measurements, run a full batch");
-    expect(planBatch(3, FIRST_BATCH, 0.0, BUDGET_MS, NO_RESERVE_MS, unmeasured, BATCH_LIMIT) == 3,
-           "never more than what is owed");
+    BatchPlan plan = planBatch(frameAt(100, FIRST_BATCH, 0.0), unmeasured);
+    expect(plan.steps == 8 && plan.collectStats && !plan.lastOfFrame,
+           "without measurements, run a full batch with stats");
+    plan = planBatch(frameAt(3, FIRST_BATCH, 0.0), unmeasured);
+    expect(plan.steps == 3 && plan.lastOfFrame, "never more than what is owed");
 
+    // A small world: stats and the block list are cheap.
     PassCosts costs;
     costs.stepMs = 1.0;
-    costs.statsMs = 0.5;
+    costs.statsMs = 0.25;
+    costs.maintainMs = 0.25;
+    costs.drawMs = 1.0;
     costs.overheadMs = 0.5;
-    // 8 ms budget, 2 ms spent, 1 ms reserved: 8 - 2 - 1 - 0.5 - 0.5 = 4 generations fit.
-    expect(planBatch(100, LATER_BATCH, 2.0, BUDGET_MS, RESERVE_MS, costs, BATCH_LIMIT) == 4,
-           "the batch fits the rest of the budget");
-    expect(planBatch(100, LATER_BATCH, 8.0, BUDGET_MS, RESERVE_MS, costs, BATCH_LIMIT) == 0,
-           "a spent budget stops the frame");
-    // 7.5 ms spent leaves 8 - 7.5 - 1 - 0.5 - 0.5 < 0 ms.
-    expect(planBatch(100, LATER_BATCH, 7.5, BUDGET_MS, RESERVE_MS, costs, BATCH_LIMIT) == 0,
-           "too little room for one step stops it too");
-    expect(planBatch(100, FIRST_BATCH, 50.0, BUDGET_MS, RESERVE_MS, costs, BATCH_LIMIT) == 1,
-           "the first batch always runs one generation");
+    // 8 - 2 spent - 0.5 overhead - 1 block list - 0.5 stats = 4 generations fit.
+    plan = planBatch(frameAt(100, LATER_BATCH, 2.0), costs);
+    expect(plan.steps == 4 && !plan.collectStats && plan.lastOfFrame,
+           "stats that would crowd out a generation wait");
+    plan = planBatch(frameAt(3, LATER_BATCH, 2.0), costs);
+    expect(plan.steps == 3 && plan.collectStats && plan.lastOfFrame,
+           "stats that fit beside everything owed run with it");
+    plan = planBatch(frameAt(100, LATER_BATCH, 8.0), costs);
+    expect(!plan.runs(), "a spent budget stops the frame");
+    plan = planBatch(frameAt(100, LATER_BATCH, 7.0), costs);
+    expect(!plan.runs(), "too little room for one step stops it too");
+    plan = planBatch(frameAt(100, FIRST_BATCH, 50.0), costs);
+    expect(plan.steps == 1 && !plan.collectStats,
+           "the first batch always runs one generation, putting the stats off");
+    plan = planBatch(frameAt(100, FIRST_BATCH, 0.0, 2), costs);
+    expect(plan.steps == 2, "no more generations than stats allow");
 
+    // A huge world: one generation and the block list fill most of the budget,
+    // and stats plus bookkeeping cost as much again.
+    costs.stepMs = 4.0;
+    costs.statsMs = 2.5;
+    costs.maintainMs = 1.0;
+    costs.drawMs = 1.0;
+    costs.overheadMs = 0.5;
+    plan = planBatch(frameAt(64, FIRST_BATCH, 0.0, 5), costs);
+    expect(plan.steps == 1 && !plan.collectStats && plan.lastOfFrame,
+           "a world too big for stats every frame puts them off");
+    plan = planBatch(frameAt(64, FIRST_BATCH, 0.0, 0), costs);
+    expect(plan.steps == 0 && plan.collectStats,
+           "due stats run alone when nothing fits beside them");
+    plan = planBatch(frameAt(64, FIRST_BATCH, 4.0, 0), costs);
+    expect(plan.runs(), "even on a slow frame, the first batch makes progress");
+    plan = planBatch(frameAt(64, 1, 5.0, 0), costs); // 8 - 5 - 0.5 < 3.5
+    expect(!plan.runs(), "but a later batch waits for the next frame");
+
+    costs = PassCosts{};
     costs.stepMs = 0.01;
-    expect(planBatch(100, LATER_BATCH, 0.0, BUDGET_MS, RESERVE_MS, costs, BATCH_LIMIT) ==
-               BATCH_LIMIT,
+    plan = planBatch(frameAt(100, LATER_BATCH, 0.0), costs);
+    expect(plan.steps == 8 && plan.collectStats && !plan.lastOfFrame,
            "cheap steps are capped at a full batch");
+}
+
+void checkFrameBudget() {
+    constexpr double SIXTY_HZ_MS = 1000.0 / 60.0;
+    constexpr double SETTING_MS = 8.0;
+    expect(frameBudget(SIXTY_HZ_MS, 2.0, SETTING_MS) == SETTING_MS,
+           "a cheap frame leaves the whole setting to the simulation");
+    // 16.7 ms less 15% headroom is 14.2 ms; drawing takes 10 of it.
+    expect(std::abs(frameBudget(SIXTY_HZ_MS, 10.0, SETTING_MS) - 4.17) < 0.01,
+           "drawing's share of the frame comes off the budget");
+    expect(frameBudget(SIXTY_HZ_MS, 30.0, SETTING_MS) == MIN_FRAME_BUDGET_MS,
+           "even when drawing alone fills the frame, the simulation keeps a sliver");
+    expect(frameBudget(SIXTY_HZ_MS, 2.0, 0.5) == 0.5, "never more than the setting");
 }
 
 void checkRateMeter() {
@@ -93,6 +146,7 @@ void checkSlowdownIndicator() {
 int main() {
     checkSpeed();
     checkPlanning();
+    checkFrameBudget();
     checkRateMeter();
     checkSlowdownIndicator();
     return testing::finish("tick governor");

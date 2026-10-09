@@ -11,6 +11,7 @@
 // buffers, but the game has a few dozen, mostly large ones, and it keeps
 // ownership obvious. Host-visible buffers stay mapped for their whole life.
 
+#include <atomic>
 #include <cstdint>
 #include <initializer_list>
 #include <optional>
@@ -57,7 +58,8 @@ constexpr VkBufferUsageFlags STORAGE_COPY = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
 } // namespace usage
 
 // Creates and frees GpuBuffers on one device, and keeps a running total of the
-// memory they use.
+// memory they use. Two threads may create and free buffers at once (the chunk
+// pool is allocated ahead of time on a worker thread).
 class BufferAllocator {
 public:
     void init(VkDevice device, const VkPhysicalDeviceMemoryProperties& memoryProperties);
@@ -79,12 +81,12 @@ public:
                                            uint32_t skip = 0) const;
 
     // Bytes currently allocated through this allocator (shown by F3 and --bench).
-    VkDeviceSize bytesAllocated() const { return bytesAllocated_; }
+    VkDeviceSize bytesAllocated() const { return bytesAllocated_.load(); }
 
 private:
     VkDevice device_ = VK_NULL_HANDLE;
     VkPhysicalDeviceMemoryProperties memoryProperties_{};
-    VkDeviceSize bytesAllocated_ = 0;
+    std::atomic<VkDeviceSize> bytesAllocated_ = 0;
 };
 
 } // namespace gol3d

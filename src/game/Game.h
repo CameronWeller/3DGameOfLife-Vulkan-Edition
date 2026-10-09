@@ -55,7 +55,9 @@ namespace gol3d {
 struct BatchOptions {
     bool animate = false;       // flag births and keep the last deaths, to animate them
     bool writeBlockList = true; // rebuild the block list; batches nobody will see skip it
-    bool collectStats = true;   // chunk stats and bookkeeping; forced on when stepping
+    // Chunk stats and bookkeeping. Steps may skip them for up to MAX_BATCH
+    // generations in a row; runBatch collects them first when that runs out.
+    bool collectStats = true;
 };
 
 class Game {
@@ -174,6 +176,9 @@ private:
     // Runs `steps` generations (at most MAX_BATCH) in one GPU submission, then
     // updates the chunk set and rebuilds the block list as `options` say.
     void runBatch(uint32_t steps, BatchOptions options = {});
+    BatchRequest buildRequest(uint32_t steps, BatchOptions options);
+    void noteBlockListBuilt(bool animated);
+    void collectChunkStats(uint32_t steps);
     void rebuild(Rebuild reason);
     // Runs `generations` as fast as possible, in full batches (scripts, --steps).
     void advanceGenerations(uint64_t generations);
@@ -181,7 +186,15 @@ private:
     uint64_t generationsDue(float deltaTime);
     uint64_t runDueGenerations(uint64_t due, bool flatOut, double budgetMs,
                                std::chrono::steady_clock::time_point start);
+    uint64_t runSlicedGeneration(double budgetMs, std::chrono::steady_clock::time_point start);
+    void submitSimulation(const AsyncRequest& request);
+    uint64_t settleSlicing();
+    void cancelSlicing();
     void settleDebt(uint64_t due, uint64_t done, bool flatOut, double now);
+    double displayFrameMs() const;
+    void waitForDrawing();
+    // Time since `start` spent simulating, not waiting in waitForDrawing().
+    double simulationMsSince(std::chrono::steady_clock::time_point start) const;
     void pauseAtChunkLimit();
     // One generation (N), animated at the speed of a slow tick.
     void stepOnce();
@@ -300,7 +313,8 @@ private:
     SimulationPasses passes_;
     size_t ruleIndex_ = 0;
     uint64_t generation_ = 0;
-    uint64_t population_ = 0;
+    uint64_t population_ = 0; // as of the last stats pass
+    uint32_t generationsSinceStats_ = 0;
     uint64_t visibleBlocks_ = 0; // in the last block list, before the draw cap
     uint64_t drawnBlocks_ = 0;
     bool refreshPending_ = false; // edits or settings changes need a new block list
@@ -314,7 +328,8 @@ private:
     glm::vec3 lastBuildEye_{0.0f};
     glm::vec3 lastBuildForward_{1.0f, 0.0f, 0.0f};
     ChangeAnimation animation_;
-    std::vector<float> populationHistory_; // one entry per step, for the HUD graph
+    std::vector<float> populationHistory_; // one entry per stats pass, for the HUD graph
+    uint64_t lastRecordedGeneration_ = 0;  // the generation of its last entry
     double benchCpuMs_ = 0.0;              // time in chunk bookkeeping (--bench)
 
     // Simulation speed and the tick governor.
@@ -327,6 +342,23 @@ private:
     RateMeter rateMeter_;           // the speed actually reached, for the HUD
     SlowdownIndicator slowdown_;    // whether the governor recently fell behind the target
     float lastSimMs_ = 0.0f;        // wall time the last frame spent simulating
+    float lastBudgetMs_ = 0.0f;     // the budget it had (see frameBudget)
+    double drawingWaitMs_ = 0.0;    // this frame's waits for the last frame's drawing
+    // A generation too big for one frame, stepped a slice per frame (see
+    // runSlicedGeneration). Stats and Finishing wait for settleSlicing().
+    enum class SlicePhase {
+        Idle,
+        Stats,    // chunk stats submitted
+        Stepping, // slices of the next generation submitted
+        Finishing // the last slice and the block list submitted
+    };
+    struct SlicedGeneration {
+        SlicePhase phase = SlicePhase::Idle;
+        uint64_t worldVersion = 0; // ChunkWorld::version() when it started
+        size_t ruleIndex = 0;      // the rule it started with
+        uint32_t chunksDone = 0;   // active-list entries stepped so far
+    };
+    SlicedGeneration sliced_;
 
     // The player and their tools.
     Player player_;

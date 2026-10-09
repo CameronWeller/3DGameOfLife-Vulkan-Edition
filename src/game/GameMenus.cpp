@@ -516,9 +516,9 @@ void Game::drawSimulationOptions() {
     ImGui::SliderInt("##budget", &settings_.simBudget, Settings::MIN_SIM_BUDGET,
                      Settings::MAX_SIM_BUDGET, "%d ms");
     const std::string budgetHint =
-        "Most time each frame may spend simulating. When a world needs more, the "
-        "simulation slows down instead of the frame rate. Fast-forward (J) and max "
-        "speed use at least " +
+        "Most time each frame may spend simulating; less when drawing a big world "
+        "needs the rest of the frame. When a world needs more, the simulation slows "
+        "down instead of the frame rate. Fast-forward (J) and max speed use at least " +
         std::to_string(FLAT_OUT_MIN_BUDGET_MS) + " ms.";
     ui::hoverHint(budgetHint.c_str());
 }

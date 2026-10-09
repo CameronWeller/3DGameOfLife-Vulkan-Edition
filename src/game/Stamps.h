@@ -3,7 +3,9 @@
 // Hotbar stamps: the shapes a click places. A stamp is placed against the face
 // the crosshair points at and grows away from it, so it never overlaps the
 // targeted block. Q/E rotate it around that face's normal and Z/C tilt it
-// around the world x axis.
+// around the world x axis. Under the 2D rules (Conway 2D and Conway Crossed) the
+// glider and the soups are 2D patterns that stand upright: always in an x-y
+// layer for Conway 2D, flat on the wall (or across the view) for Conway Crossed.
 
 #include <array>
 #include <cstdint>
@@ -38,14 +40,17 @@ inline const std::array<StampInfo, STAMP_COUNT>& stampInfos() {
         {"Cell", "One live cell.", 0x0001000u},
         {"Block 2x2x2", "A solid 2x2x2 cube.", 0x00739C0u},
         {"Plus", "A 3D cross of seven cells.", 0x0023880u},
-        {"Soup 8^3", "An 8x8x8 random soup at the rule's density.", 0x0051120u},
-        {"Soup 16^3", "A 16x16x16 random soup at the rule's density.", 0x165E9B6u},
+        {"Soup 8^3", "An 8x8x8 random soup at the rule's density (8x8 under the 2D rules).",
+         0x0051120u},
+        {"Soup 16^3", "A 16x16x16 random soup at the rule's density (16x16 under the 2D rules).",
+         0x165E9B6u},
         {"Wall 5x5", "A solid 5x5 wall. On the ground it stands upright.", 0x1FFFFFFu},
         {"Pillar 8", "A line of 8 cells growing away from the surface.", 0x0421084u},
         {"Rule seed", "The current rule's own starting soup.", 0x1555555u},
         {"Glider",
          "Bays' glider (Life 4555's under that rule, Life 5766's otherwise). It lies flat on the "
-         "ground and stands up on a wall; Q/E pick its heading, Z/C tilt it to climb or dive.",
+         "ground and stands up on a wall; Q/E pick its heading, Z/C tilt it to climb or dive. "
+         "Under Conway 2D and Conway Crossed it is Conway's glider, standing upright.",
          0x00209C0u},
     }};
     return INFOS;
